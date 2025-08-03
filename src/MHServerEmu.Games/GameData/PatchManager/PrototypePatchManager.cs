@@ -16,11 +16,9 @@ namespace MHServerEmu.Games.GameData.PatchManager
     {
         private static readonly Logger Logger = LogManager.CreateLogger();
 
-        private static readonly Dictionary<PrototypeId, List<PrototypePatchEntry>> _patchDict = new();
-        private static readonly Dictionary<PrototypeId, Prototype> _deferredPrototypes = new();
-        private static readonly HashSet<PrototypeId> _postProcessedPrototypes = new();
-        private static readonly Dictionary<Prototype, string> _instancePathMap = new();
-
+        private readonly Stack<PrototypeId> _protoStack = new();
+        private readonly Dictionary<PrototypeId, List<PrototypePatchEntry>> _patchDict = new();
+        private readonly Dictionary<Prototype, string> _pathDict = new();
         private bool _initialized = false;
 
         public static PrototypePatchManager Instance { get; } = new();
@@ -36,9 +34,8 @@ namespace MHServerEmu.Games.GameData.PatchManager
         private bool LoadPatchDataFromDisk()
         {
             _patchDict.Clear();
-            _deferredPrototypes.Clear();
-            _postProcessedPrototypes.Clear();
-            _instancePathMap.Clear();
+            _pathDict.Clear();
+            _protoStack.Clear();
 
             string patchDirectory = Path.Combine(FileHelper.DataDirectory, "Game", "Patches");
             if (!Directory.Exists(patchDirectory))
@@ -70,7 +67,7 @@ namespace MHServerEmu.Games.GameData.PatchManager
                     Logger.ErrorException(ex, $"Error loading patch file {fileName}");
                 }
             }
-            return Logger.InfoReturn(true, $"Loaded {count} patches");
+            return Logger.InfoReturn(true, $"Loaded {count} patch entries from disk.");
         }
 
         private void AddPatchValue(PrototypeId prototypeId, in PrototypePatchEntry value)
@@ -109,153 +106,109 @@ namespace MHServerEmu.Games.GameData.PatchManager
         public bool PreCheck(PrototypeId protoRef)
         {
             if (!_initialized) return false;
-            return _patchDict.ContainsKey(protoRef);
+
+            if (protoRef != PrototypeId.Invalid && _patchDict.TryGetValue(protoRef, out var list))
+            {
+                if (list.Any(e => !e.Patched))
+                {
+                    _protoStack.Push(protoRef);
+                    return true;
+                }
+            }
+            return false;
         }
 
         public void PostOverride(Prototype prototype)
         {
-            if (!_initialized || prototype == null) return;
+            if (_protoStack.Count == 0) return;
 
-            var currentId = prototype.DataRef;
-            _postProcessedPrototypes.Add(currentId);
+            string currentPath = string.Empty;
+            if (prototype.DataRef == PrototypeId.Invalid && !_pathDict.TryGetValue(prototype, out currentPath)) return;
 
-            if (_patchDict.ContainsKey(currentId))
+            PrototypeId patchProtoRef = _protoStack.Peek();
+            if (prototype.DataRef != PrototypeId.Invalid)
             {
-                _deferredPrototypes[currentId] = prototype;
-            }
-
-            ProcessDeferredQueue();
-        }
-
-        private void ProcessDeferredQueue()
-        {
-            bool progressMade;
-            do
-            {
-                progressMade = false;
-                var readyToPatch = _deferredPrototypes.Keys
-                    .Where(id => IsReadyToPatch(_deferredPrototypes[id]))
-                    .ToList();
-
-                foreach (var idToPatch in readyToPatch)
+                if (prototype.DataRef != patchProtoRef) return;
+                if (_patchDict.ContainsKey(prototype.DataRef))
                 {
-                    var protoToPatch = _deferredPrototypes[idToPatch];
-
-                    ForceUpdateFromParent(protoToPatch);
-
-                    if (_patchDict.TryGetValue(idToPatch, out var entries))
-                    {
-                        foreach (var entry in entries.Where(e => !e.Patched).OrderBy(e => e.Path.Count(c => c == '.')))
-                        {
-                            try
-                            {
-                                ApplyPatch(protoToPatch, entry);
-                            }
-                            catch (Exception ex)
-                            {
-                                Logger.ErrorException(ex, $"Failed to apply patch [{entry.Prototype}] -> [{entry.Path}]");
-                            }
-                        }
-                    }
-
-                    _deferredPrototypes.Remove(idToPatch);
-                    progressMade = true;
-                }
-            } while (progressMade);
-        }
-
-        private bool IsReadyToPatch(Prototype proto)
-        {
-            var parentId = proto.ParentDataRef;
-            return parentId == PrototypeId.Invalid || _postProcessedPrototypes.Contains(parentId);
-        }
-
-        private void ForceUpdateFromParent(Prototype child)
-        {
-            if (child.ParentDataRef == PrototypeId.Invalid) return;
-            var parent = GameDatabase.GetPrototype<Prototype>(child.ParentDataRef);
-            if (parent == null) return;
-
-            var parentProperties = parent.GetType().GetProperties(BindingFlags.Public | BindingFlags.Instance);
-            var childType = child.GetType();
-
-            foreach (var parentProp in parentProperties)
-            {
-                if (parentProp.CanRead)
-                {
-                    var childProp = childType.GetProperty(parentProp.Name, BindingFlags.Public | BindingFlags.Instance);
-                    if (childProp != null && childProp.CanWrite && childProp.PropertyType == parentProp.PropertyType && childProp.DeclaringType.IsAssignableFrom(parent.GetType()))
-                    {
-                        childProp.SetValue(child, parentProp.GetValue(parent));
-                    }
+                    patchProtoRef = _protoStack.Pop();
                 }
             }
-        }
 
-        private void ApplyPatch(object currentObject, PrototypePatchEntry entry)
-        {
-            string[] pathParts = entry.Path.Split('.');
-            for (int i = 0; i < pathParts.Length - 1; i++)
+            if (!_patchDict.TryGetValue(patchProtoRef, out var list)) return;
+
+            foreach (var entry in list)
             {
-                currentObject = GetObjectFromPathPart(currentObject, pathParts[i]);
-                if (currentObject == null) return;
+                if (!entry.Patched)
+                {
+                    CheckAndUpdate(entry, prototype, currentPath);
+                }
             }
-            UpdateValue(currentObject, pathParts[^1], entry);
-        }
 
-        private object GetObjectFromPathPart(object source, string part)
-        {
-            if (source == null) return null;
-
-            if (part.EndsWith("]"))
+            if (_protoStack.Count == 0)
             {
-                int bracketIndex = part.IndexOf('[');
-                string propName = part.Substring(0, bracketIndex);
-                int index = int.Parse(part.Substring(bracketIndex + 1, part.Length - bracketIndex - 2));
-                var propInfo = source.GetType().GetProperty(propName);
-                if (propInfo?.GetValue(source) is not Array array || index >= array.Length) return null;
-                return array.GetValue(index);
-            }
-            else
-            {
-                return source.GetType().GetProperty(part)?.GetValue(source);
+                _pathDict.Clear();
             }
         }
 
-        private void UpdateValue(object targetObject, string fieldName, PrototypePatchEntry entry)
+
+
+        private bool CheckAndUpdate(PrototypePatchEntry entry, Prototype prototype, string currentPath)
         {
-            if (targetObject == null) return;
+            if (currentPath.StartsWith('.')) currentPath = currentPath.Substring(1);
+            if (entry.СlearPath != currentPath) return false;
 
-            var propInfo = targetObject.GetType().GetProperty(entry.FieldName);
-            if (propInfo == null) return;
+            var fieldInfo = prototype.GetType().GetProperty(entry.FieldName);
+            if (fieldInfo == null) return false;
 
-            if (entry.ArrayValue)
+            UpdateValue(prototype, fieldInfo, entry);
+            return true;
+        }
+
+        private void UpdateValue(object targetObject, System.Reflection.PropertyInfo fieldInfo, PrototypePatchEntry entry)
+        {
+            try
             {
-                if (entry.ArrayIndex == -1) InsertValue(targetObject, propInfo, entry.Value);
-                else SetIndexValue(targetObject, propInfo, entry.ArrayIndex, entry.Value);
+                if (entry.ArrayValue)
+                {
+                    if (entry.ArrayIndex != -1)
+                        SetIndexValue(targetObject, fieldInfo, entry.ArrayIndex, entry.Value);
+                    else
+                        InsertValue(targetObject, fieldInfo, entry.Value);
+                }
+                else
+                {
+                    fieldInfo.SetValue(targetObject, ConvertValue(entry.Value.GetValue(), fieldInfo.PropertyType));
+                }
+                entry.Patched = true;
+                Logger.Info($"Successfully applied patch: {entry.Prototype} -> {entry.FieldName}");
             }
-            else
+            catch (Exception ex)
             {
-                propInfo.SetValue(targetObject, ConvertValue(entry.Value.GetValue(), propInfo.PropertyType));
+                Logger.ErrorException(ex, $"Failed UpdateValue: [{entry.Prototype}] [{entry.Path}]");
             }
-            entry.Patched = true;
-            Logger.Trace($"Patch Applied: {entry.Prototype} -> {entry.Path} = {entry.Value.GetValue()}");
         }
 
         public void SetPath(Prototype parent, Prototype child, string fieldName)
         {
-            if (_instancePathMap.TryGetValue(parent, out var parentPath))
+            if (child == null) return;
+            _pathDict.TryGetValue(parent, out var parentPath);
+            if (parent.DataRef != PrototypeId.Invalid && _patchDict.ContainsKey(parent.DataRef))
             {
-                _instancePathMap[child] = string.IsNullOrEmpty(parentPath) ? fieldName : $"{parentPath}.{fieldName}";
+                parentPath = string.Empty;
             }
+            _pathDict[child] = string.IsNullOrEmpty(parentPath) ? fieldName : $"{parentPath}.{fieldName}";
         }
 
         public void SetPathIndex(Prototype parent, Prototype child, string fieldName, int index)
         {
-            if (_instancePathMap.TryGetValue(parent, out var parentPath))
+            if (child == null) return;
+            _pathDict.TryGetValue(parent, out var parentPath);
+            if (parent.DataRef != PrototypeId.Invalid && _patchDict.ContainsKey(parent.DataRef))
             {
-                _instancePathMap[child] = string.IsNullOrEmpty(parentPath) ? $"{fieldName}[{index}]" : $"{parentPath}.{fieldName}[{index}]";
+                parentPath = string.Empty;
             }
+            _pathDict[child] = string.IsNullOrEmpty(parentPath) ? $"{fieldName}[{index}]" : $"{parentPath}.{fieldName}[{index}]";
         }
 
         private static void SetIndexValue(object target, System.Reflection.PropertyInfo fieldInfo, int index, ValueBase value)
@@ -318,8 +271,62 @@ namespace MHServerEmu.Games.GameData.PatchManager
 
         public static object ConvertValue(object rawValue, Type targetType)
         {
-            if (rawValue == null || (rawValue is JsonElement jsonVal && jsonVal.ValueKind == JsonValueKind.Null)) return null;
+            if (rawValue == null || (rawValue is JsonElement jsonValCheck && jsonValCheck.ValueKind == JsonValueKind.Null)) return null;
             if (targetType.IsInstanceOfType(rawValue)) return rawValue;
+
+            if (rawValue is JsonElement jsonVal)
+            {
+                if (jsonVal.ValueKind == JsonValueKind.Array && targetType.IsArray)
+                {
+                    Type elementType = targetType.GetElementType();
+                    var jsonArray = jsonVal.EnumerateArray().ToArray();
+                    Array newArray = Array.CreateInstance(elementType, jsonArray.Length);
+                    for (int i = 0; i < jsonArray.Length; i++)
+                    {
+                        newArray.SetValue(ConvertValue(jsonArray[i], elementType), i);
+                    }
+                    return newArray;
+                }
+
+                if (jsonVal.ValueKind == JsonValueKind.Object && typeof(Prototype).IsAssignableFrom(targetType))
+                {
+                    return PatchEntryConverter.ParseJsonPrototype(jsonVal);
+                }
+
+                try
+                {
+                    if (targetType == typeof(string)) return jsonVal.GetString();
+                    if (targetType == typeof(int)) return jsonVal.GetInt32();
+                    if (targetType == typeof(long)) return jsonVal.GetInt64();
+                    if (targetType == typeof(ulong)) return jsonVal.GetUInt64();
+                    if (targetType == typeof(float)) return jsonVal.GetSingle();
+                    if (targetType == typeof(double)) return jsonVal.GetDouble();
+                    if (targetType == typeof(bool)) return jsonVal.GetBoolean();
+                    if (targetType == typeof(PrototypeId)) return (PrototypeId)jsonVal.GetUInt64();
+                    if (targetType == typeof(LocaleStringId)) return (LocaleStringId)jsonVal.GetUInt64();
+                    if (targetType == typeof(AssetId)) return (AssetId)jsonVal.GetUInt64();
+                    if (targetType == typeof(PrototypeGuid)) return (PrototypeGuid)jsonVal.GetUInt64();
+                    if (targetType.IsEnum)
+                    {
+                        return jsonVal.ValueKind == JsonValueKind.String
+                            ? Enum.Parse(targetType, jsonVal.GetString(), true)
+                            : Enum.ToObject(targetType, jsonVal.GetInt32());
+                    }
+                }
+                catch (Exception) { /* Fall through */ }
+            }
+
+            if (rawValue is JsonElement[] jsonElementArray && targetType.IsArray)
+            {
+                Type elementType = targetType.GetElementType();
+                Array newArray = Array.CreateInstance(elementType, jsonElementArray.Length);
+                for (int i = 0; i < jsonElementArray.Length; i++)
+                {
+                    newArray.SetValue(ConvertValue(jsonElementArray[i], elementType), i);
+                }
+                return newArray;
+            }
+
             if (targetType == typeof(AssetId) && rawValue is string assetString)
             {
                 int typeNameStart = assetString.LastIndexOf('(');
@@ -336,13 +343,14 @@ namespace MHServerEmu.Games.GameData.PatchManager
                     }
                 }
             }
-            if (typeof(Prototype).IsAssignableFrom(targetType) && rawValue is JsonElement prototypeJson)
-                return PatchEntryConverter.ParseJsonPrototype(prototypeJson);
+
             if (targetType.IsEnum && rawValue is string enumString)
                 return Enum.Parse(targetType, enumString, true);
+
             TypeConverter converter = TypeDescriptor.GetConverter(targetType);
             if (converter != null && converter.CanConvertFrom(rawValue.GetType()))
                 return converter.ConvertFrom(rawValue);
+
             return Convert.ChangeType(rawValue, targetType);
         }
     }
