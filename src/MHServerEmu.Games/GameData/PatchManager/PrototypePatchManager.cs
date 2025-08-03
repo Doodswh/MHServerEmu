@@ -159,7 +159,11 @@ namespace MHServerEmu.Games.GameData.PatchManager
             if (entry.СlearPath != currentPath) return false;
 
             var fieldInfo = prototype.GetType().GetProperty(entry.FieldName);
-            if (fieldInfo == null) return false;
+            if (fieldInfo == null)
+            {
+                Logger.Warn($"CheckAndUpdate: {entry.FieldName} not found for {entry.Prototype}");
+                return false;
+            }
 
             UpdateValue(prototype, fieldInfo, entry);
             return true;
