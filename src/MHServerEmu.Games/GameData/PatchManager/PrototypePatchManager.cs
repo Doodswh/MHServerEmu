@@ -137,6 +137,23 @@ namespace MHServerEmu.Games.GameData.PatchManager
 
             if (!_patchDict.TryGetValue(patchProtoRef, out var list)) return;
 
+            // Check if all patches for this prototype have already been applied
+            bool hasUnpatchedEntries = false;
+            foreach (var entry in list)
+            {
+                if (!entry.Patched)
+                {
+                    hasUnpatchedEntries = true;
+                    break;
+                }
+            }
+
+            if (!hasUnpatchedEntries)
+            {
+                Logger.Debug($"All patches already applied for {GameDatabase.GetPrototypeName(patchProtoRef)}");
+                return;
+            }
+
             foreach (var entry in list)
             {
                 if (!entry.Patched)
@@ -159,8 +176,13 @@ namespace MHServerEmu.Games.GameData.PatchManager
             if (entry.СlearPath != currentPath) return false;
 
             var fieldInfo = prototype.GetType().GetProperty(entry.FieldName);
-            if (fieldInfo == null) return false;
+            if (fieldInfo == null)
+            {
+                Logger.Warn($"Field '{entry.FieldName}' not found on prototype '{prototype.GetType().Name}' for patch '{entry.Prototype}'");
+                return false;
+            }
 
+            Logger.Debug($"Applying patch: {entry.Prototype} -> {entry.FieldName} (Path: '{currentPath}', ArrayValue: {entry.ArrayValue}, ArrayIndex: {entry.ArrayIndex})");
             UpdateValue(prototype, fieldInfo, entry);
             return true;
         }
@@ -169,8 +191,16 @@ namespace MHServerEmu.Games.GameData.PatchManager
         {
             try
             {
+                // Check if this entry has already been patched
+                if (entry.Patched)
+                {
+                    Logger.Debug($"Skipping already patched entry: {entry.Prototype} -> {entry.FieldName}");
+                    return;
+                }
+
                 if (entry.ArrayValue)
                 {
+                    Logger.Debug($"Processing array patch - Value: {entry.Value.GetValue()}, ArrayIndex: {entry.ArrayIndex}");
                     if (entry.ArrayIndex != -1)
                         SetIndexValue(targetObject, fieldInfo, entry.ArrayIndex, entry.Value);
                     else
@@ -178,7 +208,9 @@ namespace MHServerEmu.Games.GameData.PatchManager
                 }
                 else
                 {
-                    fieldInfo.SetValue(targetObject, ConvertValue(entry.Value.GetValue(), fieldInfo.PropertyType));
+                    var convertedValue = ConvertValue(entry.Value.GetValue(), fieldInfo.PropertyType);
+                    Logger.Debug($"Setting field value: {convertedValue}");
+                    fieldInfo.SetValue(targetObject, convertedValue);
                 }
                 entry.Patched = true;
                 Logger.Info($"Successfully applied patch: {entry.Prototype} -> {entry.FieldName}");
@@ -228,11 +260,16 @@ namespace MHServerEmu.Games.GameData.PatchManager
             var valueEntry = value.GetValue();
             if (elementType == null || !IsTypeCompatible(elementType, valueEntry, value.ValueType))
                 throw new InvalidOperationException($"Type {value.ValueType} is not assignable for {elementType.Name}.");
+
             var currentArray = (Array)fieldInfo.GetValue(target);
             var newArray = Array.CreateInstance(elementType, (currentArray?.Length ?? 0) + 1);
             if (currentArray != null) Array.Copy(currentArray, newArray, currentArray.Length);
-            newArray.SetValue(GetElementValue(valueEntry, elementType), newArray.Length - 1);
+
+            var convertedValue = GetElementValue(valueEntry, elementType);
+            newArray.SetValue(convertedValue, newArray.Length - 1);
             fieldInfo.SetValue(target, newArray);
+
+            Logger.Debug($"Inserted array value: {convertedValue} into {fieldInfo.Name}. New array length: {newArray.Length}");
         }
 
         private static bool IsTypeCompatible(Type baseType, object rawValue, ValueType valueType)
