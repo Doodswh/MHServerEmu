@@ -172,6 +172,13 @@ namespace MHServerEmu.Games.GameData.PatchManager
 
             var referenceType = (PrototypeId)parentDataRefElement.GetUInt64();
             Type classType = GameDatabase.DataDirectory.GetPrototypeClassType(referenceType);
+
+            if (classType == null)
+            {
+                Logger.Warn($"Could not find class type for prototype ID '{referenceType}'.");
+                return null; // <-- This was the missing return path
+            }
+
             var prototype = GameDatabase.PrototypeClassManager.AllocatePrototype(classType);
 
             CalligraphySerializer.CopyPrototypeDataRefFields(prototype, referenceType);
@@ -190,8 +197,36 @@ namespace MHServerEmu.Games.GameData.PatchManager
 
                 try
                 {
-                    object element = ParseJsonElement(property.Value, fieldInfo.PropertyType);
-                    object convertedValue = PrototypePatchManager.ConvertValue(element, fieldInfo.PropertyType);
+                    object convertedValue;
+
+
+                    if (fieldInfo.PropertyType == typeof(MHServerEmu.Games.Properties.PropertyId) &&
+     property.Value.ValueKind == JsonValueKind.Object &&
+     property.Value.TryGetProperty("ParentDataRef", out var idElement))
+                    {
+                        var propId = (PrototypeId)idElement.GetUInt64();
+                        var propEnum = GameDatabase.PropertyInfoTable.GetPropertyEnumFromPrototype(propId);
+
+                        if (propEnum != MHServerEmu.Games.Properties.PropertyEnum.Invalid)
+                        {
+                            convertedValue = new MHServerEmu.Games.Properties.PropertyId(propEnum);
+                        }
+                        else
+                        {
+                            Logger.Warn($"Could not find a valid PropertyEnum for PrototypeId '{propId}'.");
+                            convertedValue = null;
+                        }
+                    }
+                    else if (typeof(Prototype).IsAssignableFrom(fieldInfo.PropertyType) && property.Value.ValueKind == JsonValueKind.Object)
+                    {
+                        convertedValue = ParseJsonPrototype(property.Value);
+                              }
+                    else
+                    {
+                        object element = ParseJsonElement(property.Value, fieldInfo.PropertyType);
+                        convertedValue = PrototypePatchManager.ConvertValue(element, fieldInfo.PropertyType);
+                    }
+
                     fieldInfo.SetValue(prototype, convertedValue);
                 }
                 catch (Exception ex)

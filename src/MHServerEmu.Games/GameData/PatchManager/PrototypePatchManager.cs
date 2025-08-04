@@ -234,16 +234,41 @@ namespace MHServerEmu.Games.GameData.PatchManager
 
         private static void InsertValue(object target, System.Reflection.PropertyInfo fieldInfo, ValueBase value)
         {
-            if (!fieldInfo.PropertyType.IsArray) throw new InvalidOperationException($"Field {fieldInfo.Name} is not an array.");
+            if (!fieldInfo.PropertyType.IsArray)
+                throw new InvalidOperationException($"Field {fieldInfo.Name} is not an array.");
+
             Type elementType = fieldInfo.PropertyType.GetElementType();
+            if (elementType == null)
+                throw new InvalidOperationException($"Could not determine element type for array {fieldInfo.Name}.");
+
             var valueEntry = value.GetValue();
-            if (elementType == null || !IsTypeCompatible(elementType, valueEntry, value.ValueType))
-                throw new InvalidOperationException($"Type {value.ValueType} is not assignable for {elementType.Name}.");
             var currentArray = (Array)fieldInfo.GetValue(target);
-            var newArray = Array.CreateInstance(elementType, (currentArray?.Length ?? 0) + 1);
-            if (currentArray != null) Array.Copy(currentArray, newArray, currentArray.Length);
-            newArray.SetValue(GetElementValue(valueEntry, elementType), newArray.Length - 1);
-            fieldInfo.SetValue(target, newArray);
+            var valuesToAdd = valueEntry as Array;
+
+            if (valuesToAdd != null)
+            {
+                // This is the new logic for inserting an array of items
+                var newArray = Array.CreateInstance(elementType, (currentArray?.Length ?? 0) + valuesToAdd.Length);
+                if (currentArray != null)
+                    Array.Copy(currentArray, newArray, currentArray.Length);
+
+                for (int i = 0; i < valuesToAdd.Length; i++)
+                {
+                    object element = GetElementValue(valuesToAdd.GetValue(i), elementType);
+                    newArray.SetValue(element, (currentArray?.Length ?? 0) + i);
+                }
+                fieldInfo.SetValue(target, newArray);
+            }
+            else
+            {
+                // This is the original logic for inserting a single item
+                var newArray = Array.CreateInstance(elementType, (currentArray?.Length ?? 0) + 1);
+                if (currentArray != null)
+                    Array.Copy(currentArray, newArray, currentArray.Length);
+
+                newArray.SetValue(GetElementValue(valueEntry, elementType), newArray.Length - 1);
+                fieldInfo.SetValue(target, newArray);
+            }
         }
 
         private static bool IsTypeCompatible(Type baseType, object rawValue, ValueType valueType)
@@ -292,7 +317,7 @@ namespace MHServerEmu.Games.GameData.PatchManager
                 {
                     if (arrayMatch.Success)
                     {
-                        
+
                         var propertyName = arrayMatch.Groups[1].Value;
                         var index = int.Parse(arrayMatch.Groups[2].Value);
 
@@ -306,7 +331,7 @@ namespace MHServerEmu.Games.GameData.PatchManager
                     }
                     else
                     {
-                        
+
                         var propInfo = current.GetType().GetProperty(part);
                         if (propInfo == null) return null;
                         current = propInfo.GetValue(current);
@@ -334,6 +359,7 @@ namespace MHServerEmu.Games.GameData.PatchManager
 
             if (rawValue is JsonElement jsonVal)
             {
+                // Handle arrays
                 if (jsonVal.ValueKind == JsonValueKind.Array && targetType.IsArray)
                 {
                     Type elementType = targetType.GetElementType();
@@ -346,11 +372,14 @@ namespace MHServerEmu.Games.GameData.PatchManager
                     return newArray;
                 }
 
-                if (jsonVal.ValueKind == JsonValueKind.Object && typeof(Prototype).IsAssignableFrom(targetType))
+                
+                if (jsonVal.ValueKind == JsonValueKind.Object && jsonVal.TryGetProperty("ParentDataRef", out _))
                 {
                     return PatchEntryConverter.ParseJsonPrototype(jsonVal);
                 }
+                
 
+                // Handle simple primitive types from a JsonElement
                 try
                 {
                     if (targetType == typeof(string)) return jsonVal.GetString();
@@ -371,9 +400,10 @@ namespace MHServerEmu.Games.GameData.PatchManager
                             : Enum.ToObject(targetType, jsonVal.GetInt32());
                     }
                 }
-                catch (Exception) { /* Fall through */ }
+                catch (Exception) { /* Fall through to final conversion attempts */ }
             }
 
+            // Fallback for other conversions
             if (rawValue is JsonElement[] jsonElementArray && targetType.IsArray)
             {
                 Type elementType = targetType.GetElementType();
