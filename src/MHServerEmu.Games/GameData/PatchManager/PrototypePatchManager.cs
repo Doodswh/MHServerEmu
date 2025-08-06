@@ -357,6 +357,13 @@ namespace MHServerEmu.Games.GameData.PatchManager
             if (rawValue == null || (rawValue is JsonElement jsonValCheck && jsonValCheck.ValueKind == JsonValueKind.Null)) return null;
             if (targetType.IsInstanceOfType(rawValue)) return rawValue;
 
+            // Handle PropertyId conversion from PrototypeId
+            if (targetType == typeof(PropertyId) && rawValue is PrototypeId prototypeId)
+            {
+                Logger.Warn($"Cannot convert PrototypeId {prototypeId} to PropertyId - PropertyId requires PropertyEnum, not PrototypeId");
+                return null;
+            }
+
             if (rawValue is JsonElement jsonVal)
             {
                 // Handle arrays
@@ -377,7 +384,34 @@ namespace MHServerEmu.Games.GameData.PatchManager
                 {
                     return PatchEntryConverter.ParseJsonPrototype(jsonVal);
                 }
-                
+                // Handle PropertyId from JSON object
+                if (targetType == typeof(PropertyId) && jsonVal.ValueKind == JsonValueKind.Object)
+                {
+                    try
+                    {
+                        if (jsonVal.TryGetProperty("PropertyEnum", out var propEnumElement))
+                        {
+                            var propertyEnum = (PropertyEnum)Enum.Parse(typeof(PropertyEnum), propEnumElement.GetString(), true);
+
+                            // Check for parameters
+                            PropertyParam[] parameters = new PropertyParam[Property.MaxParamCount];
+                            for (int i = 0; i < Property.MaxParamCount; i++)
+                            {
+                                if (jsonVal.TryGetProperty($"Param{i}", out var paramElement))
+                                {
+                                    parameters[i] = (PropertyParam)paramElement.GetUInt64();
+                                }
+                            }
+
+                            return new PropertyId(propertyEnum, parameters[0], parameters[1], parameters[2], parameters[3]);
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        Logger.Warn($"Failed to parse PropertyId from JSON: {ex.Message}");
+                        return null;
+                    }
+                }
 
                 // Handle simple primitive types from a JsonElement
                 try
