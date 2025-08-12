@@ -52,18 +52,18 @@ namespace MHServerEmu.Gifts
 
         public void ReceiveServiceMessage<T>(in T message) where T : struct, IGameServiceMessage
         {
-            if (message is GameServiceProtocol.PlayerRequestsGifts request)
+            if (message is ServiceMessage.PlayerRequestsGifts request)
             {
                 HandleGiftRequest(in request);
             }
         }
 
-        private void HandleGiftRequest(in GameServiceProtocol.PlayerRequestsGifts request)
+        private void HandleGiftRequest(in ServiceMessage.PlayerRequestsGifts request)
         {
             string playerName = request.PlayerName;
             ulong playerDbId = request.PlayerDbId;
             ulong instanceId = request.InstanceId;
-            var giftsToAward = new List<GameServiceProtocol.GiftInfo>();
+            var giftsToAward = new List<ServiceMessage.GiftInfo>();
 
             lock (_cachedItems)
             {
@@ -71,7 +71,7 @@ namespace MHServerEmu.Gifts
                 {
                     if (entry.AddedDate <= DateTime.UtcNow && !entry.ClaimedByPlayers.ContainsKey(playerName))
                     {
-                        giftsToAward.Add(new GameServiceProtocol.GiftInfo(entry.ItemPrototype, entry.Count));
+                        giftsToAward.Add(new ServiceMessage.GiftInfo(entry.ItemPrototype, entry.Count));
                         entry.ClaimedByPlayers.Add(playerName, DateTime.UtcNow);
                         _isDirty = true;
                     }
@@ -81,7 +81,7 @@ namespace MHServerEmu.Gifts
             if (giftsToAward.Count > 0)
             {
                 // Create the award message with the critical instance and player identification
-                var awardMessage = new GameServiceProtocol.AwardPlayerGifts(playerDbId, instanceId, giftsToAward);
+                var awardMessage = new ServiceMessage.AwardPlayerGifts(playerDbId, instanceId, giftsToAward);
                 ServerManager.Instance.SendMessageToService(GameServiceType.GameInstance, awardMessage);
 
                 SaveChangesAsync().GetAwaiter().GetResult();
