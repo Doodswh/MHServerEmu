@@ -88,6 +88,7 @@ namespace MHServerEmu.Games.Entities
         private readonly EventPointer<CheckHoursPlayedEvent> _checkHoursPlayedEvent = new();
         private readonly EventPointer<ScheduledHUDTutorialResetEvent> _hudTutorialResetEvent = new();
         private readonly EventPointer<CommunityBroadcastEvent> _communityBroadcastEvent = new();
+        private readonly EventPointer<WorldViewUpdateEvent> _worldViewUpdateEvent = new();
         private readonly EventGroup _pendingEvents = new();
 
         private ReplicatedPropertyCollection _avatarProperties = new();
@@ -622,11 +623,6 @@ namespace MHServerEmu.Games.Entities
                     area.PopulationArea?.UpdateSpawnMap(position);
         }
 
-        public bool ViewedRegion(ulong regionId)
-        {
-            return PlayerConnection.WorldView.ContainsRegionInstanceId(regionId);
-        }
-
         public MetaGameTeam GetPvPTeam()
         {
             Region region = GetRegion();
@@ -646,6 +642,27 @@ namespace MHServerEmu.Games.Entities
             }
 
             return null;
+        }
+
+        public bool IsRegionInWorldView(ulong regionId)
+        {
+            return PlayerConnection.WorldView.ContainsRegion(regionId);
+        }
+
+        public void ScheduleWorldViewUpdate()
+        {
+            if (_worldViewUpdateEvent.IsValid)
+                return;
+
+            ScheduleEntityEvent(_worldViewUpdateEvent, TimeSpan.Zero);
+        }
+
+        private void OnWorldViewUpdate()
+        {
+            // Remove bodyslide return parameters if the region is no longer available
+            ulong bodySliderRegionId = Properties[PropertyEnum.BodySliderRegionId];
+            if (bodySliderRegionId != 0 && IsRegionInWorldView(bodySliderRegionId) == false)
+                RemoveBodysliderProperties();
         }
 
         #endregion
@@ -1834,7 +1851,11 @@ namespace MHServerEmu.Games.Entities
 
             IsSwitchingAvatar = false;
 
-            // Remove bodyslider properties for regions that are supposed to be limited to individual avatars
+            // Unreserve private story regions so that the avatar we switched to can do the story without fiddling with region instances.
+            ServiceMessage.ClearPrivateStoryRegions clearPrivateStoryRegions = new(DatabaseUniqueId);
+            ServerManager.Instance.SendMessageToService(GameServiceType.PlayerManager, clearPrivateStoryRegions);
+
+            // Remove bodyslider properties if they are for a private story region, which should no longer be accessible.
             if (HasBodysliderProperties())
             {
                 PrototypeId bodysliderRegionProtoRef = Properties[PropertyEnum.BodySliderRegionRef];
@@ -2544,13 +2565,6 @@ namespace MHServerEmu.Games.Entities
         {
             foreach (PropertyEnum prop in Property.BodysliderProperties)
                 Properties.RemoveProperty(prop);
-        }
-
-        public void SendRegionTransferFailure(RegionTransferFailure reason)
-        {
-            SendMessage(NetMessageUnableToChangeRegion.CreateBuilder()
-                .SetChangeFailed(ChangeRegionFailed.CreateBuilder().SetReason(reason))
-                .Build());
         }
 
         public void OnCellLoaded(uint cellId, ulong regionId)
@@ -3604,6 +3618,11 @@ namespace MHServerEmu.Games.Entities
         private class CommunityBroadcastEvent : CallMethodEvent<Entity>
         {
             protected override CallbackDelegate GetCallback() => (t) => ((Player)t).DoCommunityBroadcast();
+        }
+
+        private class WorldViewUpdateEvent : CallMethodEvent<Entity>
+        {
+            protected override CallbackDelegate GetCallback() => (t) => ((Player)t).OnWorldViewUpdate();
         }
 
         #endregion
