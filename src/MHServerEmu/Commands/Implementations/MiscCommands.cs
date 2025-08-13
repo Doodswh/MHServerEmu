@@ -13,6 +13,7 @@ namespace MHServerEmu.Commands.Implementations
 {
     [CommandGroup("tower")]
     [CommandGroupDescription("Teleports to Avengers Tower (original).")]
+    [CommandGroupUserLevel(AccountUserLevel.Admin)]
     [CommandGroupFlags(CommandGroupFlags.SingleCommand)]
     public class TowerCommand : CommandGroup
     {
