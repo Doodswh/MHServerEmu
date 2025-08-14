@@ -22,7 +22,6 @@ namespace MHServerEmu.DatabaseAccess.Models
         private readonly Dictionary<long, DBEntity> _allEntities = new();               // All DBEntity instances stored in this collection
         private readonly Dictionary<long, List<DBEntity>> _bucketedEntities = new();    // Stored DBEntity bucketed per container
 
-        public IEnumerable<long> Guids { get => _allEntities.Keys; }
         public IEnumerable<DBEntity> Entries { get => _allEntities.Values; }
         public int Count { get => _allEntities.Count; }
 
@@ -53,8 +52,19 @@ namespace MHServerEmu.DatabaseAccess.Models
         {
             bool success = true;
 
-            foreach (DBEntity dbEntity in dbEntities)
-                success |= Add(dbEntity);
+            if (dbEntities is IReadOnlyList<DBEntity> list)
+            {
+                // Access elements by index in indexable collections to avoid allocating IEnumerator instances.
+                int count = list.Count;
+                for (int i = 0; i < count; i++)
+                    success |= Add(list[i]);
+            }
+            else
+            {
+                // Fall back to foreach for non-indexable collections.
+                foreach (DBEntity dbEntity in dbEntities)
+                    success |= Add(dbEntity);
+            }
 
             return success;
         }
@@ -65,6 +75,11 @@ namespace MHServerEmu.DatabaseAccess.Models
 
             foreach (List<DBEntity> bucket in _bucketedEntities.Values)
                 bucket.Clear();
+        }
+
+        public bool Contains(long dbGuid)
+        {
+            return _allEntities.ContainsKey(dbGuid);
         }
 
         public IReadOnlyList<DBEntity> GetEntriesForContainer(long containerDbGuid)
