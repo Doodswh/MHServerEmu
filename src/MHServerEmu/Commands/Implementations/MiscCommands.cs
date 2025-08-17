@@ -7,6 +7,7 @@ using MHServerEmu.Games.Entities.Avatars;
 using MHServerEmu.Games.GameData;
 using MHServerEmu.Games.Network;
 using MHServerEmu.Games.Powers;
+using MHServerEmu.Games.Properties;
 using MHServerEmu.Games.Regions;
 
 namespace MHServerEmu.Commands.Implementations
@@ -22,8 +23,50 @@ namespace MHServerEmu.Commands.Implementations
         public string Tower(string[] @params, NetClient client)
         {
             Player player = ((PlayerConnection)client).Player;
+
+            CanTeleportResult result = CanTeleport(player);
+            if (result != CanTeleportResult.Success)
+                return $"You cannot teleport right now ({result}).";
+
+            player.Properties[PropertyEnum.PowerCooldownStartTime, GameDatabase.GlobalsPrototype.ReturnToHubPower] = player.Game.CurrentTime;
             Teleporter.DebugTeleportToTarget(player, (PrototypeId)16780605467179883619);    // Regions/HUBS/AvengersTowerHUB/Portals/AvengersTowerHUBEntry.prototype
-            return "Teleporting to Avengers Tower (original)";
+
+            return "Teleporting to Avengers Tower (original).";
+        }
+
+        private static CanTeleportResult CanTeleport(Player player)
+        {
+            if (player == null)
+                return CanTeleportResult.GenericError;
+
+            // Skip checks for accounts that have access to debug commands.
+            if (player.HasBadge(AvailableBadges.SiteCommands))
+                return CanTeleportResult.Success;
+
+            if (player.IsFullscreenObscured)
+                return CanTeleportResult.FullscreenObscured;
+
+            Avatar avatar = player.CurrentAvatar;
+            if (avatar == null || avatar.IsInWorld == false)
+                return CanTeleportResult.GenericError;
+
+            if (avatar.Properties[PropertyEnum.IsInCombat])
+                return CanTeleportResult.InCombat;
+
+            Power returnToHubPower = avatar.GetPower(GameDatabase.GlobalsPrototype.ReturnToHubPower);
+            if (avatar.CanActivatePower(returnToHubPower, avatar.Id, avatar.RegionLocation.Position) != PowerUseResult.Success)
+                return CanTeleportResult.BodyslideNotAvailable;
+
+            return CanTeleportResult.Success;
+        }
+
+        private enum CanTeleportResult
+        {
+            Success,
+            GenericError,
+            FullscreenObscured,
+            InCombat,
+            BodyslideNotAvailable,
         }
     }
 
@@ -150,6 +193,24 @@ namespace MHServerEmu.Commands.Implementations
             avatar.ChangeRegionPosition(teleportPoint, null, ChangePositionFlags.Teleport);
 
             return $"Teleporting to {teleportPoint.ToStringNames()}.";
+        }
+
+        [CommandGroup("syncmana")]
+        [CommandGroupDescription("Syncs the current mana value with the server.")]
+        [CommandGroupFlags(CommandGroupFlags.SingleCommand)]
+        public class SyncManaCommand : CommandGroup
+        {
+            [DefaultCommand]
+            [CommandInvokerType(CommandInvokerType.Client)]
+            public string SyncMana(string[] @params, NetClient client)
+            {
+                Avatar avatar = ((PlayerConnection)client).Player.CurrentAvatar;
+                if (avatar == null || avatar.IsInWorld == false)
+                    return "Avatar not found.";
+
+                avatar.Properties.SyncProperty(PropertyEnum.Endurance, out PropertyValue value);    // default to mana type 1
+                return $"Syncing mana (server value = {(float)value}).";
+            }
         }
     }
 }
