@@ -1,7 +1,11 @@
 ﻿using MHServerEmu.Core.Config;
 using MHServerEmu.Core.Logging;
 using MHServerEmu.Core.Network;
+using MHServerEmu.Games.Entities;
+using MHServerEmu.Games.GameData;
 using MHServerEmu.Games.Leaderboards;
+using MHServerEmu.Games.Loot;
+using System.Linq;
 
 namespace MHServerEmu.Games.Network.InstanceManagement
 {
@@ -93,6 +97,33 @@ namespace MHServerEmu.Games.Network.InstanceManagement
 
                 case ServiceMessage.LeaderboardRewardRequestResponse leaderboardRewardRequestResponse:
                     OnLeaderboardRewardRequestResponse(leaderboardRewardRequestResponse);
+                    break;
+                case ServiceMessage.AwardPlayerGifts award:
+                    if (GameManager.TryGetGameById(award.InstanceId, out Game game))
+                    {
+                        Player player = null;
+                        foreach (var connection in game.NetworkManager)
+                        {
+                            if (connection.Player.DatabaseUniqueId == award.PlayerDbId)
+                            {
+                                player = connection.Player;
+                                break;
+                            }
+                        }
+
+                        if (player != null)
+                        {
+                            Logger.Info($"Awarding {award.GiftsToAward.Count} gift(s) to player {player.GetName()}");
+
+                            foreach (var gift in award.GiftsToAward)
+                            {
+                                for (int i = 0; i < gift.Count; i++)
+                                {
+                                    game.LootManager.GiveItem((PrototypeId)gift.ItemProtoId, LootContext.CashShop, player);
+                                }
+                            }
+                        }
+                    }
                     break;
 
                 default:

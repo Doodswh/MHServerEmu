@@ -46,6 +46,7 @@ namespace MHServerEmu.Gifts
 
         public void Run()
         {
+            State = GameServiceState.Running;
             LoadGiftItems();
             Logger.Info("[GiftDistributor] Service started and is waiting for player gift requests.");
         }
@@ -93,6 +94,8 @@ namespace MHServerEmu.Gifts
             _isRunning = false;
             // Perform one final save on shutdown, if needed.
             SaveChangesAsync().GetAwaiter().GetResult();
+
+            State = GameServiceState.ShuttingDown;
         }
 
         public string GetStatus() => $"Loaded Gift Entries: {_cachedItems?.Count ?? 0}, Changes Pending Save: {_isDirty}";
