@@ -119,7 +119,7 @@ namespace MHServerEmu.Games.Network.InstanceManagement
                             {
                                 for (int i = 0; i < gift.Count; i++)
                                 {
-                                    game.LootManager.GiveItem((PrototypeId)gift.ItemProtoId, LootContext.CashShop, player);
+                                    game.LootManager.GiveItem((PrototypeId)gift.ItemProtoId, LootContext.Drop, player);
                                 }
                             }
                         }

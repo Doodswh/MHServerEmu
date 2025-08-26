@@ -226,10 +226,31 @@ namespace MHServerEmu.Games.GameData.PatchManager
         {
             if (fieldInfo.GetValue(target) is not Array array || index < 0 || index >= array.Length) return;
             Type elementType = fieldInfo.PropertyType.GetElementType();
+            if (elementType == null) return;
+
             object valueEntry = value.GetValue();
-            if (elementType == null || !IsTypeCompatible(elementType, valueEntry, value.ValueType))
-                throw new InvalidOperationException($"Type {value.ValueType} is not assignable to {elementType.Name}.");
-            array.SetValue(ConvertValue(valueEntry, elementType), index);
+            object finalValue;
+
+            
+            if (typeof(Prototype).IsAssignableFrom(elementType) && (valueEntry is PrototypeId || valueEntry is ulong || value.ValueType == ValueType.PrototypeDataRef))
+            {
+                var dataRef = (PrototypeId)Convert.ChangeType(valueEntry, typeof(ulong));
+                finalValue = GameDatabase.GetPrototype<Prototype>(dataRef);
+
+                if (finalValue == null)
+                    throw new InvalidOperationException($"DataRef {dataRef} is not a valid Prototype or could not be found.");
+            }
+            else
+            {
+               
+                finalValue = ConvertValue(valueEntry, elementType);
+            }
+
+           
+            if (!elementType.IsAssignableFrom(finalValue.GetType()))
+                throw new InvalidOperationException($"The resolved value of type {finalValue.GetType().Name} cannot be assigned to an array element of type {elementType.Name}.");
+
+            array.SetValue(finalValue, index);
         }
 
         private static void InsertValue(object target, System.Reflection.PropertyInfo fieldInfo, ValueBase value)
@@ -294,6 +315,10 @@ namespace MHServerEmu.Games.GameData.PatchManager
                     }
                     return false;
                 }
+            }
+            if (valueType == ValueType.ComplexObject && rawValue is JsonElement)
+            {
+                return true;
             }
             return baseType.IsAssignableFrom(rawValue.GetType());
         }
