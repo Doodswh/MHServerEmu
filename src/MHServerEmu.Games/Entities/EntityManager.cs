@@ -449,16 +449,7 @@ namespace MHServerEmu.Games.Entities
             return GetEntityByDbGuid(dbGuid, flags & ~GetEntityFlags.DestroyedOnly) as T;
         }
 
-        public Player GetPlayerByName(string playerName)
-        {
-            foreach (Player player in Players)
-            {
-                if (player.GetName().Equals(playerName, StringComparison.OrdinalIgnoreCase))
-                    return player;
-            }
-
-            return null;
-        }
+      
 
         public bool IsEntityArchived(ulong entityId)
         {
