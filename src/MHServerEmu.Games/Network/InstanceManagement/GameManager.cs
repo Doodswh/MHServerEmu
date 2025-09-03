@@ -48,7 +48,14 @@ namespace MHServerEmu.Games.Network.InstanceManagement
             lock (_clientLock)
                 return _gameByPlayerDbIdDict.TryGetValue(playerDbId, out game);
         }
-
+        public List<Game> GetGames()
+        {
+            lock (_gameDict)
+            {
+                // Return a copy to allow safe iteration
+                return new List<Game>(_gameDict.Values);
+            }
+        }
         public bool CreateGame(ulong gameId)
         {
             Logger.Info($"Received creation request for gameId=0x{gameId:X}");

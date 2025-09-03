@@ -1,5 +1,6 @@
 ﻿using MHServerEmu.Commands.Attributes;
 using MHServerEmu.Core.Network;
+using MHServerEmu.Core.VectorMath;
 using MHServerEmu.DatabaseAccess.Models;
 using MHServerEmu.Frontend;
 using MHServerEmu.Games;
@@ -11,12 +12,12 @@ using MHServerEmu.Games.GameData;
 using MHServerEmu.Games.GameData.Calligraphy;
 using MHServerEmu.Games.GameData.Prototypes;
 using MHServerEmu.Games.Network;
+using MHServerEmu.Games.Network.InstanceManagement;
 using MHServerEmu.Games.Powers;
 using MHServerEmu.Games.Powers.Conditions;
 using MHServerEmu.Games.Properties;
 using MHServerEmu.Grouping;
 using MHServerEmu.PlayerManagement;
-using MHServerEmu.Core.VectorMath;
 using System.Linq;
 
 namespace MHServerEmu.Commands.Implementations
@@ -146,77 +147,76 @@ namespace MHServerEmu.Commands.Implementations
 
             return $"Successfully given {amount} of all currencies.";
         }
-      
-        // --- NEW Kill Entity Command ---
-        [Command("killentity")]
-        [CommandDescription("Instantly kills the specified entity by its ID.")]
-        [CommandUsage("player killentity [entityId]")]
+
+        [Command("kill")]
+        [CommandDescription("Kills a specified player anywhere on the server.")]
+        [CommandUsage("player kill [playerName]")]
         [CommandUserLevel(AccountUserLevel.Admin)]
-        [CommandInvokerType(CommandInvokerType.Client)] // Admin invokes this
-        [CommandParamCount(1)] // Requires entityId
-        public string KillEntity(string[] @params, NetClient client)
+        [CommandInvokerType(CommandInvokerType.Client)]
+        [CommandParamCount(1)]
+        public string Kill(string[] @params, NetClient client)
         {
-            if (!ulong.TryParse(@params[0], out ulong entityId))
-            {
-                return "Invalid Entity ID. Please provide a number.";
-            }
-
             PlayerConnection adminConnection = (PlayerConnection)client;
-            if (adminConnection == null) return "Error: Could not get admin player connection.";
-
             Player adminPlayer = adminConnection.Player;
-            if (adminPlayer == null) return "Error: Could not get admin player entity.";
+            GameManager gameManager = adminConnection.Game.GameManager;
+            string targetPlayerName = @params[0];
 
-            Game currentGame = adminPlayer.Game;
-            if (currentGame == null) return "Error: Admin is not currently in a game instance.";
-
-            // The killer will be the admin's avatar, or null if no avatar is active.
-            WorldEntity killer = adminPlayer.CurrentAvatar;
-
-            // Find the target entity in the admin's current game instance
-            Entity entityToKill = currentGame.EntityManager.GetEntity<Entity>(entityId);
-
-            if (entityToKill == null)
+            if (string.Equals(adminPlayer.GetName(), targetPlayerName, StringComparison.OrdinalIgnoreCase))
             {
-                return $"Entity with ID '{entityId}' not found in your current game instance.";
+                return "You cannot use this command to kill yourself. Use '!player die' instead.";
             }
 
-            if (!(entityToKill is WorldEntity targetWorldEntity))
+            PlayerConnection targetConnection = null;
+
+            // Find the player's connection across all game instances.
+            // We find them first and then act, to avoid modifying a collection while iterating over it.
+            foreach (Game game in gameManager.GetGames())
             {
-                return $"Entity with ID '{entityId}' is not a WorldEntity and cannot be killed in this manner.";
+                foreach (var connection in game.NetworkManager)
+                {
+                    if (connection.Player != null && string.Equals(connection.Player.GetName(), targetPlayerName, StringComparison.OrdinalIgnoreCase))
+                    {
+                        targetConnection = connection;
+                        break; // Found the connection, exit inner loop
+                    }
+                }
+                if (targetConnection != null)
+                {
+                    break; // Found the connection, exit outer loop
+                }
             }
 
-            if (!targetWorldEntity.IsInWorld)
+            if (targetConnection == null)
             {
-                return $"Entity '{GameDatabase.GetPrototypeName(targetWorldEntity.PrototypeDataRef)}' (ID: {entityId}) is not currently in the world.";
+                return $"Player '{targetPlayerName}' not found online on this server instance.";
             }
 
-            if (targetWorldEntity.IsDead)
+            // Now that we're outside the loops, it's safe to perform the kill action.
+            Player targetPlayer = targetConnection.Player;
+            Avatar targetAvatar = targetPlayer.CurrentAvatar;
+
+            if (targetAvatar == null || !targetAvatar.IsInWorld)
             {
-                return $"Entity '{GameDatabase.GetPrototypeName(targetWorldEntity.PrototypeDataRef)}' (ID: {entityId}) is already dead.";
+                return $"Player '{targetPlayerName}' does not have an active avatar in the world.";
             }
 
-            // Kill the target entity
-            // The Kill method is on Agent.cs, which WorldEntity might not directly have.
-            // If it's an Agent (like NPCs, enemies), this will work.
-            // For other WorldEntity types, you might need a more generic "Destroy" or similar.
-            if (targetWorldEntity is Agent targetAgent)
+            if (targetAvatar.IsDead)
             {
-                targetAgent.Kill(killer, KillFlags.None);
-                return $"Successfully killed entity '{GameDatabase.GetPrototypeName(targetAgent.PrototypeDataRef)}' (ID: {entityId}).";
-            }
-            else
-            {
-                // For non-Agent WorldEntities, a more generic Destroy might be appropriate
-                // or you might decide this command only works on Agents.
-                // For now, let's attempt a generic Destroy if it's not an Agent.
-                // Note: Destroy() might behave differently than Kill() (e.g., no loot, no death animations).
-                targetWorldEntity.Destroy(); // This is a method on the base Entity class.
-                return $"Attempted to destroy entity '{GameDatabase.GetPrototypeName(targetWorldEntity.PrototypeDataRef)}' (ID: {entityId}). Non-Agent entities are destroyed, not 'killed'.";
+                return $"Player '{targetPlayerName}' is already dead.";
             }
 
+            Avatar killerAvatar = adminPlayer.CurrentAvatar;
+            ulong killerId = killerAvatar?.Id ?? adminPlayer.Id;
+
+            PowerResults powerResults = new();
+            powerResults.Init(killerId, killerId, targetAvatar.Id, targetAvatar.RegionLocation.Position, null, default, true);
+            powerResults.SetFlag(PowerResultFlags.InstantKill, true);
+            targetAvatar.ApplyDamageTransferPowerResults(powerResults);
+
+            return $"Player '{targetPlayerName}' has been killed.";
         }
-            [Command("clearconditions")]
+
+        [Command("clearconditions")]
         [CommandDescription("Clears persistent conditions.")]
         [CommandUsage("player clearconditions")]
         [CommandInvokerType(CommandInvokerType.Client)]

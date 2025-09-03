@@ -3331,7 +3331,8 @@ namespace MHServerEmu.Games.Entities
             if (Game.GameOptions.TeamUpSystemEnabled && Game.CustomGameOptions.AutoUnlockTeamUps)
             {
                 // HACK: And team-ups as well
-                
+                Inventory teamUpLibrary = GetInventory(InventoryConvenienceLabel.TeamUpLibrary);
+                if (teamUpLibrary.Count == 0)
                 {
                     foreach (PrototypeId teamUpRef in GameDatabase.DataDirectory.IteratePrototypesInHierarchy<AgentTeamUpPrototype>(PrototypeIterateFlags.NoAbstractApprovedOnly))
                         UnlockTeamUpAgent(teamUpRef, false);
