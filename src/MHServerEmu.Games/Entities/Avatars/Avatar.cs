@@ -376,12 +376,12 @@ namespace MHServerEmu.Games.Entities.Avatars
             {
                 float distanceMovedSquared = (_lastSpeedCheckPosition == Vector3.Zero) ? 0f : Vector3.DistanceSquared(position.Value, _lastSpeedCheckPosition);
 
-                const float UNFLAGGED_TELEPORT_THRESHOLD_SQUARED = 2700.0f * 2700.0f;
+                const float UNFLAGGED_TELEPORT_THRESHOLD_SQUARED = 2000.0f * 2000.0f;
 
                 if (distanceMovedSquared > UNFLAGGED_TELEPORT_THRESHOLD_SQUARED)
                 {
                     // This is a huge move. Check if it's happening too frequently.
-                    const double UnflaggedTeleportCooldownSeconds = 5.0;
+                    const double UnflaggedTeleportCooldownSeconds = 7.0;
                     if ((Game.CurrentTime - _lastUnflaggedTeleportTime).TotalSeconds < UnflaggedTeleportCooldownSeconds)
                     {
                         // This is the SECOND large jump within the cooldown. It's a hack, a hack I tell you!
@@ -407,7 +407,7 @@ namespace MHServerEmu.Games.Entities.Avatars
                     if (timeSinceLastCheck >= SpeedCheckInterval)
                     {
                         float maxAllowedSpeed = Properties[PropertyEnum.MovementSpeedRate];
-                        float tolerance = 1300.0f;
+                        float tolerance = 1400.0f;
                         float maxDistanceAllowed = maxAllowedSpeed * timeSinceLastCheck * tolerance;
                         float maxDistanceSquared = maxDistanceAllowed * maxDistanceAllowed;
 

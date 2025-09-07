@@ -1,4 +1,7 @@
-﻿using MHServerEmu.Commands.Attributes;
+﻿using Gazillion;
+using MHServerEmu.Commands.Attributes;
+using MHServerEmu.Core.Extensions;
+using MHServerEmu.Core.Memory;
 using MHServerEmu.Core.Network;
 using MHServerEmu.Core.VectorMath;
 using MHServerEmu.DatabaseAccess.Models;
@@ -16,6 +19,7 @@ using MHServerEmu.Games.Network.InstanceManagement;
 using MHServerEmu.Games.Powers;
 using MHServerEmu.Games.Powers.Conditions;
 using MHServerEmu.Games.Properties;
+using MHServerEmu.Games.Regions;
 using MHServerEmu.Grouping;
 using MHServerEmu.PlayerManagement;
 using System.Linq;
@@ -214,6 +218,147 @@ namespace MHServerEmu.Commands.Implementations
             targetAvatar.ApplyDamageTransferPowerResults(powerResults);
 
             return $"Player '{targetPlayerName}' has been killed.";
+        }
+        [Command("bring")]
+        [CommandDescription("Brings a player to your current location or region entry point.")]
+        [CommandUsage("player bring [playerName]")]
+        [CommandUserLevel(AccountUserLevel.Admin)]
+        [CommandInvokerType(CommandInvokerType.Client)]
+        [CommandParamCount(1)]
+        public string Bring(string[] @params, NetClient client)
+        {
+            PlayerConnection adminConnection = (PlayerConnection)client;
+            Player adminPlayer = adminConnection.Player;
+            Avatar adminAvatar = adminPlayer.CurrentAvatar;
+
+            if (adminAvatar == null || !adminAvatar.IsInWorld || adminAvatar.Region == null)
+            {
+                return "You must be in a valid region to use this command.";
+            }
+
+            string targetPlayerName = @params[0];
+            if (string.Equals(adminPlayer.GetName(), targetPlayerName, StringComparison.OrdinalIgnoreCase))
+            {
+                return "You cannot bring yourself.";
+            }
+
+            GameManager gameManager = adminConnection.Game.GameManager;
+            PlayerConnection targetConnection = null;
+
+            // Find the target player across all game instances
+            foreach (var game in gameManager.GetGames())
+            {
+                foreach (var connection in game.NetworkManager)
+                {
+                    if (connection.Player != null && string.Equals(connection.Player.GetName(), targetPlayerName, StringComparison.OrdinalIgnoreCase))
+                    {
+                        targetConnection = connection;
+                        break;
+                    }
+                }
+                if (targetConnection != null) break;
+            }
+
+            if (targetConnection == null)
+            {
+                return $"Player '{targetPlayerName}' not found online.";
+            }
+
+            Player targetPlayer = targetConnection.Player;
+            Avatar targetAvatar = targetPlayer.CurrentAvatar;
+
+            if (targetAvatar == null || !targetAvatar.IsInWorld)
+            {
+                return $"Player '{targetPlayerName}' is not in a state to be teleported.";
+            }
+
+            var adminRegion = adminAvatar.Region;
+            var adminPosition = adminAvatar.RegionLocation.Position;
+
+            if (targetAvatar.Region?.Id == adminRegion.Id)
+            {
+                targetAvatar.ChangeRegionPosition(adminPosition, null, ChangePositionFlags.Teleport);
+                return $"Brought {targetPlayerName} to your location.";
+            }
+
+            using (var teleporter = ObjectPoolManager.Instance.Get<Teleporter>())
+            {
+                teleporter.Initialize(targetPlayer, TeleportContextEnum.TeleportContext_Debug);
+                teleporter.TeleportToRegionLocation(adminRegion.Id, adminPosition);
+            }
+
+            return $"Bringing {targetPlayerName} to your location.";
+        }
+
+        [Command("goto")]
+        [CommandDescription("Goes to a player's current location.")]
+        [CommandUsage("player goto [playerName]")]
+        [CommandUserLevel(AccountUserLevel.Admin)]
+        [CommandInvokerType(CommandInvokerType.Client)]
+        [CommandParamCount(1)]
+        public string GoTo(string[] @params, NetClient client)
+        {
+            PlayerConnection adminConnection = (PlayerConnection)client;
+            Player adminPlayer = adminConnection.Player;
+            Avatar adminAvatar = adminPlayer.CurrentAvatar;
+
+            if (adminAvatar == null || !adminAvatar.IsInWorld)
+            {
+                return "You must have an active avatar to use this command.";
+            }
+
+            string targetPlayerName = @params[0];
+            if (string.Equals(adminPlayer.GetName(), targetPlayerName, StringComparison.OrdinalIgnoreCase))
+            {
+                return "You cannot go to yourself.";
+            }
+
+            GameManager gameManager = adminConnection.Game.GameManager;
+            PlayerConnection targetConnection = null;
+
+            // Find the target player across all game instances
+            foreach (var game in gameManager.GetGames())
+            {
+                foreach (var connection in game.NetworkManager)
+                {
+                    if (connection.Player != null && string.Equals(connection.Player.GetName(), targetPlayerName, StringComparison.OrdinalIgnoreCase))
+                    {
+                        targetConnection = connection;
+                        break;
+                    }
+                }
+                if (targetConnection != null) break;
+            }
+
+            if (targetConnection == null)
+            {
+                return $"Player '{targetPlayerName}' not found online.";
+            }
+
+            Player targetPlayer = targetConnection.Player;
+            Avatar targetAvatar = targetPlayer.CurrentAvatar;
+
+            if (targetAvatar == null || !targetAvatar.IsInWorld || targetAvatar.Region == null)
+            {
+                return $"Player '{targetPlayerName}' is not in a location that can be teleported to.";
+            }
+
+            var targetRegion = targetAvatar.Region;
+            var targetPosition = targetAvatar.RegionLocation.Position;
+
+            if (adminAvatar.Region?.Id == targetRegion.Id)
+            {
+                adminAvatar.ChangeRegionPosition(targetPosition, null, ChangePositionFlags.Teleport);
+                return $"Teleported to {targetPlayerName}'s location.";
+            }
+
+            using (var teleporter = ObjectPoolManager.Instance.Get<Teleporter>())
+            {
+                teleporter.Initialize(adminPlayer, TeleportContextEnum.TeleportContext_Debug);
+                teleporter.TeleportToRegionLocation(targetRegion.Id, targetPosition);
+            }
+
+            return $"Teleporting to {targetPlayerName}'s location.";
         }
 
         [Command("clearconditions")]

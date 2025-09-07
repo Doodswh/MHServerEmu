@@ -488,7 +488,44 @@ namespace MHServerEmu.Games.Loot
 
             return GiveLootFromSummary(lootResultSummary, player, PrototypeId.Invalid);
         }
+        /// <summary>
+        /// Creates an item from an ItemSpec, gives it to the player, and returns the created Item instance.
+        /// </summary>
+        public Item CreateAndGiveItem(ItemSpec itemSpec, Player player, PrototypeId inventoryProtoRef = PrototypeId.Invalid)
+        {
+            if (itemSpec == null || !itemSpec.IsValid || player == null)
+            {
+                Logger.Warn("CreateAndGiveItem: Invalid ItemSpec or Player provided.");
+                return null;
+            }
 
+            EntityManager entityManager = Game.EntityManager;
+            using EntitySettings settings = ObjectPoolManager.Instance.Get<EntitySettings>();
+            settings.EntityRef = itemSpec.ItemProtoRef;
+            settings.ItemSpec = itemSpec;
+
+            if (player.IsInGame == false)
+                settings.OptionFlags &= ~EntitySettingsOptionFlags.EnterGame;
+
+            Item item = entityManager.CreateEntity(settings) as Item;
+            if (item == null)
+            {
+                Logger.Warn($"CreateAndGiveItem: Failed to create item entity from spec: {GameDatabase.GetPrototypeName(itemSpec.ItemProtoRef)}");
+                return null;
+            }
+
+            item.Properties[PropertyEnum.InventoryStackCount] = itemSpec.StackCount;
+
+            InventoryResult result = player.AcquireItem(item, inventoryProtoRef);
+            if (result != InventoryResult.Success)
+            {
+                Logger.Warn($"CreateAndGiveItem: Failed to acquire created item (reason: {result}). Destroying item.");
+                item.Destroy();
+                return null;
+            }
+
+            return item;
+        }
         /// <summary>
         /// Creates an <see cref="ItemSpec"/> for the provided <see cref="PrototypeId"/>.
         /// </summary>

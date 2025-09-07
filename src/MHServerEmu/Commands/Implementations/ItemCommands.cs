@@ -59,6 +59,136 @@ namespace MHServerEmu.Commands.Implementations
 
             return string.Empty;
         }
+        [Command("craft")]
+        [CommandDescription("Creates an item with max random affixes and optional runeword/blessing/grade.")]
+        [CommandUsage("item craft [item_pattern] [runeword_pattern] [blessing_pattern] [grade]")]
+        [CommandUserLevel(AccountUserLevel.Admin)]
+        [CommandInvokerType(CommandInvokerType.Client)]
+        [CommandParamCount(4)]
+        public string Craft(string[] @params, NetClient client)
+        {
+            PlayerConnection playerConnection = (PlayerConnection)client;
+            Player player = playerConnection.Player;
+            LootManager lootManager = player.Game.LootManager;
+
+            // 1. Parse Parameters
+            string itemPattern = @params[0];
+            string runewordPattern = @params[1];
+            string blessingPattern = @params[2];
+            if (!int.TryParse(@params[3], out int grade)) return "Error: Invalid grade specified.";
+
+            // 2. Find Item Prototype
+            PrototypeId itemProtoRef = CommandHelper.FindPrototype(HardcodedBlueprints.Item, itemPattern, client);
+            if (itemProtoRef == PrototypeId.Invalid) return $"Error: Item prototype not found for '{itemPattern}'.";
+            ItemPrototype itemProto = itemProtoRef.As<ItemPrototype>();
+            if (itemProto == null) return "Error: Invalid item prototype.";
+
+            // 3. Set Defaults (Max Rarity, Max Level)
+            int itemLevel = 63;
+            PrototypeId rarityProtoRef = GameDatabase.LootGlobalsPrototype.RarityCosmic;
+            if (rarityProtoRef == PrototypeId.Invalid)
+            {
+                rarityProtoRef = GameDatabase.LootGlobalsPrototype.RarityDefault;
+                if (rarityProtoRef == PrototypeId.Invalid) return "Error: Could not find default or cosmic rarity.";
+            }
+
+            // 4. Prepare Affix List and Filter Arguments
+            List<AffixSpec> affixSpecs = new List<AffixSpec>();
+            using DropFilterArguments filterArgs = ObjectPoolManager.Instance.Get<DropFilterArguments>();
+            filterArgs.ItemProto = itemProto;
+            filterArgs.Level = itemLevel;
+            filterArgs.Rarity = rarityProtoRef;
+            Avatar currentAvatar = player.CurrentAvatar;
+            AgentPrototype currentAvatarProto = currentAvatar?.AvatarPrototype;
+            filterArgs.Slot = itemProto.GetInventorySlotForAgent(currentAvatarProto);
+            filterArgs.RollFor = currentAvatarProto?.DataRef ?? PrototypeId.Invalid;
+
+            // 5. Add Runeword and Blessing if specified
+            Action<string, AffixPosition> findAndAddSpecialAffix = (pattern, position) =>
+            {
+                if (pattern.Equals("none", StringComparison.OrdinalIgnoreCase)) return;
+
+                // This simplified search finds the first valid affix and adds it.
+                foreach (PrototypeId affixId in GameDatabase.DataDirectory.IteratePrototypesInHierarchy<AffixPrototype>(PrototypeIterateFlags.NoAbstractApprovedOnly))
+                {
+                    AffixPrototype proto = affixId.As<AffixPrototype>();
+                    if (proto != null && proto.Position == position && GameDatabase.GetPrototypeName(affixId).IndexOf(pattern, StringComparison.OrdinalIgnoreCase) >= 0)
+                    {
+                        if (proto.AllowAttachment(filterArgs))
+                        {
+                            affixSpecs.Add(new AffixSpec(proto, PrototypeId.Invalid, player.Game.Random.Next()));
+                            return; // Found a match, add it and stop searching
+                        }
+                    }
+                }
+            };
+
+            findAndAddSpecialAffix(runewordPattern, AffixPosition.Runeword);
+            findAndAddSpecialAffix(blessingPattern, AffixPosition.Blessing);
+
+            // 6. Fill with Max Random Prefixes and Suffixes
+            AffixLimitsPrototype affixLimits = itemProto.GetAffixLimits(rarityProtoRef, LootContext.Drop);
+            short numPrefixes = affixLimits?.GetMax(AffixPosition.Prefix, null) ?? 2;
+            short numSuffixes = affixLimits?.GetMax(AffixPosition.Suffix, null) ?? 2;
+
+            List<AffixPrototype> validPrefixes = new List<AffixPrototype>();
+            List<AffixPrototype> validSuffixes = new List<AffixPrototype>();
+
+            foreach (AffixPrototype affix in GetAllBonusAffixes())
+            {
+                if (affix.AllowAttachment(filterArgs))
+                {
+                    if (affix.Position == AffixPosition.Prefix) validPrefixes.Add(affix);
+                    else if (affix.Position == AffixPosition.Suffix) validSuffixes.Add(affix);
+                }
+            }
+
+            var random = new System.Random(player.Game.Random.Next());
+            validPrefixes = validPrefixes.OrderBy(x => random.Next()).ToList();
+            validSuffixes = validSuffixes.OrderBy(x => random.Next()).ToList();
+
+            foreach (var affix in validPrefixes.Take(numPrefixes))
+            {
+                affixSpecs.Add(new AffixSpec(affix, PrototypeId.Invalid, player.Game.Random.Next()));
+            }
+            foreach (var affix in validSuffixes.Take(numSuffixes))
+            {
+                affixSpecs.Add(new AffixSpec(affix, PrototypeId.Invalid, player.Game.Random.Next()));
+            }
+
+            // 7. Create and Give Item
+            ItemSpec finalSpec = new ItemSpec(itemProtoRef, rarityProtoRef, itemLevel, 0, affixSpecs, player.Game.Random.Next());
+            Item createdItem = lootManager.CreateAndGiveItem(finalSpec, player);
+            if (createdItem == null) return "Error: Failed to create or give the item.";
+
+            // 8. Set Grade for Legendary Items
+            if (grade > 0 && createdItem.Prototype is LegendaryPrototype)
+            {
+                long totalXpNeeded = 0;
+                for (int i = 0; i < grade; i++)
+                {
+                    totalXpNeeded += GameDatabase.AdvancementGlobalsPrototype.GetItemAffixLevelUpXPRequirement(i);
+                }
+                createdItem.AwardAffixXP(totalXpNeeded);
+            }
+
+            return $"Successfully crafted {GameDatabase.GetPrototypeName(itemProtoRef)}!";
+        }
+
+        private List<AffixPrototype> GetAllBonusAffixes()
+        {
+            List<AffixPrototype> affixes = new List<AffixPrototype>();
+            foreach (PrototypeId affixId in GameDatabase.DataDirectory.IteratePrototypesInHierarchy<AffixPrototype>(PrototypeIterateFlags.NoAbstractApprovedOnly))
+            {
+                AffixPrototype currentAffix = affixId.As<AffixPrototype>();
+                if (currentAffix != null && currentAffix.HasBonusPropertiesToApply)
+                {
+                    affixes.Add(currentAffix);
+                }
+            }
+            return affixes;
+        }
+
 
         [Command("give")]
         [CommandDescription("Creates and gives the specified item to the current player.")]
@@ -138,7 +268,7 @@ namespace MHServerEmu.Commands.Implementations
         [CommandParamCount(1)]
         public string GiveMaxAffixes(string[] @params, NetClient client)
         {
-            return CreateAndGiveItemWithExplicitPrefixSuffix(@params[0], client, AffixSelectionStrategy.FirstValid);
+            return CreateAndGiveItemWithExplicitPrefixSuffix(@params[0], client, AffixSelectionStrategy.FirstValid, new string[0]);
         }
 
         [Command("givemaxaffixesrandom")]
@@ -149,12 +279,25 @@ namespace MHServerEmu.Commands.Implementations
         [CommandParamCount(1)]
         public string GiveMaxAffixesRandom(string[] @params, NetClient client)
         {
-            return CreateAndGiveItemWithExplicitPrefixSuffix(@params[0], client, AffixSelectionStrategy.RandomValid);
+            return CreateAndGiveItemWithExplicitPrefixSuffix(@params[0], client, AffixSelectionStrategy.RandomValid, new string[0]);
         }
 
-        private enum AffixSelectionStrategy { FirstValid, RandomValid }
+        [Command("givewithaffixes")]
+        [CommandDescription("Gives item at max level (63) with a set of specified affixes.")]
+        [CommandUsage("item givewithaffixes [item_pattern] [affix1_pattern] [affix2_pattern] ...")]
+        [CommandUserLevel(AccountUserLevel.Admin)]
+        [CommandInvokerType(CommandInvokerType.Client)]
+        [CommandParamCount(2)]
+        public string GiveWithAffixes(string[] @params, NetClient client)
+        {
+            string itemPattern = @params[0];
+            string[] affixPatterns = @params.Skip(1).ToArray();
+            return CreateAndGiveItemWithExplicitPrefixSuffix(itemPattern, client, AffixSelectionStrategy.Specified, affixPatterns);
+        }
 
-        private string CreateAndGiveItemWithExplicitPrefixSuffix(string itemPattern, NetClient client, AffixSelectionStrategy selectionStrategy)
+        private enum AffixSelectionStrategy { FirstValid, RandomValid, Specified }
+
+        private string CreateAndGiveItemWithExplicitPrefixSuffix(string itemPattern, NetClient client, AffixSelectionStrategy selectionStrategy, string[] specifiedAffixPatterns)
         {
             PlayerConnection playerConnection = (PlayerConnection)client;
             Player player = playerConnection.Player;
@@ -185,13 +328,7 @@ namespace MHServerEmu.Commands.Implementations
                 Logger.Warn("CreateAndGiveItemWithExplicitPrefixSuffix: Cosmic rarity not found, falling back to default.");
             }
 
-            List<AffixSpec> newAffixSpecs = new List<AffixSpec>(); // These are ONLY for rolled prefixes/suffixes
-            AffixLimitsPrototype affixLimits = itemProto.GetAffixLimits(chosenRarityProto.DataRef, LootContext.Drop);
-
-            short numRolledPrefixes = affixLimits?.GetMax(AffixPosition.Prefix, null) ?? 2;
-            short numRolledSuffixes = affixLimits?.GetMax(AffixPosition.Suffix, null) ?? 2;
-
-            List<AffixPrototype> allBonusAffixes = GetAllBonusAffixes();
+            List<AffixSpec> newAffixSpecs = new List<AffixSpec>();
 
             using DropFilterArguments filterArgs = ObjectPoolManager.Instance.Get<DropFilterArguments>();
             filterArgs.ItemProto = itemProto;
@@ -202,48 +339,101 @@ namespace MHServerEmu.Commands.Implementations
             filterArgs.Slot = itemProto.GetInventorySlotForAgent(currentAvatarProto);
             filterArgs.RollFor = currentAvatarProto?.DataRef ?? PrototypeId.Invalid;
 
-            List<AffixPrototype> validPrefixes = new List<AffixPrototype>();
-            List<AffixPrototype> validSuffixes = new List<AffixPrototype>();
-
-            foreach (AffixPrototype affix in allBonusAffixes)
+            if (selectionStrategy == AffixSelectionStrategy.Specified)
             {
-                if (affix.AllowAttachment(filterArgs))
+                foreach (string affixPattern in specifiedAffixPatterns)
                 {
-                    if (affix.Position == AffixPosition.Prefix)
-                        validPrefixes.Add(affix);
-                    else if (affix.Position == AffixPosition.Suffix)
-                        validSuffixes.Add(affix);
+                    // Since there is no Affix.blueprint, we iterate through all AffixPrototypes manually.
+                    List<PrototypeId> matchingAffixes = new();
+                    foreach (PrototypeId affixId in GameDatabase.DataDirectory.IteratePrototypesInHierarchy<AffixPrototype>(PrototypeIterateFlags.NoAbstractApprovedOnly))
+                    {
+                        if (GameDatabase.GetPrototypeName(affixId).IndexOf(affixPattern, StringComparison.OrdinalIgnoreCase) >= 0)
+                        {
+                            matchingAffixes.Add(affixId);
+                        }
+                    }
+
+                    PrototypeId affixProtoRef;
+                    if (matchingAffixes.Count == 0)
+                    {
+                        return $"Error: No affix prototype found for pattern '{affixPattern}'.";
+                    }
+                    else if (matchingAffixes.Count > 1)
+                    {
+                        StringBuilder sb = new StringBuilder();
+                        sb.AppendLine($"Error: Multiple affixes found for pattern '{affixPattern}'. Please be more specific. Matches:");
+                        foreach (var id in matchingAffixes.Take(5)) // Limit to 5 to avoid spam
+                        {
+                            sb.AppendLine($"- {GameDatabase.GetPrototypeName(id)}");
+                        }
+                        if (matchingAffixes.Count > 5)
+                        {
+                            sb.AppendLine($"...and {matchingAffixes.Count - 5} more.");
+                        }
+                        return sb.ToString();
+                    }
+                    else
+                    {
+                        affixProtoRef = matchingAffixes[0];
+                    }
+
+                    AffixPrototype affixProto = affixProtoRef.As<AffixPrototype>();
+                    if (affixProto.AllowAttachment(filterArgs))
+                    {
+                        newAffixSpecs.Add(new AffixSpec(affixProto, PrototypeId.Invalid, player.Game.Random.Next()));
+                    }
+                    else
+                    {
+                        return $"Error: Affix '{GameDatabase.GetPrototypeName(affixProtoRef)}' cannot be attached to item '{itemPattern}'.";
+                    }
+                }
+            }
+            else
+            {
+                AffixLimitsPrototype affixLimits = itemProto.GetAffixLimits(chosenRarityProto.DataRef, LootContext.Drop);
+                short numRolledPrefixes = affixLimits?.GetMax(AffixPosition.Prefix, null) ?? 2;
+                short numRolledSuffixes = affixLimits?.GetMax(AffixPosition.Suffix, null) ?? 2;
+                List<AffixPrototype> allBonusAffixes = GetAllBonusAffixes();
+
+                List<AffixPrototype> validPrefixes = new List<AffixPrototype>();
+                List<AffixPrototype> validSuffixes = new List<AffixPrototype>();
+
+                foreach (AffixPrototype affix in allBonusAffixes)
+                {
+                    if (affix.AllowAttachment(filterArgs))
+                    {
+                        if (affix.Position == AffixPosition.Prefix)
+                            validPrefixes.Add(affix);
+                        else if (affix.Position == AffixPosition.Suffix)
+                            validSuffixes.Add(affix);
+                    }
+                }
+
+                if (selectionStrategy == AffixSelectionStrategy.RandomValid)
+                {
+                    var randomForShuffle = new System.Random(player.Game.Random.Next());
+                    int n = validPrefixes.Count;
+                    while (n > 1) { n--; int k = randomForShuffle.Next(n + 1); (validPrefixes[k], validPrefixes[n]) = (validPrefixes[n], validPrefixes[k]); }
+
+                    n = validSuffixes.Count;
+                    while (n > 1) { n--; int k = randomForShuffle.Next(n + 1); (validSuffixes[k], validSuffixes[n]) = (validSuffixes[n], validSuffixes[k]); }
+                }
+
+                int actualPrefixesAdded = 0;
+                for (int i = 0; i < validPrefixes.Count && actualPrefixesAdded < numRolledPrefixes; i++)
+                {
+                    newAffixSpecs.Add(new AffixSpec(validPrefixes[i], PrototypeId.Invalid, player.Game.Random.Next()));
+                    actualPrefixesAdded++;
+                }
+
+                int actualSuffixesAdded = 0;
+                for (int i = 0; i < validSuffixes.Count && actualSuffixesAdded < numRolledSuffixes; i++)
+                {
+                    newAffixSpecs.Add(new AffixSpec(validSuffixes[i], PrototypeId.Invalid, player.Game.Random.Next()));
+                    actualSuffixesAdded++;
                 }
             }
 
-            if (selectionStrategy == AffixSelectionStrategy.RandomValid)
-            {
-                var randomForShuffle = new System.Random(player.Game.Random.Next());
-                // Shuffle each list
-                int n = validPrefixes.Count;
-                while (n > 1) { n--; int k = randomForShuffle.Next(n + 1); (validPrefixes[k], validPrefixes[n]) = (validPrefixes[n], validPrefixes[k]); }
-
-                n = validSuffixes.Count;
-                while (n > 1) { n--; int k = randomForShuffle.Next(n + 1); (validSuffixes[k], validSuffixes[n]) = (validSuffixes[n], validSuffixes[k]); }
-            }
-
-            int actualPrefixesAdded = 0;
-            for (int i = 0; i < validPrefixes.Count && actualPrefixesAdded < numRolledPrefixes; i++)
-            {
-                newAffixSpecs.Add(new AffixSpec(validPrefixes[i], PrototypeId.Invalid, player.Game.Random.Next()));
-                actualPrefixesAdded++;
-            }
-
-            int actualSuffixesAdded = 0;
-            for (int i = 0; i < validSuffixes.Count && actualSuffixesAdded < numRolledSuffixes; i++)
-            {
-                newAffixSpecs.Add(new AffixSpec(validSuffixes[i], PrototypeId.Invalid, player.Game.Random.Next()));
-                actualSuffixesAdded++;
-            }
-
-            // The newAffixSpecs list now contains ONLY the rolled prefixes and suffixes we explicitly chose.
-            // Built-in affixes (from ItemPrototype or RarityPrototype) will be added by the game
-            // when the Item entity is created from this ItemSpec.
             ItemSpec finalSpec = new ItemSpec(itemProtoRef, chosenRarityProto.DataRef, maxItemLevel, 0, newAffixSpecs, player.Game.Random.Next());
 
             using (LootResultSummary lootResultSummary = ObjectPoolManager.Instance.Get<LootResultSummary>())
@@ -251,9 +441,9 @@ namespace MHServerEmu.Commands.Implementations
                 lootResultSummary.Add(new LootResult(finalSpec));
                 if (lootManager.GiveLootFromSummary(lootResultSummary, player))
                 {
-                    string strategyText = selectionStrategy == AffixSelectionStrategy.FirstValid ? "deterministically chosen" : "randomly chosen";
-                    Logger.Info($"CreateAndGiveItemWithExplicitPrefixSuffix: Successfully gave {GameDatabase.GetPrototypeName(itemProtoRef)} (Lvl {maxItemLevel}, {actualPrefixesAdded}P, {actualSuffixesAdded}S explicitly added, {strategyText}) to {player.GetName()}");
-                    return $"Gave {GameDatabase.GetPrototypeName(itemProtoRef)} (Lvl {maxItemLevel}) with {actualPrefixesAdded} prefixes & {actualSuffixesAdded} suffixes ({strategyText}). Built-ins handled by system.";
+                    string strategyText = selectionStrategy.ToString();
+                    Logger.Info($"CreateAndGiveItemWithExplicitPrefixSuffix: Successfully gave {GameDatabase.GetPrototypeName(itemProtoRef)} (Lvl {maxItemLevel}, {newAffixSpecs.Count} affixes, {strategyText}) to {player.GetName()}");
+                    return $"Gave {GameDatabase.GetPrototypeName(itemProtoRef)} (Lvl {maxItemLevel}) with {newAffixSpecs.Count} affixes ({strategyText}). Built-ins handled by system.";
                 }
                 else
                 {
@@ -263,19 +453,7 @@ namespace MHServerEmu.Commands.Implementations
             }
         }
 
-        private List<AffixPrototype> GetAllBonusAffixes()
-        {
-            List<AffixPrototype> affixes = new List<AffixPrototype>();
-            foreach (PrototypeId affixId in GameDatabase.DataDirectory.IteratePrototypesInHierarchy<AffixPrototype>(PrototypeIterateFlags.NoAbstractApprovedOnly))
-            {
-                AffixPrototype currentAffix = affixId.As<AffixPrototype>();
-                if (currentAffix != null && currentAffix.HasBonusPropertiesToApply)
-                {
-                    affixes.Add(currentAffix);
-                }
-            }
-            return affixes;
-        }
+     
         [Command("destroyindestructible")]
         [CommandDescription("Destroys indestructible items contained in the player's general inventory.")]
         [CommandUsage("item destroyindestructible")]
@@ -528,7 +706,7 @@ namespace MHServerEmu.Commands.Implementations
                 return $"No items found matching '{searchPattern}' in your stashes.";
             }
         }
-       
+
 
         [Command("cleardeliverybox")]
         [CommandDescription("Destroys all items contained in the delivery box inventory.")]
