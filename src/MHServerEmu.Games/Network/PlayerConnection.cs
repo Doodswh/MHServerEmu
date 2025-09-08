@@ -162,6 +162,7 @@ namespace MHServerEmu.Games.Network
             MigrationUtility.RestoreProperties(migrationData.PlayerProperties, Player.Properties);
             MigrationUtility.RestoreWorldView(migrationData, WorldView);
             MigrationUtility.RestoreCommunity(migrationData, Player.Community);
+            MigrationUtility.RestoreVanishState(migrationData, Player);
 
             // Add all badges to admin accounts
             if (_dbAccount.UserLevel == AccountUserLevel.Admin)
@@ -257,6 +258,7 @@ namespace MHServerEmu.Games.Network
                         MigrationUtility.StoreProperties(migrationData.PlayerProperties, Player.Properties);
                         MigrationUtility.StoreWorldView(migrationData, WorldView);
                         MigrationUtility.StoreCommunity(migrationData, Player.Community);
+                        MigrationUtility.StoreVanishState(migrationData, Player);
                     }
                 }
                 else

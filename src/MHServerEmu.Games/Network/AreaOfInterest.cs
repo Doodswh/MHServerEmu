@@ -935,6 +935,13 @@ namespace MHServerEmu.Games.Network
 
             Player player = _playerConnection.Player;
 
+            // Vanish check
+            Player entityOwner = entity.GetOwnerOfType<Player>();
+            if (entityOwner != null && entityOwner != player && entityOwner.IsVanished)
+            {
+                return AOINetworkPolicyValues.AOIChannelNone;
+            }
+
             // Destroyed and not in game entities cannot have interest
             if (entity.IsDestroyed || entity.IsInGame == false)
                 return AOINetworkPolicyValues.AOIChannelNone;

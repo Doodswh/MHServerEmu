@@ -5,6 +5,7 @@
         public bool SkipNextUpdate { get; set; }
 
         public bool IsFirstLoad { get; set; } = true;
+        public bool IsVanished { get; set; }
 
         // Store everything here as ulong, PropertyCollection will sort it out game-side
         public List<KeyValuePair<ulong, ulong>> PlayerProperties { get; } = new(256);
@@ -20,6 +21,7 @@
             SkipNextUpdate = false;
 
             IsFirstLoad = true;
+            IsVanished = false;
             PlayerProperties.Clear();
             WorldView.Clear();
             CommunityOnlineStatuses.Clear();

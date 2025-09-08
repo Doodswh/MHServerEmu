@@ -384,7 +384,53 @@ namespace MHServerEmu.Commands.Implementations
 
             return $"Cleared {count} persistent conditions.";
         }
+        [Command("vanish")]
+        [CommandDescription("Makes an admin invisible to other players.")]
+        [CommandUserLevel(AccountUserLevel.Admin)]
+        [CommandInvokerType(CommandInvokerType.Client)]
+        public string Vanish(string[] @params, NetClient client)
+        {
+            PlayerConnection playerConnection = (PlayerConnection)client;
+            Player player = playerConnection.Player;
+            Avatar avatar = player.CurrentAvatar;
 
+            if (avatar == null || !avatar.IsInWorld)
+            {
+                return "You must have an active avatar in the world to use this command.";
+            }
+
+            bool isVanished = player.IsVanished;
+            player.IsVanished = !isVanished;
+
+            if (!isVanished)
+            {
+                avatar.Properties[PropertyEnum.Stealth] = true;
+                avatar.Properties[PropertyEnum.StealthDetection] = 10000; // High value to make detection very difficult
+                foreach (var otherPlayer in new PlayerIterator(player.Game))
+                {
+                    if (otherPlayer != player)
+                    {
+                        otherPlayer.AOI.ConsiderEntity(player);
+                        otherPlayer.AOI.ConsiderEntity(avatar);
+                    }
+                }
+                return "You are now vanished.";
+            }
+            else
+            {
+                avatar.Properties.RemoveProperty(PropertyEnum.Stealth);
+                avatar.Properties.RemoveProperty(PropertyEnum.StealthDetection);
+                foreach (var otherPlayer in new PlayerIterator(player.Game))
+                {
+                    if (otherPlayer != player)
+                    {
+                        otherPlayer.AOI.ConsiderEntity(player);
+                        otherPlayer.AOI.ConsiderEntity(avatar);
+                    }
+                }
+                return "You are no longer vanished.";
+            }
+        }
         [Command("die")]
         [CommandDescription("Kills the current avatar.")]
         [CommandInvokerType(CommandInvokerType.Client)]
@@ -407,4 +453,5 @@ namespace MHServerEmu.Commands.Implementations
             return $"You are now dead. Thank you for using Stop-and-Drop.";
         }
     }
+
 }

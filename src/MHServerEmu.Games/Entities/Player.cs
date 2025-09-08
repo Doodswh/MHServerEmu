@@ -144,6 +144,7 @@ namespace MHServerEmu.Games.Entities
         public uint FullscreenMovieSyncRequestId { get; set; }
 
         public bool IsSwitchingAvatar { get; private set; }
+        public bool IsVanished { get; set; }
 
         public PlayerConnection PlayerConnection { get; private set; }
         public AreaOfInterest AOI { get => PlayerConnection.AOI; }
@@ -481,13 +482,17 @@ namespace MHServerEmu.Games.Entities
             // Enter game to become added to the AOI
             base.EnterGame(settings);
 
+            if (IsVanished)
+            {
+                CurrentAvatar.Properties[PropertyEnum.Stealth] = true;
+                CurrentAvatar.Properties[PropertyEnum.StealthDetection] = 10000;
+            }
             OnEnterGameInitStashTabOptions();
 
             InitializeVendors();
             ScheduleCheckHoursPlayedEvent();
             UpdateUISystemLocks();
             
-
         }
 
         public override void ExitGame()

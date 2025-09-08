@@ -1,4 +1,5 @@
 ﻿using MHServerEmu.DatabaseAccess.Models;
+using MHServerEmu.Games.Entities;
 using MHServerEmu.Games.GameData;
 using MHServerEmu.Games.GameData.Prototypes;
 using MHServerEmu.Games.Properties;
@@ -79,6 +80,15 @@ namespace MHServerEmu.Games.Network
 
                 member.RestoreIsOnline(kvp.Value);
             }
+        }
+        public static void StoreVanishState(MigrationData migrationData, Player player)
+        {
+            migrationData.IsVanished = player.IsVanished;
+        }
+
+        public static void RestoreVanishState(MigrationData migrationData, Player player)
+        {
+            player.IsVanished = migrationData.IsVanished;
         }
     }
 }

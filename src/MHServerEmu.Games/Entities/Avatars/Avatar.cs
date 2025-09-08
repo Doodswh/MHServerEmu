@@ -376,7 +376,7 @@ namespace MHServerEmu.Games.Entities.Avatars
             {
                 float distanceMovedSquared = (_lastSpeedCheckPosition == Vector3.Zero) ? 0f : Vector3.DistanceSquared(position.Value, _lastSpeedCheckPosition);
 
-                const float UNFLAGGED_TELEPORT_THRESHOLD_SQUARED = 2000.0f * 2000.0f;
+                const float UNFLAGGED_TELEPORT_THRESHOLD_SQUARED = 1800.0f * 1800.0f;
 
                 if (distanceMovedSquared > UNFLAGGED_TELEPORT_THRESHOLD_SQUARED)
                 {
@@ -407,7 +407,7 @@ namespace MHServerEmu.Games.Entities.Avatars
                     if (timeSinceLastCheck >= SpeedCheckInterval)
                     {
                         float maxAllowedSpeed = Properties[PropertyEnum.MovementSpeedRate];
-                        float tolerance = 1400.0f;
+                        float tolerance = 1350.0f;
                         float maxDistanceAllowed = maxAllowedSpeed * timeSinceLastCheck * tolerance;
                         float maxDistanceSquared = maxDistanceAllowed * maxDistanceAllowed;
 
