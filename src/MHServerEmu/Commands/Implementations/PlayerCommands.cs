@@ -22,6 +22,9 @@ using MHServerEmu.Games.Properties;
 using MHServerEmu.Games.Regions;
 using MHServerEmu.Grouping;
 using MHServerEmu.PlayerManagement;
+using MHServerEmu.PlayerManagement.Games;
+using MHServerEmu.PlayerManagement.Players;
+using System.Collections.Generic;
 using System.Linq;
 
 namespace MHServerEmu.Commands.Implementations
@@ -242,28 +245,16 @@ namespace MHServerEmu.Commands.Implementations
                 return "You cannot bring yourself.";
             }
 
-            GameManager gameManager = adminConnection.Game.GameManager;
-            PlayerConnection targetConnection = null;
+            // This is the new, direct, and correct way to access the ClientManager.
+            ClientManager clientManager = PlayerManagerService.Instance.ClientManager;
+            PlayerHandle targetHandle = clientManager.GetPlayer(targetPlayerName);
 
-            // Find the target player across all game instances
-            foreach (var game in gameManager.GetGames())
-            {
-                foreach (var connection in game.NetworkManager)
-                {
-                    if (connection.Player != null && string.Equals(connection.Player.GetName(), targetPlayerName, StringComparison.OrdinalIgnoreCase))
-                    {
-                        targetConnection = connection;
-                        break;
-                    }
-                }
-                if (targetConnection != null) break;
-            }
-
-            if (targetConnection == null)
+            if (targetHandle == null || !targetHandle.IsConnected)
             {
                 return $"Player '{targetPlayerName}' not found online.";
             }
 
+            PlayerConnection targetConnection = (PlayerConnection)targetHandle.Client;
             Player targetPlayer = targetConnection.Player;
             Avatar targetAvatar = targetPlayer.CurrentAvatar;
 
@@ -290,6 +281,7 @@ namespace MHServerEmu.Commands.Implementations
             return $"Bringing {targetPlayerName} to your location.";
         }
 
+
         [Command("goto")]
         [CommandDescription("Goes to a player's current location.")]
         [CommandUsage("player goto [playerName]")]
@@ -313,28 +305,17 @@ namespace MHServerEmu.Commands.Implementations
                 return "You cannot go to yourself.";
             }
 
-            GameManager gameManager = adminConnection.Game.GameManager;
-            PlayerConnection targetConnection = null;
+            // This is the new, direct, and correct way to access the ClientManager.
+            ClientManager clientManager = PlayerManagerService.Instance.ClientManager;
+            PlayerHandle targetHandle = clientManager.GetPlayer(targetPlayerName);
 
-            // Find the target player across all game instances
-            foreach (var game in gameManager.GetGames())
-            {
-                foreach (var connection in game.NetworkManager)
-                {
-                    if (connection.Player != null && string.Equals(connection.Player.GetName(), targetPlayerName, StringComparison.OrdinalIgnoreCase))
-                    {
-                        targetConnection = connection;
-                        break;
-                    }
-                }
-                if (targetConnection != null) break;
-            }
-
-            if (targetConnection == null)
+            if (targetHandle == null || !targetHandle.IsConnected)
             {
                 return $"Player '{targetPlayerName}' not found online.";
             }
 
+            // The rest of your command logic is unchanged.
+            PlayerConnection targetConnection = (PlayerConnection)targetHandle.Client;
             Player targetPlayer = targetConnection.Player;
             Avatar targetAvatar = targetPlayer.CurrentAvatar;
 

@@ -25,13 +25,13 @@ namespace MHServerEmu.PlayerManagement
         private readonly Stopwatch _stopwatch = Stopwatch.StartNew();
         private readonly PlayerManagerServiceMailbox _serviceMailbox;
 
-        internal static PlayerManagerService Instance { get; private set; }     // Naughty singleton-like access without being an actual singleton
+        public static PlayerManagerService Instance { get; private set; }     // Naughty singleton-like access without being an actual singleton
 
         internal SessionManager SessionManager { get; }
         internal LoginQueueManager LoginQueueManager { get; }
         internal GameHandleManager GameHandleManager { get; }
         internal WorldManager WorldManager { get; }
-        internal ClientManager ClientManager { get; }
+        public ClientManager ClientManager { get; }
         internal CommunityRegistry CommunityRegistry { get; }
         internal MasterPartyManager PartyManager { get; }
 

@@ -14,6 +14,7 @@ namespace MHServerEmu.PlayerManagement.Games
         private readonly Dictionary<ulong, GameHandle> _gameDict = new();
 
         private readonly PlayerManagerService _playerManager;
+        public PlayerManagerService PlayerManager => _playerManager;
 
         public int GameCount { get => _gameDict.Count; }
 
