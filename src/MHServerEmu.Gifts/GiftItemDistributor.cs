@@ -46,9 +46,9 @@ namespace MHServerEmu.Gifts
 
         public void Run()
         {
-            State = GameServiceState.Running;
             LoadGiftItems();
             Logger.Info("[GiftDistributor] Service started and is waiting for player gift requests.");
+            State = GameServiceState.Running;
         }
 
         public void ReceiveServiceMessage<T>(in T message) where T : struct, IGameServiceMessage

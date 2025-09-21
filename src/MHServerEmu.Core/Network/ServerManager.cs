@@ -13,10 +13,10 @@ namespace MHServerEmu.Core.Network
         Leaderboard,
         PlayerManager,
         GroupingManager,
+        GiftItemDistributor,
         Billing,
         Frontend,
         Auth,
-        GiftItemDistributor,
         NumServiceTypes
     }
 

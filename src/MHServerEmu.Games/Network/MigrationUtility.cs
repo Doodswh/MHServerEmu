@@ -1,5 +1,6 @@
 ﻿using Gazillion;
 using MHServerEmu.DatabaseAccess.Models;
+using MHServerEmu.Games.Entities;
 using MHServerEmu.Games.GameData;
 using MHServerEmu.Games.GameData.Prototypes;
 using MHServerEmu.Games.Properties;
@@ -99,6 +100,15 @@ namespace MHServerEmu.Games.Network
 
             // Clear status in the migration data to allow the garbage colelctor to reclaim it asap
             migrationData.CommunityStatus.Clear();
+        }
+        public static void StoreVanishState(MigrationData migrationData, Player player)
+        {
+            migrationData.IsVanished = player.IsVanished;
+        }
+
+        public static void RestoreVanishState(MigrationData migrationData, Player player)
+        {
+            player.IsVanished = migrationData.IsVanished;
         }
     }
 }

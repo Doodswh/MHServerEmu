@@ -88,7 +88,12 @@ namespace MHServerEmu.Games.Entities.Avatars
         public AvatarPrototype AvatarPrototype { get => Prototype as AvatarPrototype; }
         public int PrestigeLevel { get => Properties[PropertyEnum.AvatarPrestigeLevel]; }
         public override bool IsAtLevelCap { get => CharacterLevel >= GetAvatarLevelCap(); }
+		private bool _justTeleported = false;									 
         public override int Throwability { get => GetThrowability(); }
+		 private Vector3 _lastSpeedCheckPosition;
+        private TimeSpan _lastSpeedCheckTime;
+        private const float SpeedCheckInterval = 0.5f; // Check speed every 500ms
+        private TimeSpan _lastUnflaggedTeleportTime;										
 
         public PrototypeId EquippedCostumeRef { get => Properties[PropertyEnum.CostumeCurrent]; }
         public CostumePrototype EquippedCostume { get => EquippedCostumeRef.As<CostumePrototype>(); }
@@ -6353,6 +6358,7 @@ namespace MHServerEmu.Games.Entities.Avatars
 
         public override void OnEnteredWorld(EntitySettings settings)
         {
+			_justTeleported = true;
             Player player = GetOwnerOfType<Player>();
             if (player == null)
             {
@@ -6452,6 +6458,8 @@ namespace MHServerEmu.Games.Entities.Avatars
             // Update AOI of the owner player
             AreaOfInterest aoi = player.AOI;
             aoi.Update(RegionLocation.Position, true);
+				 _lastSpeedCheckPosition = RegionLocation.Position;
+                _lastSpeedCheckTime = Game.CurrentTime;												  
 
             // Update party
             Party party = Party;

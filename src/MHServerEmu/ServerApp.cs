@@ -119,10 +119,11 @@ namespace MHServerEmu
             serverManager.RegisterGameService(new LeaderboardService(), GameServiceType.Leaderboard);
             serverManager.RegisterGameService(new PlayerManagerService(), GameServiceType.PlayerManager);
             serverManager.RegisterGameService(new GroupingManagerService(), GameServiceType.GroupingManager);
+            serverManager.RegisterGameService(new GiftItemDistributor(), GameServiceType.GiftItemDistributor);
             serverManager.RegisterGameService(new BillingService(), GameServiceType.Billing);
             serverManager.RegisterGameService(new FrontendServer(), GameServiceType.Frontend);
             serverManager.RegisterGameService(new AuthServer(), GameServiceType.Auth);
-            serverManager.RegisterGameService(new GiftItemDistributor(), GameServiceType.GiftItemDistributor);
+            
             serverManager.RunServices();
 
             // Begin processing console input

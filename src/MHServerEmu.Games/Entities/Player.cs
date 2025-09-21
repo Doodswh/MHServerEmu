@@ -11,6 +11,7 @@ using MHServerEmu.Core.Network;
 using MHServerEmu.Core.Serialization;
 using MHServerEmu.Core.System.Time;
 using MHServerEmu.Core.VectorMath;
+using MHServerEmu.DatabaseAccess.Models;										
 using MHServerEmu.Games.Achievements;
 using MHServerEmu.Games.Common;
 using MHServerEmu.Games.Dialog;
@@ -145,6 +146,7 @@ namespace MHServerEmu.Games.Entities
         public uint FullscreenMovieSyncRequestId { get; set; }
 
         public bool IsSwitchingAvatar { get; private set; }
+		public bool IsVanished { get; set; }									
 
         public PlayerConnection PlayerConnection { get; private set; }
         public AreaOfInterest AOI { get => PlayerConnection.AOI; }
@@ -485,6 +487,11 @@ namespace MHServerEmu.Games.Entities
             // Enter game to become added to the AOI
             base.EnterGame(settings);
 
+			if (IsVanished)
+            {
+                CurrentAvatar.Properties[PropertyEnum.Stealth] = true;
+                CurrentAvatar.Properties[PropertyEnum.StealthDetection] = 10000;
+            }			   
             OnEnterGameInitStashTabOptions();
 
             InitializeVendors();
@@ -534,13 +541,35 @@ namespace MHServerEmu.Games.Entities
         /// </summary>
         public string GetName(PlayerAvatarIndex avatarIndex = PlayerAvatarIndex.Primary)
         {
+            string baseName;
             if ((avatarIndex >= PlayerAvatarIndex.Primary && avatarIndex < PlayerAvatarIndex.Count) == false)
-                Logger.Warn("GetName(): avatarIndex out of range");
+            {
+                // Logger.Warn("GetName(): avatarIndex out of range");
+                baseName = _playerName.Get(); // Fallback to primary player name
+            }
+            else if (avatarIndex == PlayerAvatarIndex.Secondary)
+            {
+                baseName = _secondaryPlayerName.Get();
+            }
+            else // Primary avatar
+            {
+                baseName = _playerName.Get();
+            }
 
-            if (avatarIndex == PlayerAvatarIndex.Secondary)
-                return _secondaryPlayerName.Get();
+           
+            bool isAdminEquivalent = this.HasBadge(AvailableBadges.SiteCommands); // Use the badge(s) you've determined for admin/mod
 
-            return _playerName.Get();
+           
+            if (isAdminEquivalent)
+            {
+              
+                return $"{baseName} (Administrator!)";
+
+               
+            }
+
+        
+            return baseName;
         }
 
         /// <summary>
@@ -3562,6 +3591,10 @@ namespace MHServerEmu.Games.Entities
 
                 GiveLoginRewards(loginCount);
                 Properties[PropertyEnum.LoginCount] = loginCount;
+                ServerManager.Instance.SendMessageToService(
+   GameServiceType.GiftItemDistributor,
+   new ServiceMessage.PlayerRequestsGifts(this.DatabaseUniqueId, this.Game.Id, this.GetName())
+);
             }
 
             // Send gifting restrictions update.
@@ -3571,7 +3604,10 @@ namespace MHServerEmu.Games.Entities
                 .SetEmailVerified(_emailVerified)
                 .SetAccountCreationTimestampUtc((long)_accountCreationTimestamp.TotalSeconds)
                 .Build());
+
+
         }
+        
 
         private int GetLoginCount()
         {
