@@ -1,4 +1,6 @@
-﻿namespace MHServerEmu.DatabaseAccess.Models
+﻿using Gazillion;
+
+namespace MHServerEmu.DatabaseAccess.Models
 {
     public class MigrationData
     {
@@ -10,7 +12,7 @@
         // Store everything here as ulong, PropertyCollection will sort it out game-side
         public List<KeyValuePair<ulong, ulong>> PlayerProperties { get; } = new(256);
         public List<(ulong, ulong)> WorldView { get; } = new();
-        public Dictionary<ulong, int> CommunityOnlineStatuses { get; } = new();
+        public List<CommunityMemberBroadcast> CommunityStatus { get; } = new();
 
         // TODO: Summoned inventory
 
@@ -24,7 +26,7 @@
             IsVanished = false;
             PlayerProperties.Clear();
             WorldView.Clear();
-            CommunityOnlineStatuses.Clear();
+            CommunityStatus.Clear();
         }
     }
 }

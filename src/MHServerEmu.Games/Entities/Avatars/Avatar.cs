@@ -4,6 +4,7 @@ using MHServerEmu.Core.Extensions;
 using MHServerEmu.Core.Helpers;
 using MHServerEmu.Core.Logging;
 using MHServerEmu.Core.Memory;
+using MHServerEmu.Core.Network;
 using MHServerEmu.Core.Serialization;
 using MHServerEmu.Core.System.Random;
 using MHServerEmu.Core.System.Time;
@@ -31,6 +32,7 @@ using MHServerEmu.Games.Properties;
 using MHServerEmu.Games.Properties.Evals;
 using MHServerEmu.Games.Regions;
 using MHServerEmu.Games.Social.Guilds;
+using MHServerEmu.Games.Social.Parties;
 
 namespace MHServerEmu.Games.Entities.Avatars
 {
@@ -86,12 +88,7 @@ namespace MHServerEmu.Games.Entities.Avatars
         public AvatarPrototype AvatarPrototype { get => Prototype as AvatarPrototype; }
         public int PrestigeLevel { get => Properties[PropertyEnum.AvatarPrestigeLevel]; }
         public override bool IsAtLevelCap { get => CharacterLevel >= GetAvatarLevelCap(); }
-        private bool _justTeleported = false;
         public override int Throwability { get => GetThrowability(); }
-        private Vector3 _lastSpeedCheckPosition;
-        private TimeSpan _lastSpeedCheckTime;
-        private const float SpeedCheckInterval = 0.5f; // Check speed every 500ms
-        private TimeSpan _lastUnflaggedTeleportTime;
 
         public PrototypeId EquippedCostumeRef { get => Properties[PropertyEnum.CostumeCurrent]; }
         public CostumePrototype EquippedCostume { get => EquippedCostumeRef.As<CostumePrototype>(); }
@@ -234,16 +231,7 @@ namespace MHServerEmu.Games.Entities.Avatars
                     if (Power.IsCooldownPersistent(powerProto) == false)
                         continue;
 
-                    try
-                    {
-                        TimeSpan persistentDuration = (TimeSpan)kvp.Value;
-                        persistentDuration *= 0.5f;
-                        setDict[new(PropertyEnum.PowerCooldownDuration, powerProtoRef)] = persistentDuration;
-                    }
-                    catch (InvalidCastException ex)
-                    {
-                        Logger.Warn($"OnUnpackComplete(): Could not cast persistent cooldown duration for {powerProtoRef.GetName()} to TimeSpan. Error: {ex.Message}");
-                    }
+                    setDict[new(PropertyEnum.PowerCooldownDuration, powerProtoRef)] = kvp.Value;
                 }
 
                 foreach (var kvp in Properties.IteratePropertyRange(PropertyEnum.PowerCooldownStartTimePersistent))
@@ -353,6 +341,7 @@ namespace MHServerEmu.Games.Entities.Avatars
             if (RegionLocation.IsValid() == false)
                 return Logger.WarnReturn(ChangePositionResult.NotChanged, "ChangeRegionPosition(): Cannot change region position without entering the world first");
 
+            // We only need to do AOI processing if the avatar is changing its position
             if (position == null)
             {
                 if (orientation != null)
@@ -361,78 +350,18 @@ namespace MHServerEmu.Games.Entities.Avatars
                     return Logger.WarnReturn(ChangePositionResult.NotChanged, "ChangeRegionPosition(): No position or orientation provided");
             }
 
+            // Get player for AOI update
             Player player = GetOwnerOfType<Player>();
             if (player == null) return Logger.WarnReturn(ChangePositionResult.NotChanged, "ChangeRegionPosition(): player == null");
 
-            // --- Anti-Cheat Logic ---
-
-            if (flags.HasFlag(ChangePositionFlags.Teleport) || _justTeleported)
-            {
-                _lastSpeedCheckPosition = position.Value;
-                _lastSpeedCheckTime = Game.CurrentTime;
-                _justTeleported = false;
-            }
-            else
-            {
-                float distanceMovedSquared = (_lastSpeedCheckPosition == Vector3.Zero) ? 0f : Vector3.DistanceSquared(position.Value, _lastSpeedCheckPosition);
-
-                const float UNFLAGGED_TELEPORT_THRESHOLD_SQUARED = 1800.0f * 1800.0f;
-
-                if (distanceMovedSquared > UNFLAGGED_TELEPORT_THRESHOLD_SQUARED)
-                {
-                    // This is a huge move. Check if it's happening too frequently.
-                    const double UnflaggedTeleportCooldownSeconds = 7.0;
-                    if ((Game.CurrentTime - _lastUnflaggedTeleportTime).TotalSeconds < UnflaggedTeleportCooldownSeconds)
-                    {
-                        // This is the SECOND large jump within the cooldown. It's a hack, a hack I tell you!
-                        Logger.Warn($"Repeated large-distance moves detected for {PlayerName}. Speed hack suspected.");
-                        base.ChangeRegionPosition(_lastSpeedCheckPosition, orientation, ChangePositionFlags.Teleport);
-                        return ChangePositionResult.NotChanged;
-                    }
-                    else
-                    {
-                        // This is the FIRST large jump. Allow it, but start the cooldown.
-                        Logger.Warn($"Un-flagged large-distance move detected for {PlayerName} and allowed as a one-time teleport.");
-                        _lastUnflaggedTeleportTime = Game.CurrentTime;
-                        _lastSpeedCheckPosition = position.Value;
-                        _lastSpeedCheckTime = Game.CurrentTime;
-                    }
-                }
-                else
-                {
-                    // The move is within a normal range, apply the  speed check.
-                    TimeSpan currentTime = Game.CurrentTime;
-                    float timeSinceLastCheck = (float)(currentTime - _lastSpeedCheckTime).TotalSeconds;
-
-                    if (timeSinceLastCheck >= SpeedCheckInterval)
-                    {
-                        float maxAllowedSpeed = Properties[PropertyEnum.MovementSpeedRate];
-                        float tolerance = 1350.0f;
-                        float maxDistanceAllowed = maxAllowedSpeed * timeSinceLastCheck * tolerance;
-                        float maxDistanceSquared = maxDistanceAllowed * maxDistanceAllowed;
-
-                        if (distanceMovedSquared > maxDistanceSquared)
-                        {
-                            Logger.Warn($"Speed hack detected for {PlayerName}. Moved {Math.Sqrt(distanceMovedSquared):F2} units in {timeSinceLastCheck:F2}s. Max allowed: {maxDistanceAllowed:F2} units.");
-                            base.ChangeRegionPosition(_lastSpeedCheckPosition, orientation, ChangePositionFlags.Teleport);
-                            _lastSpeedCheckTime = currentTime;
-                            return ChangePositionResult.NotChanged;
-                        }
-
-                        _lastSpeedCheckPosition = position.Value;
-                        _lastSpeedCheckTime = currentTime;
-                    }
-                }
-            }
-            // --- End Anti-Cheat Logic ---
-
-            // Original game logic follows
             ChangePositionResult result;
+
             if (player.AOI.ContainsPosition(position.Value))
             {
                 if (flags.HasFlag(ChangePositionFlags.Teleport))
                     DespawnPersistentAgents();
 
+                // Do a normal position change and update AOI if the position is loaded
                 result = base.ChangeRegionPosition(position, orientation, flags);
                 if (result == ChangePositionResult.PositionChanged)
                     player.AOI.Update(RegionLocation.Position);
@@ -442,10 +371,12 @@ namespace MHServerEmu.Games.Entities.Avatars
             }
             else
             {
+                // If we are moving outside of our AOI, start a teleport and exit world.
+                // The avatar will be put back into the world when all cells at the destination are loaded.
                 if (RegionLocation.Region.GetCellAtPosition(position.Value) == null)
                     return Logger.WarnReturn(ChangePositionResult.InvalidPosition, $"ChangeRegionPosition(): Invalid position {position.Value}");
 
-                player.BeginTeleport(RegionLocation.RegionId, position.Value, orientation ?? Orientation.Zero);
+                player.BeginTeleport(RegionLocation.RegionId, position.Value, orientation != null ? orientation.Value : Orientation.Zero);
                 ConditionCollection.RemoveCancelOnIntraRegionTeleportConditions();
                 ExitWorld();
                 player.AOI.Update(position.Value);
@@ -4113,9 +4044,6 @@ namespace MHServerEmu.Games.Entities.Avatars
             if (IsInWorld == false)
                 return 0;
 
-            // TODO: Prestige multiplier
-            // TODO: Party bonus
-
             // Flat per kill bonus (optionally capped by a percentage)
             if (applyKillBonus)
             {
@@ -4149,6 +4077,9 @@ namespace MHServerEmu.Games.Entities.Avatars
 
                 // Apply unconditional tuning table multiplier
                 xpMult *= tuningProto.PctXPMultiplier;
+
+                // Party
+                xpMult *= GetPartyXPMultiplier(tuningProto);
             }
 
             // Live tuning
@@ -4783,6 +4714,21 @@ namespace MHServerEmu.Games.Entities.Avatars
             multiplier += GetStackingExperienceBonusPct(Properties);
 
             return MathF.Max(-1f, multiplier);
+        }
+
+        public float GetPartyXPMultiplier(TuningPrototype tuningProto)
+        {
+            Party party = Party;
+            if (party == null)
+                return 1f;
+
+            CurveId curveRef = party.Type == GroupType.GroupType_Raid ? tuningProto.PctXPFromRaid : tuningProto.PctXPFromParty;
+            Curve curve = curveRef.AsCurve();
+            if (curve == null) return Logger.WarnReturn(1f, "GetPartyXPMultiplier(): curve == null");
+
+            float multiplier = 1f + curve.GetAt(CharacterLevel);
+            multiplier += Math.Max(LiveTuningManager.GetLiveGlobalTuningVar(GlobalTuningVar.eGTV_PartyXPBonusPct) - 1f, 0f);
+            return MathF.Max(multiplier, 0f);
         }
 
         public float GetLiveTuningXPMultiplier()
@@ -6336,6 +6282,17 @@ namespace MHServerEmu.Games.Entities.Avatars
                     }
 
                     break;
+
+                case PropertyEnum.DifficultyTierPreference:
+                    {
+                        Player player = GetOwnerOfType<Player>();
+                        if (player != null)
+                        {
+                            player.SendDifficultyTierPreferenceToPlayerManager();
+                            player.UpdatePartyDifficulty(newValue);
+                        }
+                    }
+                    break;
             }
         }
 
@@ -6396,129 +6353,135 @@ namespace MHServerEmu.Games.Entities.Avatars
 
         public override void OnEnteredWorld(EntitySettings settings)
         {
+            Player player = GetOwnerOfType<Player>();
+            if (player == null)
             {
-                _justTeleported = true;
-                Player player = GetOwnerOfType<Player>();
-                if (player == null)
-                {
-                    Logger.Warn("OnEnteredWorld(): player == null");
-                    return;
-                }
-
-                Region region = Region;
-                if (region == null)
-                {
-                    Logger.Warn("OnEnteredWorld(): region == null");
-                    return;
-                }
-
-                player.UpdateScoringEventContext();
-
-                var teamUpAgent = CurrentTeamUpAgent;
-                if (teamUpAgent != null)
-                {
-                    if (teamUpAgent.IsLiveTuningEnabled)
-                    {
-                        SetOwnerTeamUpAgent(teamUpAgent);
-                        teamUpAgent.ApplyTeamUpAffixesToAvatar(this);
-                    }
-                    else
-                        Properties.RemoveProperty(PropertyEnum.AvatarTeamUpAgent);
-                }
-
-                InitAbilityKeyMappings();
-
-                base.OnEnteredWorld(settings);
-
-                Properties[PropertyEnum.AvatarTimePlayedStart] = Game.CurrentTime;
-
-                // Enable primary resource regen (this will be disabled by mana behavior initialization if needed)
-                foreach (PrimaryResourceManaBehaviorPrototype primaryManaBehaviorProto in GetPrimaryResourceManaBehaviors())
-                    EnableEnduranceRegen(primaryManaBehaviorProto.ManaType);
-
-                // Assign powers
-                InitializePowers();
-
-                if (Game.InfinitySystemEnabled)
-                    InitializeInfinityBonuses();
-                else
-                    InitializeOmegaBonuses();
-
-                OnEnteredWorldSetTransformMode();
-
-                // Last active time is checked in onEnteredWorldSetTransformMode() and ObjectiveTracker::doTrackerUpdate()
-                Properties[PropertyEnum.AvatarLastActiveTime] = Game.CurrentTime;
-
-                UpdateAvatarSynergyCondition();
-                UpdateAvatarSynergyExperienceBonus();
-                CurrentTeamUpAgent?.SetTeamUpsAtMaxLevel(player);   // Needed to calculate team-up synergies
-
-                ApplyLiveTuneServerConditions();
-
-                RestoreSelfAppliedPowerConditions();     // This needs to happen after we assign powers
-                UpdateBoostConditionPauseState(region.PausesBoostConditions());
-
-                // Unlock chapters and waypoints that should be unlocked by default
-                player.UnlockChapters();
-                player.UnlockWaypoints();
-
-                RegionPrototype regionProto = region.Prototype;
-                if (regionProto != null)
-                {
-                    var waypointRef = regionProto.WaypointAutoUnlock;
-                    if (waypointRef != PrototypeId.Invalid)
-                        player.UnlockWaypoint(waypointRef);
-                    if (regionProto.WaypointAutoUnlockList.HasValue())
-                        foreach (var waypointUnlockRef in regionProto.WaypointAutoUnlockList)
-                            player.UnlockWaypoint(waypointUnlockRef);
-                }
-
-                UpdateTalentPowers();
-
-                var missionManager = player.MissionManager;
-                if (missionManager != null)
-                {
-                    // Restore missions from Avatar
-                    missionManager.RestoreAvatarMissions(this);
-                    // Update interest
-                    missionManager.UpdateMissionInterest();
-                }
-
-                // summoner condition
-                foreach (var summon in new SummonedEntityIterator(this))
-                    summon.AddSummonerCondition(Id);
-
-                // Finish the switch (if there was one)
-                player.Properties.RemovePropertyRange(PropertyEnum.AvatarSwitchPending);
-
-                // update achievement score
-                player.AchievementManager.UpdateScore();
-
-                // Update AOI of the owner player
-                AreaOfInterest aoi = player.AOI;
-                aoi.Update(RegionLocation.Position, true);
-                _lastSpeedCheckPosition = RegionLocation.Position;
-                _lastSpeedCheckTime = Game.CurrentTime;
-                // Assign region passive powers (e.g. min health tutorial power)
-                AssignRegionPowers();
-
-                // Spawn team-up / controlled entities
-                RespawnPersistentAgents();
-
-                if (regionProto != null)
-                {
-                    if (regionProto.Chapter != PrototypeId.Invalid)
-                        player.SetActiveChapter(regionProto.Chapter);
-
-                    if (regionProto.IsNPE == false)
-                        player.UnlockNewPlayerUISystems();
-                }
-
-                ScheduleEntityEvent(_avatarEnteredRegionEvent, TimeSpan.Zero);
-
-                player.TryDoVendorXPCapRollover();
+                Logger.Warn("OnEnteredWorld(): player == null");
+                return;
             }
+
+            Region region = Region;
+            if (region == null)
+            {
+                Logger.Warn("OnEnteredWorld(): region == null");
+                return;
+            }
+
+            player.UpdateScoringEventContext();
+
+            var teamUpAgent = CurrentTeamUpAgent;
+            if (teamUpAgent != null)
+            {
+                if (teamUpAgent.IsLiveTuningEnabled)
+                {
+                    SetOwnerTeamUpAgent(teamUpAgent);
+                    teamUpAgent.ApplyTeamUpAffixesToAvatar(this);
+                }
+                else
+                    Properties.RemoveProperty(PropertyEnum.AvatarTeamUpAgent);
+            }
+
+            InitAbilityKeyMappings();
+
+            base.OnEnteredWorld(settings);
+
+            Properties[PropertyEnum.AvatarTimePlayedStart] = Game.CurrentTime;
+
+            // Enable primary resource regen (this will be disabled by mana behavior initialization if needed)
+            foreach (PrimaryResourceManaBehaviorPrototype primaryManaBehaviorProto in GetPrimaryResourceManaBehaviors())
+                EnableEnduranceRegen(primaryManaBehaviorProto.ManaType);
+
+            // Assign powers
+            InitializePowers();
+
+            if (Game.InfinitySystemEnabled)
+                InitializeInfinityBonuses();
+            else
+                InitializeOmegaBonuses();
+
+            OnEnteredWorldSetTransformMode();
+
+            // Last active time is checked in onEnteredWorldSetTransformMode() and ObjectiveTracker::doTrackerUpdate()
+            Properties[PropertyEnum.AvatarLastActiveTime] = Game.CurrentTime;
+
+            UpdateAvatarSynergyCondition();
+            UpdateAvatarSynergyExperienceBonus();
+            CurrentTeamUpAgent?.SetTeamUpsAtMaxLevel(player);   // Needed to calculate team-up synergies
+
+            ApplyLiveTuneServerConditions();
+
+            RestoreSelfAppliedPowerConditions();     // This needs to happen after we assign powers
+            UpdateBoostConditionPauseState(region.PausesBoostConditions());
+
+            // Unlock chapters and waypoints that should be unlocked by default
+            player.UnlockChapters();
+            player.UnlockWaypoints();
+
+            RegionPrototype regionProto = region.Prototype;
+            if (regionProto != null)
+            {
+                var waypointRef = regionProto.WaypointAutoUnlock;
+                if (waypointRef != PrototypeId.Invalid)
+                    player.UnlockWaypoint(waypointRef);
+                if (regionProto.WaypointAutoUnlockList.HasValue())
+                    foreach(var waypointUnlockRef in regionProto.WaypointAutoUnlockList)
+                        player.UnlockWaypoint(waypointUnlockRef);
+            }
+
+            UpdateTalentPowers();
+
+            var missionManager = player.MissionManager;
+            if (missionManager != null)
+            {
+                // Restore missions from Avatar
+                missionManager.RestoreAvatarMissions(this);
+                // Update interest
+                missionManager.UpdateMissionInterest();
+            }
+
+            // summoner condition
+            foreach (var summon in new SummonedEntityIterator(this))
+                summon.AddSummonerCondition(Id);
+
+            // Finish the switch (if there was one)
+            player.Properties.RemovePropertyRange(PropertyEnum.AvatarSwitchPending);
+
+            // update achievement score
+            player.AchievementManager.UpdateScore();
+
+            // Update AOI of the owner player
+            AreaOfInterest aoi = player.AOI;
+            aoi.Update(RegionLocation.Position, true);
+
+            // Update party
+            Party party = Party;
+            if (party != null)
+            {
+                AssignPartyBonusPower();
+                SetPartySize(party.NumMembers);
+                SyncPartyBoostConditions();
+            }
+
+            // Assign region passive powers (e.g. min health tutorial power)
+            AssignRegionPowers();
+
+            // Spawn team-up / controlled entities
+            RespawnPersistentAgents();
+
+            if (regionProto != null)
+            {
+                if (regionProto.Chapter != PrototypeId.Invalid)
+                    player.SetActiveChapter(regionProto.Chapter);
+
+                if (regionProto.IsNPE == false)
+                    player.UnlockNewPlayerUISystems();
+            }
+
+            ScheduleEntityEvent(_avatarEnteredRegionEvent, TimeSpan.Zero);
+
+            player.TryDoVendorXPCapRollover();
         }
+
         private void ApplyLiveTuneServerConditions()
         {
             foreach (var conditionRef in GameDatabase.GlobalsPrototype.LiveTuneServerConditions)
@@ -6555,6 +6518,12 @@ namespace MHServerEmu.Games.Entities.Avatars
 
             // despawn teamups / controlled entities
             DespawnPersistentAgents();
+
+            if (PartyId != 0)
+            {
+                UnassignPartyBonusPower();
+                SetPartySize(1);
+            }
 
             CancelEnduranceEvents();
 
@@ -6621,6 +6590,137 @@ namespace MHServerEmu.Games.Entities.Avatars
             // AvatarLastActiveCalendarTime is used by the client to choose the voice line to play when the client logs in
             Properties[PropertyEnum.AvatarLastActiveTime] = Game.CurrentTime;
             Properties[PropertyEnum.AvatarLastActiveCalendarTime] = (long)Clock.UnixTime.TotalMilliseconds;
+        }
+
+        #endregion
+
+        #region Party
+
+        // PartyBoost is a power assigned to players in party. This is used in 1.10 and maybe other versions too.
+
+        public void AssignPartyBonusPower()
+        {
+            if (IsInWorld == false)
+                return;
+
+            PrototypeId partyBonusPower = AvatarPrototype.PartyBonusPower;
+            if (partyBonusPower == PrototypeId.Invalid)
+                return;
+
+            if (GetPower(partyBonusPower) != null)
+                return;
+
+            PowerIndexProperties indexProps = new(0, CharacterLevel, CombatLevel);
+            AssignPower(partyBonusPower, indexProps);
+        }
+
+        public void UnassignPartyBonusPower()
+        {
+            if (IsInWorld == false)
+                return;
+
+            PrototypeId partyBonusPower = AvatarPrototype.PartyBonusPower;
+            if (partyBonusPower == PrototypeId.Invalid)
+                return;
+
+            UnassignPower(partyBonusPower);
+        }
+
+        public void SetPartySize(int partySize)
+        {
+            Properties[PropertyEnum.PartySize] = partySize;
+
+            // Potentially move this to OnPropertyChange?
+            foreach (Condition condition in ConditionCollection)
+            {
+                if (condition.Properties.HasProperty(PropertyEnum.PartySize))
+                    condition.Properties[PropertyEnum.PartySize] = partySize;
+            }
+
+            // This eval doesn't seem to be used in any data for version 1.52, but it may have been used in older versions.
+            EvalPrototype evalOnPartySizeChange = AvatarPrototype.OnPartySizeChange;
+            if (evalOnPartySizeChange != null)
+                Logger.Debug("SetPartySize(): evalOnPartySizeChange != null");
+        }
+
+        // PartyBoostCondition is a condition that scales with the number of party members that have this condition (e.g. Avengers Assemble boosts).
+
+        public void OnPartyBoostConditionAdded(Condition condition)
+        {
+            if (condition.IsPartyBoost() == false)
+                return;
+
+            Player player = GetOwnerOfType<Player>();
+            if (player != null && player.IsSwitchingAvatar)
+                return;
+
+            if (player != null && player.PartyId != 0)
+            {
+                SyncPartyBoostConditions();
+            }
+            else
+            {
+                condition.Properties[PropertyEnum.PartyBoostCount] = 1;
+                condition.RunEvalPartyBoost();
+            }
+        }
+
+        public void OnPartyBoostConditionRemoved(Condition condition)
+        {
+            if (condition.IsPartyBoost() == false)
+                return;
+
+            Player player = GetOwnerOfType<Player>();
+            if (player != null && player.IsSwitchingAvatar)
+                return;
+
+            if (player != null && player.PartyId != 0)
+                SyncPartyBoostConditions();
+        }
+
+        public void ResetPartyBoostConditions()
+        {
+            foreach (Condition condition in ConditionCollection)
+            {
+                if (condition.IsPartyBoost() == false)
+                    continue;
+
+                if (condition.Properties[PropertyEnum.PartyBoostCount] <= 1)
+                    continue;
+
+                condition.Properties[PropertyEnum.PartyBoostCount] = 1;
+                condition.RunEvalPartyBoost();
+            }
+        }
+
+        public bool SyncPartyBoostConditions()
+        {
+            Player player = GetOwnerOfType<Player>();
+            if (player == null) return Logger.WarnReturn(false, "SyncPartyBoostConditions(): player == null");
+
+            List<ulong> boosts = null;  // allocate on demand
+
+            foreach (Condition condition in ConditionCollection)
+            {
+                if (condition.IsPartyBoost() == false)
+                    continue;
+
+                if (condition.ConditionPrototypeRef == PrototypeId.Invalid)
+                {
+                    Logger.Warn($"SyncPartyBoostConditions(): Non-standalone [{condition}] is flagged as a party boost, which is not supported");
+                    continue;
+                }
+
+                boosts ??= new();
+                PrototypeGuid conditionGuid = GameDatabase.GetPrototypeGuid(condition.ConditionPrototypeRef);
+                boosts.Add((ulong)conditionGuid);
+            }
+
+            // Even if there are no party boosts currently, notify anyway to clear the conditions that may have previously been applied.
+            ServiceMessage.PartyBoostUpdate message = new(player.DatabaseUniqueId, boosts);
+            ServerManager.Instance.SendMessageToService(GameServiceType.PlayerManager, message);
+
+            return true;
         }
 
         #endregion
