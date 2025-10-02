@@ -1645,6 +1645,8 @@ namespace MHServerEmu.Games.Entities
 
         protected virtual void InitializeProcEffectPowers()
         {
+            // NOTE: This should also initialize procs granted by equipment because
+            // equipment proc properties should already be aggregated with the owner.
             if (UpdateProcEffectPowers(Properties, true) == false)
                 Logger.Warn($"InitializeProcEffectPowers(): UpdateProcEffectPowers failed when initializing entity=[{this}]");
         }
@@ -1743,7 +1745,9 @@ namespace MHServerEmu.Games.Entities
 
             Avatar avatar = powerOwner.GetMostResponsiblePowerUser<Avatar>(true);
 
-            // TODO: Set LastInflictedDamageTime for avatars
+            // Set LastInflictedDamageTime for IsCombatActive checks (e.g. when spawning kill loot).
+            if (avatar != null && avatar.IsInWorld)
+                avatar.Properties[PropertyEnum.LastInflictedDamageTime] = Game.CurrentTime;
 
             // Enter combat if this is not an over time effect
             if (powerResults.TestFlag(PowerResultFlags.OverTime) == false)
@@ -4119,7 +4123,12 @@ namespace MHServerEmu.Games.Entities
             {
                 // Apply mods from boosts and rank
 
-                foreach (var kvp in Properties.IteratePropertyRange(PropertyEnum.EnemyBoost).ToArray())
+                Dictionary<PropertyId, PropertyValue> enemyBoosts = DictionaryPool<PropertyId, PropertyValue>.Instance.Get();
+
+                foreach (var kvp in Properties.IteratePropertyRange(PropertyEnum.EnemyBoost))
+                    enemyBoosts.Add(kvp.Key, kvp.Value);
+
+                foreach (var kvp in enemyBoosts)
                 {
                     Property.FromParam(kvp.Key, 0, out PrototypeId modProtoRef);
                     if (modProtoRef == PrototypeId.Invalid)
@@ -4130,6 +4139,8 @@ namespace MHServerEmu.Games.Entities
 
                     ModChangeModEffects(modProtoRef, kvp.Value);
                 }
+
+                DictionaryPool<PropertyId, PropertyValue>.Instance.Return(enemyBoosts);
 
                 if (Properties.HasProperty(PropertyEnum.Rank))
                 {
