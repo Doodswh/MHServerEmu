@@ -146,6 +146,7 @@ namespace MHServerEmu.Games.GameData.PatchManager
                 ValueType.BooleanArray => new ArrayValue<bool>(jsonElement, valueType, x => x.GetBoolean()),
                 ValueType.Vector3Array => new ArrayValue<Vector3>(jsonElement, valueType, x => ParseJsonVector3(x)),
                 ValueType.PropertyId => new SimpleValue<PropertyId>(ParseJsonPropertyIdSingle(jsonElement), valueType),
+                ValueType.Eval => new SimpleValue<JsonElement>(jsonElement.Clone(), valueType),
 
                 _ => throw new NotSupportedException($"ValueType '{valueType}' is not supported.")
             };
@@ -383,6 +384,7 @@ namespace MHServerEmu.Games.GameData.PatchManager
         PrototypeDataRef,
         Vector3,
         PropertyId,
+        Eval,
 
         // Complex Types
         Prototype,

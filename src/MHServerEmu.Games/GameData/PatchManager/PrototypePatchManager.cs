@@ -430,6 +430,14 @@ namespace MHServerEmu.Games.GameData.PatchManager
                 {
                     return PatchEntryConverter.ParseJsonPrototype(jsonVal);
                 }
+                if (typeof(EvalPrototype).IsAssignableFrom(targetType) && jsonVal.ValueKind == JsonValueKind.Object)
+                {
+                    if (jsonVal.TryGetProperty("ParentDataRef", out _))
+                    {
+                        return PatchEntryConverter.ParseJsonPrototype(jsonVal) as EvalPrototype;
+                    }
+                }
+
                 // Handle PropertyId from JSON object
                 if (targetType == typeof(PropertyId) && jsonVal.ValueKind == JsonValueKind.Object)
                 {
