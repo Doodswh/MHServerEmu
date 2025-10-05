@@ -582,7 +582,17 @@ namespace MHServerEmu.Games.Entities
 
             return _consoleAccountIds[(int)avatarIndex];
         }
-
+        public void ShowUIMessage(string message)
+        {
+            // Here you would put the actual logic to send the message
+            // to the player's client to be displayed on the UI.
+            // For example:
+            //
+            // SendUIPacket(UIPacketFactory.CreateMessage(message));
+            //
+            // For now, we can just log it to the console for testing.
+            Console.WriteLine($"Showing UI message to player: {message}");
+        }
         public void SetGameplayOptions(NetMessageSetPlayerGameplayOptions clientOptions)
         {
             GameplayOptions newOptions = new(clientOptions.OptionsData);
@@ -3628,6 +3638,27 @@ namespace MHServerEmu.Games.Entities
             }
 
             return (int)_loginCount;
+            EventScheduler scheduler = this.Game.GameEventScheduler;
+
+            // Create a pointer to manage the event. This is our handle to the event.
+            var messageEventPointer = new EventPointer<ShowUIMessageEvent>();
+
+            // The message we want to send.
+            string welcomeMessage = "Welcome! You will receive a bonus in 1 minute.";
+
+            
+            // This creates the event and links it to our pointer.
+            scheduler.ScheduleEvent(messageEventPointer, TimeSpan.FromSeconds(5));
+
+            // Now, get the created event instance back from the pointer.
+            ShowUIMessageEvent scheduledEvent = messageEventPointer.Get();
+
+            if (scheduledEvent != null)
+            {
+               
+                // and the message parameter.
+                scheduledEvent.Initialize(this, welcomeMessage);
+            }
         }
 
         private void GiveLoginRewards(int loginCount)

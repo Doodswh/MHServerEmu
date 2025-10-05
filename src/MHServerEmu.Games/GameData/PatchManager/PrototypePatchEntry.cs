@@ -145,6 +145,7 @@ namespace MHServerEmu.Games.GameData.PatchManager
                 ValueType.IntegerArray => new ArrayValue<int>(jsonElement, valueType, x => x.GetInt32()),
                 ValueType.BooleanArray => new ArrayValue<bool>(jsonElement, valueType, x => x.GetBoolean()),
                 ValueType.Vector3Array => new ArrayValue<Vector3>(jsonElement, valueType, x => ParseJsonVector3(x)),
+                ValueType.PropertyId => new SimpleValue<PropertyId>(ParseJsonPropertyIdSingle(jsonElement), valueType),
 
                 _ => throw new NotSupportedException($"ValueType '{valueType}' is not supported.")
             };
@@ -237,7 +238,20 @@ namespace MHServerEmu.Games.GameData.PatchManager
 
             return prototype;
         }
+        private static PropertyId ParseJsonPropertyIdSingle(JsonElement jsonElement)
+        {
+            if (jsonElement.ValueKind != JsonValueKind.Object)
+                throw new InvalidOperationException("JSON element for PropertyId must be an object.");
 
+            if (!jsonElement.TryGetProperty("PropertyEnum", out var propEnumElement))
+                throw new InvalidOperationException("PropertyId JSON must contain 'PropertyEnum' field.");
+
+            var propertyEnum = (PropertyEnum)Enum.Parse(typeof(PropertyEnum), propEnumElement.GetString(), true);
+            var infoTable = GameDatabase.PropertyInfoTable;
+            PropertyInfo propertyInfo = infoTable.LookupPropertyInfo(propertyEnum);
+
+            return ParseJsonPropertyId(jsonElement, propertyEnum, propertyInfo);
+        }
         public static PropertyCollection ParseJsonProperties(JsonElement jsonElement)
         {
             PropertyCollection properties = new();
@@ -368,6 +382,7 @@ namespace MHServerEmu.Games.GameData.PatchManager
         LocaleStringId,
         PrototypeDataRef,
         Vector3,
+        PropertyId,
 
         // Complex Types
         Prototype,
