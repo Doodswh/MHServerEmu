@@ -503,20 +503,40 @@ namespace MHServerEmu.Games.GameData.PatchManager
                 return newArray;
             }
 
-            if (targetType == typeof(AssetId) && rawValue is string assetString)
-            {
+            if(targetType == typeof(AssetId) && rawValue is string assetString)
+{
                 int typeNameStart = assetString.LastIndexOf('(');
                 int typeNameEnd = assetString.LastIndexOf(')');
+
                 if (typeNameStart != -1 && typeNameEnd > typeNameStart)
                 {
                     string assetName = assetString.Substring(0, typeNameStart).Trim();
                     string assetTypeName = assetString.Substring(typeNameStart + 1, typeNameEnd - typeNameStart - 1).Trim();
-                    var assetType = GameDatabase.DataDirectory.AssetDirectory.GetAssetType(assetTypeName);
-                    if (assetType != null)
+
+                    if (string.IsNullOrEmpty(assetName) || string.IsNullOrEmpty(assetTypeName))
                     {
-                        var assetId = assetType.FindAssetByName(assetName, DataFileSearchFlags.CaseInsensitive);
-                        if (assetId != AssetId.Invalid) return assetId;
+                        Logger.Warn($"Invalid AssetId format: empty name or type in '{assetString}'");
+                        return AssetId.Invalid;
                     }
+
+                    var assetType = GameDatabase.DataDirectory.AssetDirectory.GetAssetType(assetTypeName);
+                    if (assetType == null)
+                    {
+                        Logger.Warn($"Asset type '{assetTypeName}' not found for asset '{assetName}'");
+                        return AssetId.Invalid;
+                    }
+
+                    var assetId = assetType.FindAssetByName(assetName, DataFileSearchFlags.CaseInsensitive);
+                    if (assetId == AssetId.Invalid)
+                    {
+                        Logger.Warn($"Asset '{assetName}' of type '{assetTypeName}' not found");
+                    }
+                    return assetId;
+                }
+                else
+                {
+                    Logger.Warn($"AssetId string '{assetString}' does not match expected format 'AssetName (AssetType)'");
+                    return AssetId.Invalid;
                 }
             }
 
