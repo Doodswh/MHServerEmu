@@ -483,12 +483,14 @@ namespace MHServerEmu.Games.GameData.PatchManager
                     if (targetType == typeof(PrototypeGuid)) return (PrototypeGuid)jsonVal.GetUInt64();
                     if (targetType.IsEnum)
                     {
-                        return jsonVal.ValueKind == JsonValueKind.String
-                            ? Enum.Parse(targetType, jsonVal.GetString(), true)
-                            : Enum.ToObject(targetType, jsonVal.GetInt32());
+                        return PatchEntryConverter.ParseAndValidateEnum(jsonVal, targetType);
                     }
                 }
-                catch (Exception) { /* Fall through to final conversion attempts */ }
+                catch (Exception ex)
+                {
+                    Logger.Warn($"Failed to convert JsonElement to {targetType.Name}: {ex.Message}");
+                    // Fall through to other conversion attempts
+                }
             }
 
             // Fallback for other conversions
@@ -541,7 +543,15 @@ namespace MHServerEmu.Games.GameData.PatchManager
             }
 
             if (targetType.IsEnum && rawValue is string enumString)
-                return Enum.Parse(targetType, enumString, true);
+            {
+                if (Enum.TryParse(targetType, enumString, true, out object enumValue))
+                    return enumValue;
+
+                var validValues = string.Join(", ", Enum.GetNames(targetType));
+                throw new InvalidOperationException(
+                    $"Invalid enum value '{enumString}' for type '{targetType.Name}'. Valid values are: {validValues}");
+            }
+
 
             TypeConverter converter = TypeDescriptor.GetConverter(targetType);
             if (converter != null && converter.CanConvertFrom(rawValue.GetType()))

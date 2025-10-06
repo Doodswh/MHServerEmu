@@ -276,7 +276,41 @@ namespace MHServerEmu.Games.GameData.PatchManager
 
             return properties;
         }
+        public static object ParseAndValidateEnum(JsonElement jsonElement, Type enumType)
+        {
+            if (!enumType.IsEnum)
+                throw new InvalidOperationException($"Type '{enumType.Name}' is not an enum type.");
 
+            object enumValue;
+
+            if (jsonElement.ValueKind == JsonValueKind.String)
+            {
+                string enumString = jsonElement.GetString();
+                if (!Enum.TryParse(enumType, enumString, true, out enumValue))
+                {
+                    // Try to provide helpful error message with valid values
+                    var validValues = string.Join(", ", Enum.GetNames(enumType));
+                    throw new InvalidOperationException(
+                        $"Invalid enum value '{enumString}' for type '{enumType.Name}'. Valid values are: {validValues}");
+                }
+            }
+            else if (jsonElement.ValueKind == JsonValueKind.Number)
+            {
+                int numericValue = jsonElement.GetInt32();
+                if (!Enum.IsDefined(enumType, numericValue))
+                {
+                    Logger.Warn($"Numeric enum value {numericValue} is not defined in '{enumType.Name}'. Using it anyway.");
+                }
+                enumValue = Enum.ToObject(enumType, numericValue);
+            }
+            else
+            {
+                throw new InvalidOperationException(
+                    $"JSON element for enum '{enumType.Name}' must be a string or number, but was {jsonElement.ValueKind}.");
+            }
+
+            return enumValue;
+        }
         public static PropertyId ParseJsonPropertyId(JsonElement jsonElement, PropertyEnum propEnum, PropertyInfo propInfo)
         {
             int paramCount = propInfo.ParamCount;
