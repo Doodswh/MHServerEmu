@@ -143,7 +143,6 @@ namespace MHServerEmu.Games.GameData.PatchManager
             {
                 if (!entry.Patched)
                 {
-                    // We will modify CheckAndUpdate next
                     CheckAndUpdate(entry, prototype);
                 }
             }
@@ -160,7 +159,6 @@ namespace MHServerEmu.Games.GameData.PatchManager
             var targetObject = GetObjectFromPath(prototype, entry.СlearPath);
             if (targetObject == null)
             {
-                // This log is expected if the object path is invalid, so we use Trace level
                 Logger.Trace($"[CheckAndUpdate] Target object not found for path '{entry.СlearPath}'. Skipping patch '{entry.Path}'.");
                 return false;
             }
@@ -168,7 +166,6 @@ namespace MHServerEmu.Games.GameData.PatchManager
             var fieldInfo = targetObject.GetType().GetProperty(entry.FieldName);
             if (fieldInfo == null)
             {
-                // This is more severe, likely a config error, so we use Warn level
                 Logger.Warn($"[CheckAndUpdate] Field '{entry.FieldName}' not found on target '{targetObject.GetType().Name}' for patch '{entry.Path}'");
                 return false;
             }
@@ -190,7 +187,18 @@ namespace MHServerEmu.Games.GameData.PatchManager
                 }
                 else
                 {
-                    fieldInfo.SetValue(targetObject, ConvertValue(entry.Value.GetValue(), fieldInfo.PropertyType));
+                    object convertedValue = ConvertValue(entry.Value.GetValue(), fieldInfo.PropertyType);
+
+                    // Special handling for Eval and ComplexObject - they're already parsed
+                    if (entry.Value.ValueType == ValueType.Eval || entry.Value.ValueType == ValueType.ComplexObject)
+                    {
+                        // Value is already a fully constructed prototype
+                        fieldInfo.SetValue(targetObject, convertedValue);
+                    }
+                    else
+                    {
+                        fieldInfo.SetValue(targetObject, convertedValue);
+                    }
                 }
                 entry.Patched = true;
             }
@@ -231,7 +239,6 @@ namespace MHServerEmu.Games.GameData.PatchManager
             object valueEntry = value.GetValue();
             object finalValue;
 
-            
             if (typeof(Prototype).IsAssignableFrom(elementType) && (valueEntry is PrototypeId || valueEntry is ulong || value.ValueType == ValueType.PrototypeDataRef))
             {
                 var dataRef = (PrototypeId)Convert.ChangeType(valueEntry, typeof(ulong));
@@ -240,13 +247,21 @@ namespace MHServerEmu.Games.GameData.PatchManager
                 if (finalValue == null)
                     throw new InvalidOperationException($"DataRef {dataRef} is not a valid Prototype or could not be found.");
             }
+            else if (typeof(EvalPrototype).IsAssignableFrom(elementType) && valueEntry is EvalPrototype)
+            {
+                // Eval is already parsed
+                finalValue = valueEntry;
+            }
+            else if (typeof(Prototype).IsAssignableFrom(elementType) && valueEntry is Prototype)
+            {
+                // ComplexObject or Prototype is already parsed
+                finalValue = valueEntry;
+            }
             else
             {
-               
                 finalValue = ConvertValue(valueEntry, elementType);
             }
 
-           
             if (!elementType.IsAssignableFrom(finalValue.GetType()))
                 throw new InvalidOperationException($"The resolved value of type {finalValue.GetType().Name} cannot be assigned to an array element of type {elementType.Name}.");
 
@@ -268,7 +283,6 @@ namespace MHServerEmu.Games.GameData.PatchManager
 
             if (valuesToAdd != null)
             {
-                // This is the new logic for inserting an array of items
                 var newArray = Array.CreateInstance(elementType, (currentArray?.Length ?? 0) + valuesToAdd.Length);
                 if (currentArray != null)
                     Array.Copy(currentArray, newArray, currentArray.Length);
@@ -282,7 +296,6 @@ namespace MHServerEmu.Games.GameData.PatchManager
             }
             else
             {
-                // This is the original logic for inserting a single item
                 var newArray = Array.CreateInstance(elementType, (currentArray?.Length ?? 0) + 1);
                 if (currentArray != null)
                     Array.Copy(currentArray, newArray, currentArray.Length);
@@ -292,36 +305,6 @@ namespace MHServerEmu.Games.GameData.PatchManager
             }
         }
 
-        private static bool IsTypeCompatible(Type baseType, object rawValue, ValueType valueType)
-        {
-            if (rawValue is Array rawArray)
-            {
-                var elementValueType = valueType.ToString().EndsWith("Array") ? (ValueType)Enum.Parse(typeof(ValueType), valueType.ToString().Replace("Array", "")) : valueType;
-                return rawArray.Cast<object>().All(element => IsTypeCompatible(baseType, element, elementValueType));
-            }
-            if (typeof(Prototype).IsAssignableFrom(baseType))
-            {
-                if (rawValue is PrototypeId dataRef)
-                {
-                    var actualPrototype = GameDatabase.GetPrototype<Prototype>(dataRef);
-                    return actualPrototype != null && baseType.IsAssignableFrom(actualPrototype.GetType());
-                }
-                if (rawValue is JsonElement jsonElement && (valueType == ValueType.Prototype || valueType == ValueType.ComplexObject))
-                {
-                    if (jsonElement.TryGetProperty("ParentDataRef", out var parentDataRefElement) && parentDataRefElement.TryGetUInt64(out var id))
-                    {
-                        Type classType = GameDatabase.DataDirectory.GetPrototypeClassType((PrototypeId)id);
-                        return classType != null && baseType.IsAssignableFrom(classType);
-                    }
-                    return false;
-                }
-            }
-            if (valueType == ValueType.ComplexObject && rawValue is JsonElement)
-            {
-                return true;
-            }
-            return baseType.IsAssignableFrom(rawValue.GetType());
-        }
         private object GetObjectFromPath(object root, string path)
         {
             if (string.IsNullOrEmpty(path))
@@ -330,7 +313,6 @@ namespace MHServerEmu.Games.GameData.PatchManager
             }
 
             object current = root;
-            // Use a regex to correctly split on dots but not dots inside brackets (future-proofing)
             var pathParts = path.Split('.');
 
             foreach (var part in pathParts)
@@ -342,7 +324,6 @@ namespace MHServerEmu.Games.GameData.PatchManager
                 {
                     if (arrayMatch.Success)
                     {
-
                         var propertyName = arrayMatch.Groups[1].Value;
                         var index = int.Parse(arrayMatch.Groups[2].Value);
 
@@ -350,13 +331,12 @@ namespace MHServerEmu.Games.GameData.PatchManager
                         if (propInfo == null) return null;
 
                         if (propInfo.GetValue(current) is not System.Collections.IList list) return null;
-                        if (index >= list.Count) return null; // Index out of bounds
+                        if (index >= list.Count) return null;
 
                         current = list[index];
                     }
                     else
                     {
-
                         var propInfo = current.GetType().GetProperty(part);
                         if (propInfo == null) return null;
                         current = propInfo.GetValue(current);
@@ -370,17 +350,37 @@ namespace MHServerEmu.Games.GameData.PatchManager
             }
             return current;
         }
+
         private static object GetElementValue(object valueEntry, Type elementType)
         {
+            // Handle already-parsed prototypes
+            if (typeof(EvalPrototype).IsAssignableFrom(elementType) && valueEntry is EvalPrototype)
+                return valueEntry;
+
+            if (typeof(Prototype).IsAssignableFrom(elementType) && valueEntry is Prototype)
+                return valueEntry;
+
             if (typeof(Prototype).IsAssignableFrom(elementType) && valueEntry is PrototypeId dataRef)
                 return GameDatabase.GetPrototype<Prototype>(dataRef) ?? throw new InvalidOperationException($"DataRef {dataRef} is not a valid Prototype.");
+
             return ConvertValue(valueEntry, elementType);
         }
 
         public static object ConvertValue(object rawValue, Type targetType)
         {
-            if (rawValue == null || (rawValue is JsonElement jsonValCheck && jsonValCheck.ValueKind == JsonValueKind.Null)) return null;
-            if (targetType.IsInstanceOfType(rawValue)) return rawValue;
+            if (rawValue == null || (rawValue is JsonElement jsonValCheck && jsonValCheck.ValueKind == JsonValueKind.Null))
+                return null;
+
+            if (targetType.IsInstanceOfType(rawValue))
+                return rawValue;
+
+            // Handle already-parsed EvalPrototype
+            if (typeof(EvalPrototype).IsAssignableFrom(targetType) && rawValue is EvalPrototype evalProto)
+                return evalProto;
+
+            // Handle already-parsed Prototype (ComplexObject)
+            if (typeof(Prototype).IsAssignableFrom(targetType) && rawValue is Prototype proto)
+                return proto;
 
             if (targetType == typeof(PropertyId) && rawValue is JsonElement jsonValForPropId && jsonValForPropId.ValueKind == JsonValueKind.Object)
             {
@@ -390,7 +390,6 @@ namespace MHServerEmu.Games.GameData.PatchManager
                     {
                         var propertyEnum = (PropertyEnum)Enum.Parse(typeof(PropertyEnum), propEnumElement.GetString(), true);
 
-                        // Check for parameters
                         PropertyParam[] parameters = new PropertyParam[Property.MaxParamCount];
                         for (int i = 0; i < Property.MaxParamCount; i++)
                         {
@@ -425,16 +424,21 @@ namespace MHServerEmu.Games.GameData.PatchManager
                     return newArray;
                 }
 
-                
-                if (jsonVal.ValueKind == JsonValueKind.Object && jsonVal.TryGetProperty("ParentDataRef", out _))
-                {
-                    return PatchEntryConverter.ParseJsonPrototype(jsonVal);
-                }
+                // Handle EvalPrototype from JSON
                 if (typeof(EvalPrototype).IsAssignableFrom(targetType) && jsonVal.ValueKind == JsonValueKind.Object)
                 {
                     if (jsonVal.TryGetProperty("ParentDataRef", out _))
                     {
-                        return PatchEntryConverter.ParseJsonPrototype(jsonVal) as EvalPrototype;
+                        return PatchEntryConverter.ParseJsonEval(jsonVal);
+                    }
+                }
+
+                // Handle Prototype from JSON
+                if (typeof(Prototype).IsAssignableFrom(targetType) && jsonVal.ValueKind == JsonValueKind.Object)
+                {
+                    if (jsonVal.TryGetProperty("ParentDataRef", out _))
+                    {
+                        return PatchEntryConverter.ParseJsonPrototype(jsonVal);
                     }
                 }
 
@@ -447,7 +451,6 @@ namespace MHServerEmu.Games.GameData.PatchManager
                         {
                             var propertyEnum = (PropertyEnum)Enum.Parse(typeof(PropertyEnum), propEnumElement.GetString(), true);
 
-                            // Check for parameters
                             PropertyParam[] parameters = new PropertyParam[Property.MaxParamCount];
                             for (int i = 0; i < Property.MaxParamCount; i++)
                             {
@@ -489,7 +492,6 @@ namespace MHServerEmu.Games.GameData.PatchManager
                 catch (Exception ex)
                 {
                     Logger.Warn($"Failed to convert JsonElement to {targetType.Name}: {ex.Message}");
-                    // Fall through to other conversion attempts
                 }
             }
 
@@ -505,8 +507,8 @@ namespace MHServerEmu.Games.GameData.PatchManager
                 return newArray;
             }
 
-            if(targetType == typeof(AssetId) && rawValue is string assetString)
-{
+            if (targetType == typeof(AssetId) && rawValue is string assetString)
+            {
                 int typeNameStart = assetString.LastIndexOf('(');
                 int typeNameEnd = assetString.LastIndexOf(')');
 
@@ -551,7 +553,6 @@ namespace MHServerEmu.Games.GameData.PatchManager
                 throw new InvalidOperationException(
                     $"Invalid enum value '{enumString}' for type '{targetType.Name}'. Valid values are: {validValues}");
             }
-
 
             TypeConverter converter = TypeDescriptor.GetConverter(targetType);
             if (converter != null && converter.CanConvertFrom(rawValue.GetType()))

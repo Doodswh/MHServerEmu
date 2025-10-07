@@ -10,6 +10,9 @@ using System.Text.Json.Serialization;
 
 namespace MHServerEmu.Games.GameData.PatchManager
 {
+    /// <summary>
+    /// Represents a single patch entry that can modify a prototype field
+    /// </summary>
     public class PrototypePatchEntry
     {
         public bool Enabled { get; }
@@ -72,7 +75,7 @@ namespace MHServerEmu.Games.GameData.PatchManager
         }
     }
 
- 
+
     public class PatchEntryConverter : JsonConverter<PrototypePatchEntry>
     {
         private static readonly Logger Logger = LogManager.CreateLogger();
@@ -132,21 +135,21 @@ namespace MHServerEmu.Games.GameData.PatchManager
                 ValueType.LocaleStringId => new SimpleValue<LocaleStringId>((LocaleStringId)jsonElement.GetUInt64(), valueType),
                 ValueType.Vector3 => new SimpleValue<Vector3>(ParseJsonVector3(jsonElement), valueType),
 
-                // Complex types stored as JsonElement for deferred parsing
-                ValueType.Prototype => new SimpleValue<JsonElement>(jsonElement.Clone(), valueType),
+                // Complex types - parse immediately for Eval and ComplexObject
+                ValueType.Prototype => new SimpleValue<Prototype>(ParseJsonPrototype(jsonElement), valueType),
                 ValueType.Properties => new SimpleValue<PropertyCollection>(ParseJsonProperties(jsonElement), valueType),
-                ValueType.ComplexObject => new SimpleValue<JsonElement>(jsonElement.Clone(), valueType),
+                ValueType.ComplexObject => new SimpleValue<Prototype>(ParseJsonComplexObject(jsonElement), valueType),
+                ValueType.Eval => new SimpleValue<EvalPrototype>(ParseJsonEval(jsonElement), valueType),
 
                 // Array types
                 ValueType.PrototypeIdArray or ValueType.PrototypeDataRefArray => new ArrayValue<PrototypeId>(jsonElement, valueType, x => (PrototypeId)x.GetUInt64()),
-                ValueType.PrototypeArray => new ArrayValue<JsonElement>(jsonElement, valueType, x => x.Clone()),
+                ValueType.PrototypeArray => new ArrayValue<Prototype>(jsonElement, valueType, x => ParseJsonPrototype(x)),
                 ValueType.StringArray => new ArrayValue<string>(jsonElement, valueType, x => x.GetString()),
                 ValueType.FloatArray => new ArrayValue<float>(jsonElement, valueType, x => x.GetSingle()),
                 ValueType.IntegerArray => new ArrayValue<int>(jsonElement, valueType, x => x.GetInt32()),
                 ValueType.BooleanArray => new ArrayValue<bool>(jsonElement, valueType, x => x.GetBoolean()),
                 ValueType.Vector3Array => new ArrayValue<Vector3>(jsonElement, valueType, x => ParseJsonVector3(x)),
                 ValueType.PropertyId => new SimpleValue<PropertyId>(ParseJsonPropertyIdSingle(jsonElement), valueType),
-                ValueType.Eval => new SimpleValue<JsonElement>(jsonElement.Clone(), valueType),
 
                 _ => throw new NotSupportedException($"ValueType '{valueType}' is not supported.")
             };
@@ -164,6 +167,131 @@ namespace MHServerEmu.Games.GameData.PatchManager
             return new Vector3(jsonArray[0].GetSingle(), jsonArray[1].GetSingle(), jsonArray[2].GetSingle());
         }
 
+        /// <summary>
+        /// Parses a ComplexObject from JSON - similar to Prototype but doesn't require ParentDataRef
+        /// Used for rebuilding missing prototype sections
+        /// </summary>
+        public static Prototype ParseJsonComplexObject(JsonElement jsonElement)
+        {
+            if (jsonElement.ValueKind != JsonValueKind.Object)
+                throw new InvalidOperationException("JSON element for ComplexObject parsing must be an object.");
+
+            // ComplexObject can optionally have ParentDataRef, but doesn't require it
+            PrototypeId referenceType = PrototypeId.Invalid;
+            Type classType = null;
+
+            if (jsonElement.TryGetProperty("ParentDataRef", out var parentDataRefElement))
+            {
+                referenceType = (PrototypeId)parentDataRefElement.GetUInt64();
+                classType = GameDatabase.DataDirectory.GetPrototypeClassType(referenceType);
+            }
+            else if (jsonElement.TryGetProperty("ClassName", out var classNameElement))
+            {
+                // Allow specifying class type by name for ComplexObject
+                string className = classNameElement.GetString();
+                classType = GameDatabase.PrototypeClassManager.GetPrototypeClassTypeByName(className);
+            }
+
+            if (classType == null)
+            {
+                Logger.Warn($"Could not determine class type for ComplexObject. Ensure ParentDataRef or ClassName is provided.");
+                return null;
+            }
+
+            var prototype = GameDatabase.PrototypeClassManager.AllocatePrototype(classType);
+
+            // Copy from reference if we have one
+            if (referenceType != PrototypeId.Invalid)
+            {
+                CalligraphySerializer.CopyPrototypeDataRefFields(prototype, referenceType);
+                prototype.ParentDataRef = referenceType;
+            }
+
+            // Apply all properties from JSON
+            foreach (var property in jsonElement.EnumerateObject())
+            {
+                if (property.Name == "ParentDataRef" || property.Name == "ClassName")
+                    continue;
+
+                var fieldInfo = prototype.GetType().GetProperty(property.Name);
+                if (fieldInfo == null)
+                {
+                    Logger.Warn($"Property '{property.Name}' not found on prototype type '{prototype.GetType().Name}'. Skipping.");
+                    continue;
+                }
+
+                try
+                {
+                    object convertedValue = ParsePropertyValue(property.Value, fieldInfo);
+                    fieldInfo.SetValue(prototype, convertedValue);
+                }
+                catch (Exception ex)
+                {
+                    Logger.ErrorException(ex, $"Failed to parse or convert property '{property.Name}' for ComplexObject '{prototype.GetType().Name}'.");
+                }
+            }
+
+            return prototype;
+        }
+
+        /// <summary>
+        /// Parses an Eval prototype from JSON with full support for nested structures
+        /// </summary>
+        public static EvalPrototype ParseJsonEval(JsonElement jsonElement)
+        {
+            if (jsonElement.ValueKind != JsonValueKind.Object)
+                throw new InvalidOperationException("JSON element for Eval parsing must be an object.");
+
+            if (!jsonElement.TryGetProperty("ParentDataRef", out var parentDataRefElement))
+                throw new InvalidOperationException("JSON element for Eval is missing the required 'ParentDataRef' property.");
+
+            var referenceType = (PrototypeId)parentDataRefElement.GetUInt64();
+            Type classType = GameDatabase.DataDirectory.GetPrototypeClassType(referenceType);
+
+            if (classType == null)
+            {
+                Logger.Warn($"Could not find class type for Eval prototype ID '{referenceType}'.");
+                return null;
+            }
+
+            // Ensure it's actually an EvalPrototype
+            if (!typeof(EvalPrototype).IsAssignableFrom(classType))
+            {
+                Logger.Warn($"Class type '{classType.Name}' for prototype '{referenceType}' is not an EvalPrototype.");
+                return null;
+            }
+
+            var evalPrototype = (EvalPrototype)GameDatabase.PrototypeClassManager.AllocatePrototype(classType);
+
+            CalligraphySerializer.CopyPrototypeDataRefFields(evalPrototype, referenceType);
+            evalPrototype.ParentDataRef = referenceType;
+
+            // Parse all properties
+            foreach (var property in jsonElement.EnumerateObject())
+            {
+                if (property.Name == "ParentDataRef") continue;
+
+                var fieldInfo = evalPrototype.GetType().GetProperty(property.Name);
+                if (fieldInfo == null)
+                {
+                    Logger.Warn($"Property '{property.Name}' not found on Eval type '{evalPrototype.GetType().Name}'. Skipping.");
+                    continue;
+                }
+
+                try
+                {
+                    object convertedValue = ParsePropertyValue(property.Value, fieldInfo);
+                    fieldInfo.SetValue(evalPrototype, convertedValue);
+                }
+                catch (Exception ex)
+                {
+                    Logger.ErrorException(ex, $"Failed to parse or convert property '{property.Name}' for Eval '{evalPrototype.GetType().Name}'.");
+                }
+            }
+
+            return evalPrototype;
+        }
+
         public static Prototype ParseJsonPrototype(JsonElement jsonElement)
         {
             if (jsonElement.ValueKind != JsonValueKind.Object)
@@ -178,7 +306,7 @@ namespace MHServerEmu.Games.GameData.PatchManager
             if (classType == null)
             {
                 Logger.Warn($"Could not find class type for prototype ID '{referenceType}'.");
-                return null; // <-- This was the missing return path
+                return null;
             }
 
             var prototype = GameDatabase.PrototypeClassManager.AllocatePrototype(classType);
@@ -199,36 +327,7 @@ namespace MHServerEmu.Games.GameData.PatchManager
 
                 try
                 {
-                    object convertedValue;
-
-
-                    if (fieldInfo.PropertyType == typeof(MHServerEmu.Games.Properties.PropertyId) &&
-     property.Value.ValueKind == JsonValueKind.Object &&
-     property.Value.TryGetProperty("ParentDataRef", out var idElement))
-                    {
-                        var propId = (PrototypeId)idElement.GetUInt64();
-                        var propEnum = GameDatabase.PropertyInfoTable.GetPropertyEnumFromPrototype(propId);
-
-                        if (propEnum != MHServerEmu.Games.Properties.PropertyEnum.Invalid)
-                        {
-                            convertedValue = new MHServerEmu.Games.Properties.PropertyId(propEnum);
-                        }
-                        else
-                        {
-                            Logger.Warn($"Could not find a valid PropertyEnum for PrototypeId '{propId}'.");
-                            convertedValue = null;
-                        }
-                    }
-                    else if (typeof(Prototype).IsAssignableFrom(fieldInfo.PropertyType) && property.Value.ValueKind == JsonValueKind.Object)
-                    {
-                        convertedValue = ParseJsonPrototype(property.Value);
-                              }
-                    else
-                    {
-                        object element = ParseJsonElement(property.Value, fieldInfo.PropertyType);
-                        convertedValue = PrototypePatchManager.ConvertValue(element, fieldInfo.PropertyType);
-                    }
-
+                    object convertedValue = ParsePropertyValue(property.Value, fieldInfo);
                     fieldInfo.SetValue(prototype, convertedValue);
                 }
                 catch (Exception ex)
@@ -239,6 +338,81 @@ namespace MHServerEmu.Games.GameData.PatchManager
 
             return prototype;
         }
+
+        /// <summary>
+        /// Unified property value parser that handles all types including nested prototypes
+        /// </summary>
+        private static object ParsePropertyValue(JsonElement propertyValue, System.Reflection.PropertyInfo fieldInfo)
+        {
+            Type targetType = fieldInfo.PropertyType;
+
+            // Handle PropertyId with special structure
+            if (targetType == typeof(PropertyId) && propertyValue.ValueKind == JsonValueKind.Object)
+            {
+                if (propertyValue.TryGetProperty("ParentDataRef", out var idElement))
+                {
+                    var propId = (PrototypeId)idElement.GetUInt64();
+                    var propEnum = GameDatabase.PropertyInfoTable.GetPropertyEnumFromPrototype(propId);
+
+                    if (propEnum != PropertyEnum.Invalid)
+                    {
+                        return new PropertyId(propEnum);
+                    }
+                    else
+                    {
+                        Logger.Warn($"Could not find a valid PropertyEnum for PrototypeId '{propId}'.");
+                        return null;
+                    }
+                }
+            }
+
+            // Handle nested EvalPrototype
+            if (typeof(EvalPrototype).IsAssignableFrom(targetType) && propertyValue.ValueKind == JsonValueKind.Object)
+            {
+                return ParseJsonEval(propertyValue);
+            }
+
+            // Handle nested Prototype
+            if (typeof(Prototype).IsAssignableFrom(targetType) && propertyValue.ValueKind == JsonValueKind.Object)
+            {
+                return ParseJsonPrototype(propertyValue);
+            }
+
+            // Handle arrays of prototypes
+            if (targetType.IsArray && propertyValue.ValueKind == JsonValueKind.Array)
+            {
+                Type elementType = targetType.GetElementType();
+                var jsonArray = propertyValue.EnumerateArray().ToArray();
+                Array resultArray = Array.CreateInstance(elementType, jsonArray.Length);
+
+                for (int i = 0; i < jsonArray.Length; i++)
+                {
+                    object element;
+
+                    if (typeof(EvalPrototype).IsAssignableFrom(elementType) && jsonArray[i].ValueKind == JsonValueKind.Object)
+                    {
+                        element = ParseJsonEval(jsonArray[i]);
+                    }
+                    else if (typeof(Prototype).IsAssignableFrom(elementType) && jsonArray[i].ValueKind == JsonValueKind.Object)
+                    {
+                        element = ParseJsonPrototype(jsonArray[i]);
+                    }
+                    else
+                    {
+                        element = PrototypePatchManager.ConvertValue(ParseJsonElement(jsonArray[i], elementType), elementType);
+                    }
+
+                    resultArray.SetValue(element, i);
+                }
+
+                return resultArray;
+            }
+
+            // Handle simple types
+            object parsedElement = ParseJsonElement(propertyValue, targetType);
+            return PrototypePatchManager.ConvertValue(parsedElement, targetType);
+        }
+
         private static PropertyId ParseJsonPropertyIdSingle(JsonElement jsonElement)
         {
             if (jsonElement.ValueKind != JsonValueKind.Object)
@@ -253,6 +427,7 @@ namespace MHServerEmu.Games.GameData.PatchManager
 
             return ParseJsonPropertyId(jsonElement, propertyEnum, propertyInfo);
         }
+
         public static PropertyCollection ParseJsonProperties(JsonElement jsonElement)
         {
             PropertyCollection properties = new();
@@ -276,6 +451,7 @@ namespace MHServerEmu.Games.GameData.PatchManager
 
             return properties;
         }
+
         public static object ParseAndValidateEnum(JsonElement jsonElement, Type enumType)
         {
             if (!enumType.IsEnum)
@@ -288,7 +464,6 @@ namespace MHServerEmu.Games.GameData.PatchManager
                 string enumString = jsonElement.GetString();
                 if (!Enum.TryParse(enumType, enumString, true, out enumValue))
                 {
-                    // Try to provide helpful error message with valid values
                     var validValues = string.Join(", ", Enum.GetNames(enumType));
                     throw new InvalidOperationException(
                         $"Invalid enum value '{enumString}' for type '{enumType.Name}'. Valid values are: {validValues}");
@@ -311,6 +486,7 @@ namespace MHServerEmu.Games.GameData.PatchManager
 
             return enumValue;
         }
+
         public static PropertyId ParseJsonPropertyId(JsonElement jsonElement, PropertyEnum propEnum, PropertyInfo propInfo)
         {
             int paramCount = propInfo.ParamCount;
@@ -392,14 +568,12 @@ namespace MHServerEmu.Games.GameData.PatchManager
                     return Enum.ToObject(targetType, value.GetInt32());
             }
 
-            // For complex objects, prototypes, or arrays, return the JsonElement itself
-            // to be fully parsed later by a more specific method.
+            // For complex objects or arrays, return the JsonElement for later processing
             if (value.ValueKind == JsonValueKind.Object || value.ValueKind == JsonValueKind.Array)
             {
                 return value;
             }
 
-            // Fallback for any other scenario
             return value.ToString();
         }
     }
