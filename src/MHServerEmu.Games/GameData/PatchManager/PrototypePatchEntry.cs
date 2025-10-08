@@ -346,6 +346,30 @@ namespace MHServerEmu.Games.GameData.PatchManager
         {
             Type targetType = fieldInfo.PropertyType;
 
+            // Handle string references for Prototype fields
+            if (propertyValue.ValueKind == JsonValueKind.String)
+            {
+                string stringValue = propertyValue.GetString();
+
+                // If target is a Prototype or PrototypeId, treat string as reference
+                if (typeof(Prototype).IsAssignableFrom(targetType))
+                {
+                    PrototypeId protoId = GameDatabase.GetPrototypeRefByName(stringValue);
+                    if (protoId != PrototypeId.Invalid)
+                    {
+                        return GameDatabase.GetPrototype<Prototype>(protoId);
+                    }
+                    Logger.Warn($"Prototype reference '{stringValue}' not found");
+                    return null;
+                }
+
+                if (targetType == typeof(PrototypeId))
+                {
+                    PrototypeId protoId = GameDatabase.GetPrototypeRefByName(stringValue);
+                    return protoId;
+                }
+            }
+
             // Handle PropertyId with special structure
             if (targetType == typeof(PropertyId) && propertyValue.ValueKind == JsonValueKind.Object)
             {

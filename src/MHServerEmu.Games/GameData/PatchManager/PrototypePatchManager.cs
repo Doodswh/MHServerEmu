@@ -20,7 +20,7 @@ namespace MHServerEmu.Games.GameData.PatchManager
         private readonly Dictionary<PrototypeId, List<PrototypePatchEntry>> _patchDict = new();
         private readonly Dictionary<Prototype, string> _pathDict = new();
         private bool _initialized = false;
-
+        
         public static PrototypePatchManager Instance { get; } = new();
 
         public void Initialize(bool enablePatchManager)
