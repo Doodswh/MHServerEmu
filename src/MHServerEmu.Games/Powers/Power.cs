@@ -1565,6 +1565,7 @@ namespace MHServerEmu.Games.Powers
 
             if (cooldownDuration > TimeSpan.Zero)
             {
+                Logger.Debug($"[COOLDOWN-SAVE] Power: {powerProto.DisplayName}, Duration: {cooldownDuration.TotalMilliseconds}ms, Doubled would be: {(cooldownDuration.TotalMilliseconds * 2)}ms");
                 properties[PropertyEnum.PowerCooldownStartTime, powerProto.DataRef] = Game.Current.CurrentTime;
                 properties[PropertyEnum.PowerCooldownDuration, powerProto.DataRef] = cooldownDuration;
 
