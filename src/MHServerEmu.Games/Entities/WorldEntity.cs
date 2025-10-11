@@ -1502,7 +1502,7 @@ namespace MHServerEmu.Games.Entities
             {
                 powerCooldownDuration = Properties[PropertyEnum.PowerCooldownDuration, powerProto.DataRef];
             }
-            Logger.Debug($"[COOLDOWN-READ] Power: {powerProto.DisplayName}, Saved Duration: {powerCooldownDuration.TotalMilliseconds}ms");
+           
             return powerCooldownDuration;
         }
 
