@@ -236,10 +236,8 @@ namespace MHServerEmu.Games.Entities.Avatars
                     if (Power.IsCooldownPersistent(powerProto) == false)
                         continue;
 
-                    TimeSpan originalDuration = TimeSpan.FromMilliseconds((long)kvp.Value.RawLong);
-                    TimeSpan halvedDuration = originalDuration * 0.5f;
-
-                    setDict[new(PropertyEnum.PowerCooldownDuration, powerProtoRef)] = (long)halvedDuration.TotalMilliseconds;
+                    TimeSpan duration = TimeSpan.FromMilliseconds((long)kvp.Value.RawLong);
+                    setDict[new(PropertyEnum.PowerCooldownDuration, powerProtoRef)] = (long)duration.TotalMilliseconds;
                 }
 
                 foreach (var kvp in Properties.IteratePropertyRange(PropertyEnum.PowerCooldownStartTimePersistent))

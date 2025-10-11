@@ -519,21 +519,37 @@ namespace MHServerEmu.Games.Entities
             var powerProto = GameDatabase.GetPrototype<SummonPowerPrototype>(powerRef);
             if (summoner == null || powerProto == null) return;
 
-            summoner.Properties.AdjustProperty(value, new PropertyId(PropertyEnum.PowerSummonedEntityCount, powerRef));
+          
+            var propertyId = new PropertyId(PropertyEnum.PowerSummonedEntityCount, powerRef);
+            summoner.Properties.AdjustProperty(value, propertyId);
+
             if (powerProto.SummonMaxCountWithOthers.HasValue())
                 foreach (var protoRef in powerProto.SummonMaxCountWithOthers)
                     summoner.Properties.AdjustProperty(value, new PropertyId(PropertyEnum.PowerSummonedEntityCount, protoRef));
 
             SetFlag(EntityFlags.SummonDecremented, decrement);
 
-            if (summoner is not Avatar avatar) return;
             
+            if (decrement && summoner.Properties[propertyId] <= 0)
+            {
+                if (powerProto.SummonsLiveWhilePowerActive)
+                {
+                    Power parentPower = summoner.PowerCollection?.GetPower(powerRef);
+                    if (parentPower != null && parentPower.IsInActivation)
+                    {
+                        parentPower.EndPower(EndPowerFlags.None);
+                    }
+                }
+            }
+
+            if (summoner is not Avatar avatar) return;
+
             var vanityKeyword = GameDatabase.KeywordGlobalsPrototype.VanityPetKeywordPrototype;
             if (HasKeyword(vanityKeyword))
             {
                 var player = avatar.GetOwnerOfType<Player>();
                 player?.UpdateScoringEventContext();
-            }           
+            }
         }
 
         public virtual void SetAsPersistent(Avatar avatar, bool newOnServer)
@@ -1458,7 +1474,25 @@ namespace MHServerEmu.Games.Entities
 
         public TimeSpan GetAbilityCooldownStartTime(PowerPrototype powerProto)
         {
-            return Properties[PropertyEnum.PowerCooldownStartTime, powerProto.DataRef];
+            // NOTE: The client doesn't check IsCooldownOnPlayer() and always returns the value of
+            // PowerCooldownStartTime saved on this entity, which is most likely a bug. I am fixing
+            // this to mirror GetAbilityCooldownDurationUsedForLastActivation().
+            TimeSpan cooldownStartTime = TimeSpan.Zero;
+
+            if (Power.IsCooldownOnPlayer(powerProto))
+            {
+                Player powerOwnerPlayer = GetOwnerOfType<Player>();
+                if (powerOwnerPlayer != null)
+                    cooldownStartTime = powerOwnerPlayer.Properties[PropertyEnum.PowerCooldownStartTime, powerProto.DataRef];
+                else
+                    Logger.Warn("GetAbilityCooldownStartTime(): powerOwnerPlayer == null");
+            }
+            else
+            {
+                cooldownStartTime = Properties[PropertyEnum.PowerCooldownStartTime, powerProto.DataRef];
+            }
+
+            return cooldownStartTime;
         }
 
         public virtual TimeSpan GetAbilityCooldownTimeElapsed(PowerPrototype powerProto)

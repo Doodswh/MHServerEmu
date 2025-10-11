@@ -1,4 +1,5 @@
 ﻿using Gazillion;
+using MHServerEmu.Commands;
 using MHServerEmu.Commands.Attributes;
 using MHServerEmu.Core.Extensions;
 using MHServerEmu.Core.Memory;
@@ -7,6 +8,7 @@ using MHServerEmu.Core.VectorMath;
 using MHServerEmu.DatabaseAccess.Models;
 using MHServerEmu.Frontend;
 using MHServerEmu.Games;
+using MHServerEmu.Games.Common;
 using MHServerEmu.Games.Entities;
 using MHServerEmu.Games.Entities.Avatars;
 using MHServerEmu.Games.Entities.Inventories;
@@ -22,8 +24,8 @@ using MHServerEmu.Games.Properties;
 using MHServerEmu.Games.Regions;
 using MHServerEmu.Grouping;
 using MHServerEmu.PlayerManagement;
-using MHServerEmu.PlayerManagement.Games;
-using MHServerEmu.PlayerManagement.Players;
+using MHServerEmu.PlayerManagement.Social;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 
@@ -33,6 +35,56 @@ namespace MHServerEmu.Commands.Implementations
     [CommandGroupDescription("Commands for managing player data for the invoker's account.")]
     public class PlayerCommands : CommandGroup
     {
+        /// <summary>
+        /// A helper function to find a player's connection anywhere on the server by name using an efficient lookup.
+        /// </summary>
+        private PlayerConnection FindPlayerConnectionByName(string playerName)
+        {
+            // Step 1: Use the PlayerNameCache to resolve the name to a database ID.
+            // This is much more efficient than iterating through all online players.
+            if (!PlayerNameCache.Instance.TryGetPlayerDbId(playerName, out ulong playerDbId, out _))
+            {
+                return null; // Player name doesn't exist in the database.
+            }
+
+            // Step 2: Get the GameManager instance.
+            var gameInstanceService = ServerManager.Instance.GetGameService(GameServiceType.GameInstance) as GameInstanceService;
+            if (gameInstanceService == null) return null;
+
+            GameManager gameManager = gameInstanceService.GameManager;
+            if (gameManager == null) return null;
+
+            // Step 3: Use the GameManager's fast lookup to find which game instance the player is in.
+            if (!gameManager.TryGetGameForPlayerDbId(playerDbId, out Game game))
+            {
+                return null; // Player is not online in any game instance.
+            }
+
+            // Step 4: Now that we have the correct game, find the specific PlayerConnection.
+            // This avoids searching through all other games.
+            foreach (var connection in game.NetworkManager)
+            {
+                if (connection.PlayerDbId == playerDbId)
+                {
+                    return connection;
+                }
+            }
+
+            return null; // Should be unreachable if TryGetGameForPlayerDbId succeeded, but good for safety.
+        }
+
+        /// <summary>
+        /// Gets the specific PlayerConnection for the client invoking a command.
+        /// This is the fix for the InvalidCastException and subsequent ArgumentNullException.
+        /// </summary>
+        private PlayerConnection GetInvokerConnection(NetClient client)
+        {
+            // The NetClient object passed into a player-invoked command is the PlayerConnection itself.
+            // The crash was caused by incorrectly trying to treat it as an IFrontendClient and look it up.
+            return client as PlayerConnection;
+        }
+
+
         [Command("costume")]
         [CommandDescription("Changes costume for the current avatar.")]
         [CommandUsage("player costume [name|reset]")]
@@ -65,7 +117,8 @@ namespace MHServerEmu.Commands.Implementations
                     break;
             }
 
-            PlayerConnection playerConnection = (PlayerConnection)client;
+            PlayerConnection playerConnection = GetInvokerConnection(client);
+            if (playerConnection == null) return "Error: Could not find your player connection.";
             var player = playerConnection.Player;
             var avatar = player.CurrentAvatar;
 
@@ -82,7 +135,8 @@ namespace MHServerEmu.Commands.Implementations
         [CommandInvokerType(CommandInvokerType.Client)]
         public string DisableVU(string[] @params, NetClient client)
         {
-            PlayerConnection playerConnection = (PlayerConnection)client;
+            PlayerConnection playerConnection = GetInvokerConnection(client);
+            if (playerConnection == null) return "Error: Could not find your player connection.";
             Player player = playerConnection.Player;
             Avatar avatar = player.CurrentAvatar;
 
@@ -122,7 +176,8 @@ namespace MHServerEmu.Commands.Implementations
         [CommandInvokerType(CommandInvokerType.Client)]
         public string Wipe(string[] @params, NetClient client)
         {
-            PlayerConnection playerConnection = (PlayerConnection)client;
+            PlayerConnection playerConnection = GetInvokerConnection(client);
+            if (playerConnection == null) return "Error: Could not find your player connection.";
             string playerName = playerConnection.Player.GetName();
 
             if (@params.Length == 0)
@@ -146,7 +201,8 @@ namespace MHServerEmu.Commands.Implementations
             if (int.TryParse(@params[0], out int amount) == false)
                 return $"Failed to parse amount from {@params[0]}.";
 
-            PlayerConnection playerConnection = (PlayerConnection)client;
+            PlayerConnection playerConnection = GetInvokerConnection(client);
+            if (playerConnection == null) return "Error: Could not find your player connection.";
             Player player = playerConnection.Player;
 
             foreach (PrototypeId currencyProtoRef in DataDirectory.Instance.IteratePrototypesInHierarchy<CurrencyPrototype>(PrototypeIterateFlags.NoAbstractApprovedOnly))
@@ -163,9 +219,9 @@ namespace MHServerEmu.Commands.Implementations
         [CommandParamCount(1)]
         public string Kill(string[] @params, NetClient client)
         {
-            PlayerConnection adminConnection = (PlayerConnection)client;
+            PlayerConnection adminConnection = GetInvokerConnection(client);
+            if (adminConnection == null) return "Error: Could not find your player connection.";
             Player adminPlayer = adminConnection.Player;
-            GameManager gameManager = adminConnection.Game.GameManager;
             string targetPlayerName = @params[0];
 
             if (string.Equals(adminPlayer.GetName(), targetPlayerName, StringComparison.OrdinalIgnoreCase))
@@ -173,32 +229,12 @@ namespace MHServerEmu.Commands.Implementations
                 return "You cannot use this command to kill yourself. Use '!player die' instead.";
             }
 
-            PlayerConnection targetConnection = null;
-
-            // Find the player's connection across all game instances.
-            // We find them first and then act, to avoid modifying a collection while iterating over it.
-            foreach (Game game in gameManager.GetGames())
-            {
-                foreach (var connection in game.NetworkManager)
-                {
-                    if (connection.Player != null && string.Equals(connection.Player.GetName(), targetPlayerName, StringComparison.OrdinalIgnoreCase))
-                    {
-                        targetConnection = connection;
-                        break; // Found the connection, exit inner loop
-                    }
-                }
-                if (targetConnection != null)
-                {
-                    break; // Found the connection, exit outer loop
-                }
-            }
-
+            PlayerConnection targetConnection = FindPlayerConnectionByName(targetPlayerName);
             if (targetConnection == null)
             {
                 return $"Player '{targetPlayerName}' not found online on this server instance.";
             }
 
-            // Now that we're outside the loops, it's safe to perform the kill action.
             Player targetPlayer = targetConnection.Player;
             Avatar targetAvatar = targetPlayer.CurrentAvatar;
 
@@ -222,6 +258,7 @@ namespace MHServerEmu.Commands.Implementations
 
             return $"Player '{targetPlayerName}' has been killed.";
         }
+
         [Command("bring")]
         [CommandDescription("Brings a player to your current location or region entry point.")]
         [CommandUsage("player bring [playerName]")]
@@ -230,7 +267,8 @@ namespace MHServerEmu.Commands.Implementations
         [CommandParamCount(1)]
         public string Bring(string[] @params, NetClient client)
         {
-            PlayerConnection adminConnection = (PlayerConnection)client;
+            PlayerConnection adminConnection = GetInvokerConnection(client);
+            if (adminConnection == null) return "Error: Could not find your player connection.";
             Player adminPlayer = adminConnection.Player;
             Avatar adminAvatar = adminPlayer.CurrentAvatar;
 
@@ -245,16 +283,12 @@ namespace MHServerEmu.Commands.Implementations
                 return "You cannot bring yourself.";
             }
 
-            // This is the new, direct, and correct way to access the ClientManager.
-            ClientManager clientManager = PlayerManagerService.Instance.ClientManager;
-            PlayerHandle targetHandle = clientManager.GetPlayer(targetPlayerName);
-
-            if (targetHandle == null || !targetHandle.IsConnected)
+            PlayerConnection targetConnection = FindPlayerConnectionByName(targetPlayerName);
+            if (targetConnection == null)
             {
                 return $"Player '{targetPlayerName}' not found online.";
             }
 
-            PlayerConnection targetConnection = (PlayerConnection)targetHandle.Client;
             Player targetPlayer = targetConnection.Player;
             Avatar targetAvatar = targetPlayer.CurrentAvatar;
 
@@ -263,15 +297,18 @@ namespace MHServerEmu.Commands.Implementations
                 return $"Player '{targetPlayerName}' is not in a state to be teleported.";
             }
 
+            // Admin's location details
             var adminRegion = adminAvatar.Region;
             var adminPosition = adminAvatar.RegionLocation.Position;
 
+            // Case 1: Target is already in the same region. Just move them directly.
             if (targetAvatar.Region?.Id == adminRegion.Id)
             {
                 targetAvatar.ChangeRegionPosition(adminPosition, null, ChangePositionFlags.Teleport);
                 return $"Brought {targetPlayerName} to your location.";
             }
 
+            // Case 2: Target is in a different region/instance. Initiate a full transfer to the admin's exact region instance.
             using (var teleporter = ObjectPoolManager.Instance.Get<Teleporter>())
             {
                 teleporter.Initialize(targetPlayer, TeleportContextEnum.TeleportContext_Debug);
@@ -281,7 +318,6 @@ namespace MHServerEmu.Commands.Implementations
             return $"Bringing {targetPlayerName} to your location.";
         }
 
-
         [Command("goto")]
         [CommandDescription("Goes to a player's current location.")]
         [CommandUsage("player goto [playerName]")]
@@ -290,7 +326,8 @@ namespace MHServerEmu.Commands.Implementations
         [CommandParamCount(1)]
         public string GoTo(string[] @params, NetClient client)
         {
-            PlayerConnection adminConnection = (PlayerConnection)client;
+            PlayerConnection adminConnection = GetInvokerConnection(client);
+            if (adminConnection == null) return "Error: Could not find your player connection.";
             Player adminPlayer = adminConnection.Player;
             Avatar adminAvatar = adminPlayer.CurrentAvatar;
 
@@ -305,17 +342,12 @@ namespace MHServerEmu.Commands.Implementations
                 return "You cannot go to yourself.";
             }
 
-            // This is the new, direct, and correct way to access the ClientManager.
-            ClientManager clientManager = PlayerManagerService.Instance.ClientManager;
-            PlayerHandle targetHandle = clientManager.GetPlayer(targetPlayerName);
-
-            if (targetHandle == null || !targetHandle.IsConnected)
+            PlayerConnection targetConnection = FindPlayerConnectionByName(targetPlayerName);
+            if (targetConnection == null)
             {
                 return $"Player '{targetPlayerName}' not found online.";
             }
 
-            // The rest of your command logic is unchanged.
-            PlayerConnection targetConnection = (PlayerConnection)targetHandle.Client;
             Player targetPlayer = targetConnection.Player;
             Avatar targetAvatar = targetPlayer.CurrentAvatar;
 
@@ -324,15 +356,18 @@ namespace MHServerEmu.Commands.Implementations
                 return $"Player '{targetPlayerName}' is not in a location that can be teleported to.";
             }
 
+            // Target's location details
             var targetRegion = targetAvatar.Region;
             var targetPosition = targetAvatar.RegionLocation.Position;
 
+            // Case 1: Admin is already in the same region. Just move them directly.
             if (adminAvatar.Region?.Id == targetRegion.Id)
             {
                 adminAvatar.ChangeRegionPosition(targetPosition, null, ChangePositionFlags.Teleport);
                 return $"Teleported to {targetPlayerName}'s location.";
             }
 
+            // Case 2: Admin is in a different region/instance. Initiate a full transfer to the target's exact region instance.
             using (var teleporter = ObjectPoolManager.Instance.Get<Teleporter>())
             {
                 teleporter.Initialize(adminPlayer, TeleportContextEnum.TeleportContext_Debug);
@@ -348,7 +383,8 @@ namespace MHServerEmu.Commands.Implementations
         [CommandInvokerType(CommandInvokerType.Client)]
         public string ClearConditions(string[] @params, NetClient client)
         {
-            PlayerConnection playerConnection = (PlayerConnection)client;
+            PlayerConnection playerConnection = GetInvokerConnection(client);
+            if (playerConnection == null) return "Error: Could not find your player connection.";
             Player player = playerConnection.Player;
             Avatar avatar = player.CurrentAvatar;
 
@@ -365,59 +401,14 @@ namespace MHServerEmu.Commands.Implementations
 
             return $"Cleared {count} persistent conditions.";
         }
-        [Command("vanish")]
-        [CommandDescription("Makes an admin invisible to other players.")]
-        [CommandUserLevel(AccountUserLevel.Admin)]
-        [CommandInvokerType(CommandInvokerType.Client)]
-        public string Vanish(string[] @params, NetClient client)
-        {
-            PlayerConnection playerConnection = (PlayerConnection)client;
-            Player player = playerConnection.Player;
-            Avatar avatar = player.CurrentAvatar;
 
-            if (avatar == null || !avatar.IsInWorld)
-            {
-                return "You must have an active avatar in the world to use this command.";
-            }
-
-            bool isVanished = player.IsVanished;
-            player.IsVanished = !isVanished;
-
-            if (!isVanished)
-            {
-                avatar.Properties[PropertyEnum.Stealth] = true;
-                avatar.Properties[PropertyEnum.StealthDetection] = 10000; // High value to make detection very difficult
-                foreach (var otherPlayer in new PlayerIterator(player.Game))
-                {
-                    if (otherPlayer != player)
-                    {
-                        otherPlayer.AOI.ConsiderEntity(player);
-                        otherPlayer.AOI.ConsiderEntity(avatar);
-                    }
-                }
-                return "You are now vanished.";
-            }
-            else
-            {
-                avatar.Properties.RemoveProperty(PropertyEnum.Stealth);
-                avatar.Properties.RemoveProperty(PropertyEnum.StealthDetection);
-                foreach (var otherPlayer in new PlayerIterator(player.Game))
-                {
-                    if (otherPlayer != player)
-                    {
-                        otherPlayer.AOI.ConsiderEntity(player);
-                        otherPlayer.AOI.ConsiderEntity(avatar);
-                    }
-                }
-                return "You are no longer vanished.";
-            }
-        }
         [Command("die")]
         [CommandDescription("Kills the current avatar.")]
         [CommandInvokerType(CommandInvokerType.Client)]
         public string Die(string[] @params, NetClient client)
         {
-            PlayerConnection playerConnection = (PlayerConnection)client;
+            PlayerConnection playerConnection = GetInvokerConnection(client);
+            if (playerConnection == null) return "Error: Could not find your player connection.";
 
             Avatar avatar = playerConnection.Player.CurrentAvatar;
             if (avatar == null || avatar.IsInWorld == false)
@@ -434,5 +425,5 @@ namespace MHServerEmu.Commands.Implementations
             return $"You are now dead. Thank you for using Stop-and-Drop.";
         }
     }
-
 }
+

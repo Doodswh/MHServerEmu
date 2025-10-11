@@ -13,7 +13,7 @@ namespace MHServerEmu.Games.Network.InstanceManagement
     {
         private static readonly Logger Logger = LogManager.CreateLogger();
 
-        internal GameManager GameManager { get; }
+        public GameManager GameManager { get; }
         internal GameThreadManager GameThreadManager { get; }
 
         public GameInstanceConfig Config { get; }

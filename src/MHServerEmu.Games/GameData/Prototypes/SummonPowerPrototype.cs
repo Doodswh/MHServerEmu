@@ -114,39 +114,16 @@ namespace MHServerEmu.Games.GameData.Prototypes
 
         public int GetMaxNumSimultaneousSummons(PropertyCollection properties)
         {
-            int originalMaxSimultaneous = 0;
-            if (this.SummonMaxSimultaneous != null) // Assuming SummonMaxSimultaneous is the EvalPrototype
-            {
-                using EvalContextData evalContext = ObjectPoolManager.Instance.Get<EvalContextData>();
-                evalContext.SetReadOnlyVar_PropertyCollectionPtr(EvalContext.Default, properties);
-                originalMaxSimultaneous = Eval.RunInt(this.SummonMaxSimultaneous, evalContext);
-            }
-
-            if (originalMaxSimultaneous == 0)
-            {
-                originalMaxSimultaneous = 1; // Default to 1 if no eval or eval=0
-            }
-
-            // Apply the global multiplier (scales the original value)
-            int finalMax = (int)(originalMaxSimultaneous * TunableGameplayValues.SummonCountMultiplier);
-
-            // Clamp to at least 1 to avoid issues with 0 (unlimited) or fractions
-            return Math.Max(1, finalMax);
+            using EvalContextData evalContext = ObjectPoolManager.Instance.Get<EvalContextData>();
+            evalContext.SetReadOnlyVar_PropertyCollectionPtr(EvalContext.Default, properties);
+            return Eval.RunInt(SummonMaxSimultaneous, evalContext);
         }
 
         public int GetMaxNumSummons(PropertyCollection properties)
         {
             using EvalContextData evalContext = ObjectPoolManager.Instance.Get<EvalContextData>();
             evalContext.SetReadOnlyVar_PropertyCollectionPtr(EvalContext.Default, properties);
-            int originalMax = Eval.RunInt(SummonMax, evalContext);
-
-            if (originalMax == 0)
-            {
-                originalMax = 1; // Default if unset or 0
-            }
-
-            int finalMax = (int)(originalMax * TunableGameplayValues.SummonCountMultiplier);
-            return Math.Max(1, finalMax);
+            return Eval.RunInt(SummonMax, evalContext);
         }
 
         public bool InSummonMaxCountWithOthers(PropertyValue powerRef)

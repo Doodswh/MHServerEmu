@@ -309,12 +309,11 @@ namespace MHServerEmu.Games.Powers
         private static void SummonPayloadEntity(EntityManager manager, SummonPowerPrototype powerProto, PowerPayload payload, WorldEntity target)
         {
             var payloadProperties = payload.Properties;
-            float summonMultiplier = TunableGameplayValues.SummonCountMultiplier;
-            int baseSummonNumPerActivation = payloadProperties[PropertyEnum.SummonNumPerActivation];
-            int summonNum = (int)(baseSummonNumPerActivation * summonMultiplier); 
+            int summonNum = payloadProperties[PropertyEnum.SummonNumPerActivation];
+            if (summonNum < 1) return;
 
             int maxSummons = powerProto.GetMaxNumSimultaneousSummons(payloadProperties);
-            //if (maxSummons != 0 && summonNum > maxSummons) return;
+            if (maxSummons != 0 && summonNum > maxSummons) return;
 
             if (payload.OwnerAlliance == null) return;
 
@@ -327,13 +326,7 @@ namespace MHServerEmu.Games.Powers
                 count = GetExistingSummonedEntitiesCount(owner, powerProto);
 
             bool killPrevious = powerProto.KillPreviousSummons;
-            if (killPrevious == false && maxSummons > 0 && count >= maxSummons)
-            {
-                Logger.Warn($"Attempted to summon more than allowed {count} of {maxSummons} without killing previous");
-                return;  // Early exit: Prevent summoning when at/above limit and not replacing
-            }
 
-            // Existing warning (optional, can keep for logging)...
             if (killPrevious == false && maxSummons > 0 && count >= maxSummons)
                 Logger.Warn($"Summoned more than allowed {count} of {maxSummons}");
 
@@ -351,31 +344,31 @@ namespace MHServerEmu.Games.Powers
                 VariableActivationTime = payload.VariableActivationTime,
                 EntityAsset = payloadProperties[PropertyEnum.CreatorEntityAssetRefCurrent],
                 Properties = payloadProperties,
-                MaxSummons = maxSummons, 
-                KillPrevious = killPrevious 
+                MaxSummons = maxSummons,
+                KillPrevious = killPrevious
             };
 
-            for (int i = 0; i < summonNum; i++) 
+            for (int i = 0; i < summonNum; i++)
             {
-               
                 context.KillPrevious = killPrevious && maxSummons > 0 && count >= maxSummons;
 
                 var result = SummonEntityContext(manager, context, i);
                 switch (result)
                 {
                     case PowerUseResult.Success:
-                        count++; 
+
+                        count++;
+
                         if (killPrevious == false && maxSummons > 0 && count >= maxSummons)
                             return;
+
                         break;
 
                     case PowerUseResult.RestrictiveCondition:
                     case PowerUseResult.DisabledByLiveTuning:
-                      
                         break;
 
                     default:
-                        
                         return;
                 }
             }

@@ -158,8 +158,8 @@ namespace MHServerEmu.Games.Powers
             TimeSpan cooldownTimeRemaining = GetCooldownTimeRemaining();
             if (cooldownTimeRemaining > TimeSpan.Zero)
             {
-                // Restore saved cooldown that is still in progress, halved.
-                StartCooldown(TimeSpan.FromMilliseconds(cooldownTimeRemaining.TotalMilliseconds / 2));
+                
+                StartCooldown(cooldownTimeRemaining);
             }
             else
             {
@@ -175,14 +175,14 @@ namespace MHServerEmu.Games.Powers
 
                         if (cooldownTimeElapsed != TimeSpan.Zero)
                         {
-                            // Replenish charges, but account for halved cooldown.
+                            
                             cooldownDuration = GetCooldownDuration();
-                            float numCooldowns = (float)(cooldownTimeElapsed.TotalMilliseconds / (cooldownDuration.TotalMilliseconds / 2)); // Divide cooldown by 2
+                            float numCooldowns = (float)(cooldownTimeElapsed.TotalMilliseconds / (cooldownDuration.TotalMilliseconds)); // Divide cooldown by 2
                             numCooldowns = MathF.Min(numCooldowns, powerChargesMax - powerChargesAvailable);
                             Owner.Properties.AdjustProperty((int)numCooldowns, new(PropertyEnum.PowerChargesAvailable, PrototypeDataRef));
 
-                            // Restore the current cooldown, halved.
-                            cooldownDuration = TimeSpan.FromMilliseconds((cooldownDuration.TotalMilliseconds / 2) * (1f - (numCooldowns - MathF.Floor(numCooldowns)))); //Halve duration and use it.
+                            
+                            cooldownDuration = TimeSpan.FromMilliseconds((cooldownDuration.TotalMilliseconds) * (1f - (numCooldowns - MathF.Floor(numCooldowns)))); //Halve duration and use it.
                         }
 
                         StartCooldown(cooldownDuration);
@@ -3935,8 +3935,7 @@ namespace MHServerEmu.Games.Powers
 
         protected virtual bool OnEndPowerCheckTooEarly(EndPowerFlags flags)
         {
-            // NOTE: The return value in this method is reversed (i.e. end power proceeds when this returns false)
-
+          
             // Check flags
             if (flags.HasFlag(EndPowerFlags.ExitWorld) ||
                 flags.HasFlag(EndPowerFlags.Unassign) ||
@@ -3950,6 +3949,10 @@ namespace MHServerEmu.Games.Powers
             if (Game == null) return Logger.WarnReturn(true, "OnEndPowerCheckTooEarly(): Game == null");
 
             TimeSpan timeSinceLastActivation = Game.CurrentTime - LastActivateGameTime;
+            if (timeSinceLastActivation >= GetFullExecutionTime())
+            {
+                return false; // Returning false allows EndPower to proceed.
+            }
             TimeSpan channelMinTime = GetChannelMinTime();
 
             if (channelMinTime > timeSinceLastActivation &&
@@ -4081,6 +4084,7 @@ namespace MHServerEmu.Games.Powers
 
         protected virtual bool OnEndPowerCheckLoopEnd(EndPowerFlags flags)
         {
+            
             // Check flags
             if (flags.HasFlag(EndPowerFlags.ExitWorld) ||
                 flags.HasFlag(EndPowerFlags.Unassign) ||
