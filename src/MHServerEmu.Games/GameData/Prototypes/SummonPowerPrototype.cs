@@ -9,16 +9,16 @@ namespace MHServerEmu.Games.GameData.Prototypes
     public class SummonPowerPrototype : PowerPrototype
     {
         public bool AttachSummonsToTarget { get; protected set; }
-        public bool SummonsLiveWhilePowerActive { get; protected set; }
-        public SummonEntityContextPrototype[] SummonEntityContexts { get; protected set; }
-        public EvalPrototype SummonMax { get; protected set; }
+        public bool SummonsLiveWhilePowerActive { get;  set; }
+        public SummonEntityContextPrototype[] SummonEntityContexts { get; set; }
+        public EvalPrototype SummonMax { get; set; }
         public bool SummonMaxReachedDestroyOwner { get; protected set; }
         public int SummonIntervalMS { get; protected set; }
         public bool SummonRandomSelection { get; protected set; }
         public bool TrackInInventory { get; protected set; }
         public bool AttachSummonsToCaster { get; protected set; }
-        public EvalPrototype SummonMaxSimultaneous { get; protected set; }
-        public PrototypeId[] SummonMaxCountWithOthers { get; protected set; }
+        public EvalPrototype SummonMaxSimultaneous { get; set; }
+        public PrototypeId[] SummonMaxCountWithOthers { get;  set; }
         public bool PersistAcrossRegions { get; protected set; }
         public EvalPrototype EvalSelectSummonContextIndex { get; protected set; }
         public bool UseTargetAsSource { get; protected set; }
@@ -121,35 +121,32 @@ namespace MHServerEmu.Games.GameData.Prototypes
                 evalContext.SetReadOnlyVar_PropertyCollectionPtr(EvalContext.Default, properties);
                 originalMaxSimultaneous = Eval.RunInt(this.SummonMaxSimultaneous, evalContext);
             }
-            else
+
+            if (originalMaxSimultaneous == 0)
             {
-               
-                if (this.SummonMaxSimultaneous == null)
-                {
-                    
-                    originalMaxSimultaneous = 1; // Defaulting to 1 if no eval
-                }
+                originalMaxSimultaneous = 1; // Default to 1 if no eval or eval=0
             }
 
-            int desiredMinimumCap = 10;
+            // Apply the global multiplier (scales the original value)
+            int finalMax = (int)(originalMaxSimultaneous * TunableGameplayValues.SummonCountMultiplier);
 
-            int finalMax = 10;
-        
-           
-            if (originalMaxSimultaneous == 0) 
-            {
-                
-                return desiredMinimumCap; 
-            }
-
-            return Math.Max(originalMaxSimultaneous, desiredMinimumCap); 
+            // Clamp to at least 1 to avoid issues with 0 (unlimited) or fractions
+            return Math.Max(1, finalMax);
         }
 
         public int GetMaxNumSummons(PropertyCollection properties)
         {
             using EvalContextData evalContext = ObjectPoolManager.Instance.Get<EvalContextData>();
             evalContext.SetReadOnlyVar_PropertyCollectionPtr(EvalContext.Default, properties);
-            return Eval.RunInt(SummonMax, evalContext);
+            int originalMax = Eval.RunInt(SummonMax, evalContext);
+
+            if (originalMax == 0)
+            {
+                originalMax = 1; // Default if unset or 0
+            }
+
+            int finalMax = (int)(originalMax * TunableGameplayValues.SummonCountMultiplier);
+            return Math.Max(1, finalMax);
         }
 
         public bool InSummonMaxCountWithOthers(PropertyValue powerRef)

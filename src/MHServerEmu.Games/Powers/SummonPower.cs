@@ -327,7 +327,13 @@ namespace MHServerEmu.Games.Powers
                 count = GetExistingSummonedEntitiesCount(owner, powerProto);
 
             bool killPrevious = powerProto.KillPreviousSummons;
+            if (killPrevious == false && maxSummons > 0 && count >= maxSummons)
+            {
+                Logger.Warn($"Attempted to summon more than allowed {count} of {maxSummons} without killing previous");
+                return;  // Early exit: Prevent summoning when at/above limit and not replacing
+            }
 
+            // Existing warning (optional, can keep for logging)...
             if (killPrevious == false && maxSummons > 0 && count >= maxSummons)
                 Logger.Warn($"Summoned more than allowed {count} of {maxSummons}");
 
