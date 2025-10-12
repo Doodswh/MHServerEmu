@@ -3160,7 +3160,7 @@ namespace MHServerEmu.Games.Powers
 
         public static TimeSpan CalcCooldownDuration(PowerPrototype powerProto, WorldEntity owner, PropertyCollection powerProperties, TimeSpan baseCooldown = default)
         {
-            if (baseCooldown == default)
+            if (baseCooldown <= TimeSpan.Zero)
                 baseCooldown = powerProto.GetCooldownDuration(powerProperties, owner.Properties);
 
             // Calculate cooldown modifier percentage
