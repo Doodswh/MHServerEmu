@@ -9,12 +9,22 @@ using MHServerEmu.Games.Network;
 using MHServerEmu.Games.Regions;
 using MHServerEmu.Games.Social.Communities;
 using MHServerEmu.Games.Social.Parties;
+using System.Text.RegularExpressions;
 
 namespace MHServerEmu.Games.Social
 {
     public class ChatManager
     {
         private static readonly Logger Logger = LogManager.CreateLogger();
+
+        // Define the filter for foul words.
+        // The \b characters ensure that we only match whole words.
+        // For example, it will filter "bad" but not the "bad" in "badge".
+        // Add any words you want to filter to this list, separated by a pipe |.
+        private static readonly Regex FoulWordFilter = new Regex(
+    @"\b(ass|asshole|bastard|bitch|bullshit|cock|cocksucker|cunt|dick|douche|dyke|fag|faggot|fuck|fucker|goddamn|homo|jizz|kike|motherfucker|nigger|nigga|piss|pussy|slut|smegma|shit|$hit|tranny|twat|whore)\b",
+    RegexOptions.IgnoreCase | RegexOptions.Compiled);
+
 
         public Game Game { get; }
 
@@ -27,6 +37,25 @@ namespace MHServerEmu.Games.Social
 
         public void HandleChat(Player player, NetMessageChat chat)
         {
+            // Censor the message body before processing it
+            string censoredBody = FoulWordFilter.Replace(chat.TheMessage.Body, "xxxxx");
+
+            // Protocol Buffer messages are immutable. If the message was changed,
+            // we must create a new NetMessageChat object with the censored body.
+            if (censoredBody != chat.TheMessage.Body)
+            {
+                // Get a builder from the existing 'TheMessage' object.
+                // This avoids guessing the type name like 'ChatPayload'.
+                var messagePayloadBuilder = chat.TheMessage.ToBuilder();
+                messagePayloadBuilder.SetBody(censoredBody);
+
+                // Rebuild the outer message with the new, censored payload.
+                chat = NetMessageChat.CreateBuilder(chat)
+                    .SetTheMessage(messagePayloadBuilder.Build())
+                    .Build();
+            }
+
+
             // If we have a command parser, see if this is actually a command
             if (ICommandParser.Instance?.TryParse(chat.TheMessage.Body, player.PlayerConnection) == true)
                 return;
@@ -122,7 +151,7 @@ namespace MHServerEmu.Games.Social
 
             if (clientList.Count == 0)
                 return true;
-            
+
             // Args don't appear to be needed for anything in 1.52
             var message = NetMessageChatFromGameSystem.CreateBuilder()
                 .SetSourceStringId((ulong)GameDatabase.GlobalsPrototype.SystemLocalized)

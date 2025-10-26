@@ -293,8 +293,11 @@ namespace MHServerEmu.Games.Regions
             }
 
             // NOTE: Divided start locations are used only in the Age of Ultron game mode
-            if (regionProto.DividedStartLocations.HasValue())
+             if (regionProto.DividedStartLocations.HasValue())
+            {
+                Logger.Warn($"Region {PrototypeName} uses divided start locations. This may be for a raid or party-based region and require additional code support.");
                 InitDividedStartLocations(regionProto.DividedStartLocations);
+            }
 
             if (NaviSystem.Initialize(this) == false) return false;
             if (Aabb.IsZero() == false)
@@ -1897,11 +1900,29 @@ namespace MHServerEmu.Games.Regions
 
         public PrototypeId GetStartTarget(Player player)
         {
+            Logger.Info($"GetStartTarget(): Searching for start target in region {PrototypeName} for player {player.GetName}...");
             PrototypeId startTargetRef = Properties[PropertyEnum.RegionStartTargetOverride];
+            if (startTargetRef != PrototypeId.Invalid)
+            {
+                Logger.Info($"GetStartTarget(): Found start target override property: {startTargetRef.GetNameFormatted()}");
+            }
+            else if (GetDividedStartTarget(player, ref startTargetRef))
+            {
+                Logger.Info($"GetStartTarget(): Found divided start target: {startTargetRef.GetNameFormatted()}");
+            }
+            else
+            {
+                startTargetRef = Prototype.StartTarget;
+                Logger.Info($"GetStartTarget(): Using default prototype start target: {startTargetRef.GetNameFormatted()}");
+            }
+
             if (startTargetRef == PrototypeId.Invalid)
             {
-                if (GetDividedStartTarget(player, ref startTargetRef) == false)
-                    startTargetRef = Prototype.StartTarget;
+                Logger.Error($"GetStartTarget(): CRITICAL - No valid start target found for region {PrototypeName}. This will likely cause the client to hang.");
+            }
+            else
+            {
+                Logger.Info($"GetStartTarget(): Final start target is: {startTargetRef.GetNameFormatted()}");
             }
             return startTargetRef;
         }

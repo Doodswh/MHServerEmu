@@ -566,7 +566,6 @@ namespace MHServerEmu.Games.Regions
             {
                 if (cellProtoRef != PrototypeId.Invalid && cellProtoRef != cell.PrototypeDataRef)
                     continue; // TODO check
-
                 if (cell.FindTargetLocation(ref markerPos, ref markerRot, entityProtoRef))
                     return true;
             }
