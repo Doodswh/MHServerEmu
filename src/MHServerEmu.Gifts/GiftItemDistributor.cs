@@ -34,7 +34,7 @@ namespace MHServerEmu.Gifts
     /// </summary>
     public class GiftItemDistributor : IGameService
     {
-        public GameServiceState State { get; private set; }
+        public GameServiceState State { get; set; }
         private static readonly Logger Logger = LogManager.CreateLogger();
         private static readonly string PendingItemsPath = Path.Combine(FileHelper.DataDirectory, "PendingItems.json");
         private static readonly object _ioLock = new();
@@ -98,11 +98,14 @@ namespace MHServerEmu.Gifts
             State = GameServiceState.ShuttingDown;
         }
 
-        public string GetStatus() => $"Loaded Gift Entries: {_cachedItems?.Count ?? 0}, Changes Pending Save: {_isDirty}";
+        public void GetStatus(Dictionary<string, long> statusDict)
+        {
+            statusDict["Loaded Gift Entries"] = _cachedItems?.Count ?? 0;
+            statusDict["Changes Pending Save"] = _isDirty ? 1 : 0;
+        }
 
-       
 
-       
+
 
         private void LoadGiftItems()
         {
