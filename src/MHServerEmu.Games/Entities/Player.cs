@@ -12,7 +12,6 @@ using MHServerEmu.Core.Network;
 using MHServerEmu.Core.Serialization;
 using MHServerEmu.Core.System.Time;
 using MHServerEmu.Core.VectorMath;
-using MHServerEmu.DatabaseAccess.Models;										
 using MHServerEmu.Games.Achievements;
 using MHServerEmu.Games.Common;
 using MHServerEmu.Games.Dialog;
@@ -96,6 +95,8 @@ namespace MHServerEmu.Games.Entities
         private readonly EventPointer<TeleportToPartyMemberEvent> _teleportToPartyMemberEvent = new();
         private readonly EventGroup _pendingEvents = new();
 
+        private readonly PropertyCollection _permaBuffProperties = new();
+
         private ReplicatedPropertyCollection _avatarProperties = new();
         private ulong _shardId;     // This was probably used for database sharding, we don't need this
         private RepVar_string _playerName = new();
@@ -134,6 +135,7 @@ namespace MHServerEmu.Games.Entities
         public ArchiveVersion LastSerializedArchiveVersion { get; private set; } = ArchiveVersion.Current;    // Updated on serialization
 
         public MissionManager MissionManager { get; private set; }
+        public PropertyCollection AvatarProperties { get => _avatarProperties; }
         public MatchQueueStatus MatchQueueStatus { get; private set; } = new();
         public Community Community { get => _community; }
         public GameplayOptions GameplayOptions { get; private set; } = new();
@@ -148,7 +150,6 @@ namespace MHServerEmu.Games.Entities
         public uint FullscreenMovieSyncRequestId { get; set; }
 
         public bool IsSwitchingAvatar { get; private set; }
-		public bool IsVanished { get; set; }									
 
         public PlayerConnection PlayerConnection { get; private set; }
         public AreaOfInterest AOI { get => PlayerConnection.AOI; }
@@ -175,7 +176,6 @@ namespace MHServerEmu.Games.Entities
         public long GazillioniteBalance { get => PlayerConnection.GazillioniteBalance; set => PlayerConnection.GazillioniteBalance = value; }
         public int PowerSpecIndexUnlocked { get => Properties[PropertyEnum.PowerSpecIndexUnlocked]; }
         public ulong TeamUpSynergyConditionId { get; set; }
-        public PropertyCollection AvatarProperties { get => _avatarProperties; }
 
         public override ulong PartyId { get => _partyId.Get(); }
         public bool IsInParty { get => PartyId != 0; }
@@ -207,6 +207,9 @@ namespace MHServerEmu.Games.Entities
 
             Game.EntityManager.AddPlayer(this);
             MatchQueueStatus.SetOwner(this);
+
+            // Perma buff properties are attached as child to avatar properties because avatar properties are persistent, while perma buffs are not.
+            _avatarProperties.AddChildCollection(_permaBuffProperties);
 
             _community = new(this);
             _community.Initialize();
@@ -506,11 +509,8 @@ namespace MHServerEmu.Games.Entities
             // Enter game to become added to the AOI
             base.EnterGame(settings);
 
-			if (IsVanished)
-            {
-                CurrentAvatar.Properties[PropertyEnum.Stealth] = true;
-                CurrentAvatar.Properties[PropertyEnum.StealthDetection] = 10000;
-            }			   
+            InitPermaBuffs();
+
             OnEnterGameInitStashTabOptions();
 
             InitializeVendors();
@@ -560,35 +560,13 @@ namespace MHServerEmu.Games.Entities
         /// </summary>
         public string GetName(PlayerAvatarIndex avatarIndex = PlayerAvatarIndex.Primary)
         {
-            string baseName;
             if ((avatarIndex >= PlayerAvatarIndex.Primary && avatarIndex < PlayerAvatarIndex.Count) == false)
-            {
-                // Logger.Warn("GetName(): avatarIndex out of range");
-                baseName = _playerName.Get(); // Fallback to primary player name
-            }
-            else if (avatarIndex == PlayerAvatarIndex.Secondary)
-            {
-                baseName = _secondaryPlayerName.Get();
-            }
-            else // Primary avatar
-            {
-                baseName = _playerName.Get();
-            }
+                Logger.Warn("GetName(): avatarIndex out of range");
 
-           
-            bool isAdminEquivalent = this.HasBadge(AvailableBadges.SiteCommands); // Use the badge(s) you've determined for admin/mod
+            if (avatarIndex == PlayerAvatarIndex.Secondary)
+                return _secondaryPlayerName.Get();
 
-           
-            if (isAdminEquivalent)
-            {
-              
-                return $"{baseName} (Administrator!)";
-
-               
-            }
-
-        
-            return baseName;
+            return _playerName.Get();
         }
 
         /// <summary>
@@ -601,17 +579,7 @@ namespace MHServerEmu.Games.Entities
 
             return _consoleAccountIds[(int)avatarIndex];
         }
-        public void ShowUIMessage(string message)
-        {
-            // Here you would put the actual logic to send the message
-            // to the player's client to be displayed on the UI.
-            // For example:
-            //
-            // SendUIPacket(UIPacketFactory.CreateMessage(message));
-            //
-            // For now, we can just log it to the console for testing.
-            Console.WriteLine($"Showing UI message to player: {message}");
-        }
+
         public void SetGameplayOptions(NetMessageSetPlayerGameplayOptions clientOptions)
         {
             GameplayOptions newOptions = new(clientOptions.OptionsData);
@@ -651,12 +619,10 @@ namespace MHServerEmu.Games.Entities
         public bool CanEnterRegion(PrototypeId regionProtoRef, PrototypeId difficultyTierProtoRef, bool isPartyTeleport)
         {
             RegionPrototype regionProto = regionProtoRef.As<RegionPrototype>();
-            if (regionProto == null)
-                return Logger.WarnReturn(false, $"CanEnterRegion FAILED: regionProto is null for {regionProtoRef}.");
+            if (regionProto == null) return Logger.WarnReturn(false, "CanEnterRegion(): regionProto == null");
 
             Avatar avatar = CurrentAvatar;
-            if (avatar == null)
-                return Logger.WarnReturn(false, "CanEnterRegion FAILED: CurrentAvatar is null.");
+            if (avatar == null) return Logger.WarnReturn(false, "CanEnterRegion(): avatar == null");
 
             if (regionProto.HasPvPMetaGame)
             {
@@ -664,7 +630,6 @@ namespace MHServerEmu.Games.Entities
                 if (LiveTuningManager.GetLiveGlobalTuningVar(GlobalTuningVar.eGTV_PVPEnabled) == 0f)
                 {
                     SendBannerMessage(GameDatabase.UIGlobalsPrototype.MessagePvPDisabledPortalFail.As<BannerMessagePrototype>());
-                    Logger.Warn($"CanEnterRegion FAILED: Region {regionProto.RegionName} is a PvP region, but PvP is globally disabled by LiveTuning.");
                     return false;
                 }
 
@@ -672,16 +637,13 @@ namespace MHServerEmu.Games.Entities
                 if (isPartyTeleport)
                 {
                     SendBannerMessage(GameDatabase.UIGlobalsPrototype.MessagePartyPvPPortalFail.As<BannerMessagePrototype>());
-                    Logger.Warn($"CanEnterRegion FAILED: Region {regionProto.RegionName} is a PvP region, and this is a party teleport.");
                     return false;
                 }
             }
 
-            // *** THIS IS THE MOST LIKELY FAILURE POINT ***
             if (regionProto.RunEvalAccessRestriction(this, avatar, difficultyTierProtoRef) == false)
             {
                 SendBannerMessage(GameDatabase.UIGlobalsPrototype.MessageRegionRestricted.As<BannerMessagePrototype>());
-                Logger.Warn($"CanEnterRegion FAILED: regionProto.RunEvalAccessRestriction() returned false for {regionProto.RegionName}. This is the AccessChecks/AccessDifficulties eval.");
                 return false;
             }
 
@@ -693,25 +655,21 @@ namespace MHServerEmu.Games.Entities
                     case RegionBehavior.PrivateStory:
                     case RegionBehavior.PrivateNonStory:
                         SendBannerMessage(GameDatabase.UIGlobalsPrototype.MessagePrivateDisallowedInRaid.As<BannerMessagePrototype>());
-                        Logger.Warn($"CanEnterRegion FAILED: Player is in a Raid party, but region {regionProto.RegionName} is PrivateStory/PrivateNonStory.");
                         return false;
 
                     case RegionBehavior.MatchPlay:
                         if (regionProto.AllowRaids() == false)
                         {
                             SendBannerMessage(GameDatabase.UIGlobalsPrototype.MessageQueueNotAvailableInRaid.As<BannerMessagePrototype>());
-                            Logger.Warn($"CanEnterRegion FAILED: Player is in a Raid party, region {regionProto.RegionName} is MatchPlay, and regionProto.AllowRaids() is false.");
                             return false;
                         }
                         break;
                 }
             }
 
-            // *** THIS IS THE SECOND MOST LIKELY FAILURE POINT ***
             if (LiveTuningManager.GetLiveRegionTuningVar(regionProto, RegionTuningVar.eRTV_Enabled) == 0f)
             {
                 SendBannerMessage(GameDatabase.UIGlobalsPrototype.MessageRegionDisabledPortalFail.As<BannerMessagePrototype>());
-                Logger.Warn($"CanEnterRegion FAILED: Region {regionProto.RegionName} is disabled by LiveTuning (eRTV_Enabled == 0).");
                 return false;
             }
 
@@ -2135,7 +2093,19 @@ namespace MHServerEmu.Games.Entities
 
         public void OnChangeActiveAvatar(int avatarIndex, ulong lastCurrentAvatarId)
         {
-            // TODO: Apply and remove avatar properties stored in the player
+            if (lastCurrentAvatarId != InvalidId)
+            {
+                Avatar lastCurrentAvatar = Game.EntityManager.GetEntity<Avatar>(lastCurrentAvatarId);
+                if (lastCurrentAvatar != null)
+                {
+                    PropertyCollection lastAvatarProperties = lastCurrentAvatar.Properties;
+                    if (_avatarProperties.IsChildOf(lastAvatarProperties))
+                        _avatarProperties.RemoveFromParent(lastAvatarProperties);
+                }
+            }
+
+            Avatar avatar = GetActiveAvatarByIndex(avatarIndex);
+            avatar?.Properties.AddChildCollection(_avatarProperties);
 
             SendMessage(NetMessageCurrentAvatarChanged.CreateBuilder()
                 .SetAvatarIndex(avatarIndex)
@@ -3707,10 +3677,6 @@ namespace MHServerEmu.Games.Entities
 
                 GiveLoginRewards(loginCount);
                 Properties[PropertyEnum.LoginCount] = loginCount;
-                ServerManager.Instance.SendMessageToService(
-   GameServiceType.GiftItemDistributor,
-   new ServiceMessage.PlayerRequestsGifts(this.DatabaseUniqueId, this.Game.Id, this.GetName())
-);
             }
 
             // Send gifting restrictions update.
@@ -3720,10 +3686,7 @@ namespace MHServerEmu.Games.Entities
                 .SetEmailVerified(_emailVerified)
                 .SetAccountCreationTimestampUtc((long)_accountCreationTimestamp.TotalSeconds)
                 .Build());
-
-
         }
-        
 
         private int GetLoginCount()
         {
@@ -4173,6 +4136,86 @@ namespace MHServerEmu.Games.Entities
             // We are taking advantage of the fact that our database guids include account creation timestamp.
             // Review this code if this ever changes.
             _accountCreationTimestamp = TimeSpan.FromSeconds(DatabaseUniqueId >> 16 & 0xFFFFFFFF);
+        }
+
+        #endregion
+
+        #region Perma Buffs
+
+        public bool UnlockPermaBuff(PrototypeId permaBuffProtoRef)
+        {
+            if (Properties[PropertyEnum.PermaBuff, permaBuffProtoRef])
+                return Logger.WarnReturn(false, $"UnlockPermaBuff(): PermaBuff {permaBuffProtoRef.GetName()} is already unlocked for player [{this}]");
+
+            Properties[PropertyEnum.PermaBuff, permaBuffProtoRef] = true;
+
+            if (ApplyPermaBuff(permaBuffProtoRef) == false)
+                return Logger.WarnReturn(false, $"UnlockPermaBuff(): Failed to apply PermaBuff {permaBuffProtoRef.GetName()} to player [{this}]");
+
+            SendMessage(NetMessagePermaBuffUnlock.CreateBuilder()
+                .SetPermaBuffProtoId((ulong)permaBuffProtoRef)
+                .Build());
+
+            return true;
+        }
+
+        private void InitPermaBuffs()
+        {
+            _permaBuffProperties.Clear();
+
+            using PropertyCollection unlockedPermaBuffs = ObjectPoolManager.Instance.Get<PropertyCollection>();
+            unlockedPermaBuffs.CopyPropertyRange(Properties, PropertyEnum.PermaBuff);
+
+            foreach (var kvp in unlockedPermaBuffs.IteratePropertyRange(PropertyEnum.PermaBuff))
+            {
+                Property.FromParam(kvp.Key, 0, out PrototypeId permaBuffProtoRef);
+                if (permaBuffProtoRef == PrototypeId.Invalid)
+                {
+                    Logger.Warn("InitPermaBuffs(): permaBuffProtoRef == PrototypeId.Invalid");
+                    continue;
+                }
+
+                if (ApplyPermaBuff(permaBuffProtoRef) == false)
+                    Logger.Warn($"InitPermaBuffs(): Failed to apply PermaBuff {permaBuffProtoRef.GetName()} to player [{this}]");
+            }
+        }
+
+        private bool ApplyPermaBuff(PrototypeId permaBuffProtoRef)
+        {
+            PermaBuffPrototype permaBuffProto = permaBuffProtoRef.As<PermaBuffPrototype>();
+            if (permaBuffProto == null) return Logger.WarnReturn(false, "ApplyPermaBuff(): permaBuffProto == null");
+
+            if (permaBuffProto.EvalAvatarProperties == null)
+                return true;
+
+            using PropertyCollection tempProps = ObjectPoolManager.Instance.Get<PropertyCollection>();
+            
+            using EvalContextData evalContext = ObjectPoolManager.Instance.Get<EvalContextData>();
+            evalContext.SetVar_PropertyCollectionPtr(EvalContext.Default, tempProps);
+            Eval.RunBool(permaBuffProto.EvalAvatarProperties, evalContext);
+
+            PropertyInfoTable propInfoTable = GameDatabase.PropertyInfoTable;
+            foreach (var kvp in tempProps)
+            {
+                PropertyInfo propInfo = propInfoTable.LookupPropertyInfo(kvp.Key.Enum);
+
+                switch (propInfo.DataType)
+                {
+                    case PropertyDataType.Real:
+                        _permaBuffProperties.AdjustProperty((float)kvp.Value, kvp.Key);
+                        break;
+
+                    case PropertyDataType.Integer:
+                        _permaBuffProperties.AdjustProperty((int)kvp.Value, kvp.Key);
+                        break;
+
+                    default:
+                        Logger.Warn($"ApplyPermaBuff(): The following PermaBuff contains non-numeric property(ies), which is not currently supported!\nPermaBuff: [{permaBuffProtoRef.GetName()}]");
+                        break;
+                }
+            }
+
+            return true;
         }
 
         #endregion
