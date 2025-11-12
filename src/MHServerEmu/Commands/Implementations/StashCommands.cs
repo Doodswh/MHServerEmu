@@ -260,7 +260,7 @@ namespace MHServerEmu.Commands.Implementations
 
                         if (!string.IsNullOrEmpty(avatarName) && IsItemSuitableForAvatar(item, avatarName))
                         {
-                            if (TryMoveItemToStash(player, item, avatarStashRef, true))
+                            if (TryMoveItemToStash(player, item, avatarStashRef, item.IsBoundToCharacter))
                             {
                                 moved = true;
                                 break;

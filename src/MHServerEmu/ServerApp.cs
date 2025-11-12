@@ -1,5 +1,4 @@
-﻿using MHServerEmu.Billing;
-using MHServerEmu.Commands;
+﻿using MHServerEmu.Commands;
 using MHServerEmu.Core.Config;
 using MHServerEmu.Core.Helpers;
 using MHServerEmu.Core.Logging;
@@ -120,7 +119,6 @@ namespace MHServerEmu
             serverManager.RegisterGameService(new PlayerManagerService(), GameServiceType.PlayerManager);
             serverManager.RegisterGameService(new GroupingManagerService(), GameServiceType.GroupingManager);
             serverManager.RegisterGameService(new GiftItemDistributor(), GameServiceType.GiftItemDistributor);
-            serverManager.RegisterGameService(new BillingService(), GameServiceType.Billing);
             serverManager.RegisterGameService(new FrontendServer(), GameServiceType.Frontend);
             serverManager.RegisterGameService(new WebFrontendService(), GameServiceType.WebFrontend);
 

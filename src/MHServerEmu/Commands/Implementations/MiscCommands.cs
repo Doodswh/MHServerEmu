@@ -1,4 +1,6 @@
-﻿using MHServerEmu.Commands.Attributes;
+﻿using Gazillion;
+using MHServerEmu.Commands.Attributes;
+using MHServerEmu.Core.Memory;
 using MHServerEmu.Core.Network;
 using MHServerEmu.Core.VectorMath;
 using MHServerEmu.DatabaseAccess.Models;
@@ -83,6 +85,84 @@ namespace MHServerEmu.Commands.Implementations
             Player player = ((PlayerConnection)client).Player;
             Teleporter.DebugTeleportToTarget(player, (PrototypeId)13284513933487907420);    // Regions/Story/CH04EastSide/UpperEastSide/PoliceDepartment/Portals/JailTarget.prototype
             return "Teleporting to East Side: Detention Facility (old)";
+        }
+    }
+[CommandGroup("Ultron")]
+    [CommandGroupDescription("Teleports to the Ultron Raid.")]
+    [CommandGroupUserLevel(AccountUserLevel.Admin)]
+    [CommandGroupFlags(CommandGroupFlags.SingleCommand)]
+    public class UltronCommand : CommandGroup
+    {
+        [DefaultCommand]
+        [CommandInvokerType(CommandInvokerType.Client)]
+        public string Ultron(string[] @params, NetClient client)
+        {
+            Player player = ((PlayerConnection)client).Player;
+            PrototypeId targetProtoRef = (PrototypeId)6101407482858775734;
+            PrototypeId cosmicDifficulty = GameDatabase.GetPrototypeRefByName("Difficulty/Tiers/Tier5Omega1.prototype");
+            if (cosmicDifficulty == PrototypeId.Invalid)
+            {
+                return "Error: Could not find 'Difficulty/Tiers/Tier5Omega1.prototype'.";
+            }
+            using Teleporter teleporter = ObjectPoolManager.Instance.Get<Teleporter>();
+            teleporter.Initialize(player, TeleportContextEnum.TeleportContext_Debug);
+            teleporter.DifficultyTierRef = cosmicDifficulty; 
+            
+            if (teleporter.TeleportToTarget(targetProtoRef) == false)
+            {
+                return "Teleport failed. Check server logs for details.";
+            }
+            return "Teleporting to Ultron (Cosmic)...";
+        }
+    }
+    [CommandGroup("difficulty")]
+    [CommandGroupDescription("Sets your account's preferred difficulty tier. Bypasses UI locks.")]
+    [CommandGroupUserLevel(AccountUserLevel.Admin)]
+    [CommandGroupFlags(CommandGroupFlags.SingleCommand)]
+    public class SetDifficultyCommand : CommandGroup
+    {
+        [DefaultCommand]
+        [CommandInvokerType(CommandInvokerType.Client)]
+        [CommandParamCount(1)]
+        public string SetDifficulty(string[] @params, NetClient client)
+        {
+            Player player = ((PlayerConnection)client).Player;
+            if (player.CurrentAvatar == null)
+                return "Avatar not found.";
+
+            string difficultyName = @params[0].ToLower();
+            string prototypeName;
+
+            switch (difficultyName)
+            {
+                case "normal":
+                    prototypeName = "Difficulty/Tiers/Tier1Normal.prototype";
+                    break;
+                case "heroic":
+                    prototypeName = "Difficulty/Tiers/Tier2Heroic.prototype";
+                    break;
+                case "superheroic":
+                    prototypeName = "Difficulty/Tiers/Tier3Superheroic.prototype";
+                    break;
+                case "cosmic":
+                    prototypeName = "Difficulty/Tiers/Tier4Cosmic.prototype";
+                    break;
+                case "omega":
+                    prototypeName = "Difficulty/Tiers/Tier5Omega1.prototype";
+                    break;
+                default:
+                    return "Invalid difficulty. Use: normal, heroic, superheroic, cosmic, or omega.";
+            }
+
+            PrototypeId difficultyProtoRef = GameDatabase.GetPrototypeRefByName(prototypeName);
+            if (difficultyProtoRef == PrototypeId.Invalid)
+                return $"Error: Could not find prototype {prototypeName}";
+
+            // This is the logic that the UI would normally run
+            player.CurrentAvatar.Properties[PropertyEnum.DifficultyTierPreference] = difficultyProtoRef;
+            player.SendDifficultyTierPreferenceToPlayerManager();
+
+            return $"Difficulty preference set to: {difficultyName}";
         }
     }
 

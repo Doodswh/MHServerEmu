@@ -651,10 +651,12 @@ namespace MHServerEmu.Games.Entities
         public bool CanEnterRegion(PrototypeId regionProtoRef, PrototypeId difficultyTierProtoRef, bool isPartyTeleport)
         {
             RegionPrototype regionProto = regionProtoRef.As<RegionPrototype>();
-            if (regionProto == null) return Logger.WarnReturn(false, "CanEnterRegion(): regionProto == null");
+            if (regionProto == null)
+                return Logger.WarnReturn(false, $"CanEnterRegion FAILED: regionProto is null for {regionProtoRef}.");
 
             Avatar avatar = CurrentAvatar;
-            if (avatar == null) return Logger.WarnReturn(false, "CanEnterRegion(): avatar == null");
+            if (avatar == null)
+                return Logger.WarnReturn(false, "CanEnterRegion FAILED: CurrentAvatar is null.");
 
             if (regionProto.HasPvPMetaGame)
             {
@@ -662,6 +664,7 @@ namespace MHServerEmu.Games.Entities
                 if (LiveTuningManager.GetLiveGlobalTuningVar(GlobalTuningVar.eGTV_PVPEnabled) == 0f)
                 {
                     SendBannerMessage(GameDatabase.UIGlobalsPrototype.MessagePvPDisabledPortalFail.As<BannerMessagePrototype>());
+                    Logger.Warn($"CanEnterRegion FAILED: Region {regionProto.RegionName} is a PvP region, but PvP is globally disabled by LiveTuning.");
                     return false;
                 }
 
@@ -669,13 +672,16 @@ namespace MHServerEmu.Games.Entities
                 if (isPartyTeleport)
                 {
                     SendBannerMessage(GameDatabase.UIGlobalsPrototype.MessagePartyPvPPortalFail.As<BannerMessagePrototype>());
+                    Logger.Warn($"CanEnterRegion FAILED: Region {regionProto.RegionName} is a PvP region, and this is a party teleport.");
                     return false;
                 }
             }
 
+            // *** THIS IS THE MOST LIKELY FAILURE POINT ***
             if (regionProto.RunEvalAccessRestriction(this, avatar, difficultyTierProtoRef) == false)
             {
                 SendBannerMessage(GameDatabase.UIGlobalsPrototype.MessageRegionRestricted.As<BannerMessagePrototype>());
+                Logger.Warn($"CanEnterRegion FAILED: regionProto.RunEvalAccessRestriction() returned false for {regionProto.RegionName}. This is the AccessChecks/AccessDifficulties eval.");
                 return false;
             }
 
@@ -687,21 +693,25 @@ namespace MHServerEmu.Games.Entities
                     case RegionBehavior.PrivateStory:
                     case RegionBehavior.PrivateNonStory:
                         SendBannerMessage(GameDatabase.UIGlobalsPrototype.MessagePrivateDisallowedInRaid.As<BannerMessagePrototype>());
+                        Logger.Warn($"CanEnterRegion FAILED: Player is in a Raid party, but region {regionProto.RegionName} is PrivateStory/PrivateNonStory.");
                         return false;
 
                     case RegionBehavior.MatchPlay:
                         if (regionProto.AllowRaids() == false)
                         {
                             SendBannerMessage(GameDatabase.UIGlobalsPrototype.MessageQueueNotAvailableInRaid.As<BannerMessagePrototype>());
+                            Logger.Warn($"CanEnterRegion FAILED: Player is in a Raid party, region {regionProto.RegionName} is MatchPlay, and regionProto.AllowRaids() is false.");
                             return false;
                         }
                         break;
                 }
             }
 
+            // *** THIS IS THE SECOND MOST LIKELY FAILURE POINT ***
             if (LiveTuningManager.GetLiveRegionTuningVar(regionProto, RegionTuningVar.eRTV_Enabled) == 0f)
             {
                 SendBannerMessage(GameDatabase.UIGlobalsPrototype.MessageRegionDisabledPortalFail.As<BannerMessagePrototype>());
+                Logger.Warn($"CanEnterRegion FAILED: Region {regionProto.RegionName} is disabled by LiveTuning (eRTV_Enabled == 0).");
                 return false;
             }
 
@@ -3734,27 +3744,6 @@ namespace MHServerEmu.Games.Entities
             }
 
             return (int)_loginCount;
-            EventScheduler scheduler = this.Game.GameEventScheduler;
-
-            // Create a pointer to manage the event. This is our handle to the event.
-            var messageEventPointer = new EventPointer<ShowUIMessageEvent>();
-
-            // The message we want to send.
-            string welcomeMessage = "Welcome! You will receive a bonus in 1 minute.";
-
-            
-            // This creates the event and links it to our pointer.
-            scheduler.ScheduleEvent(messageEventPointer, TimeSpan.FromSeconds(5));
-
-            // Now, get the created event instance back from the pointer.
-            ShowUIMessageEvent scheduledEvent = messageEventPointer.Get();
-
-            if (scheduledEvent != null)
-            {
-               
-                // and the message parameter.
-                scheduledEvent.Initialize(this, welcomeMessage);
-            }
         }
 
         private void GiveLoginRewards(int loginCount)

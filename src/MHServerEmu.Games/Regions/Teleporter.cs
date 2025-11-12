@@ -216,17 +216,24 @@ namespace MHServerEmu.Games.Regions
                 }
             }
 
-            // Clamp target region's difficulty to the available range
-            DifficultyTierRef = Player.GetDifficultyTierForRegion(regionProtoRef, DifficultyTierRef);
-
+            if (Player.HasBadge(AvailableBadges.SiteCommands) == false)
+            {
+                DifficultyTierRef = Player.GetDifficultyTierForRegion(regionProtoRef, DifficultyTierRef);
+            }
             if (IsLocalTeleport(region, destinationRegionProto))
             {
                 return TeleportToLocalTarget(areaProtoRef, cellProtoRef, entityProtoRef);
             }
             else
             {
-                if (Player.CanEnterRegion(regionProtoRef, DifficultyTierRef, false) == false)
+
+                bool canEnter = Player.CanEnterRegion(regionProtoRef, DifficultyTierRef, false);
+
+                if (canEnter == false)
+                {
+                    Logger.Warn($"TeleportToRemoteTarget: Player {Player.GetName()} FAILED CanEnterRegion check for {regionProtoRef.GetNameFormatted()} (Difficulty: {DifficultyTierRef.GetNameFormatted()}). Region is likely disabled by AccessChecks.");
                     return false;
+                }
 
                 return TeleportToRemoteTarget(regionProtoRef, areaProtoRef, cellProtoRef, entityProtoRef);
             }
