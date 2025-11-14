@@ -2314,8 +2314,8 @@ namespace MHServerEmu.Games.Entities
 
         public override void OnGotHit(WorldEntity attacker)
         {
-            base.OnGotHit(attacker);
             AIController?.OnAIOnGotHit(attacker);
+            base.OnGotHit(attacker);
         }
 
         public override void OnDramaticEntranceEnd()
