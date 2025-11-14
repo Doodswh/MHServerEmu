@@ -12,6 +12,7 @@ using MHServerEmu.Core.Network;
 using MHServerEmu.Core.Serialization;
 using MHServerEmu.Core.System.Time;
 using MHServerEmu.Core.VectorMath;
+using MHServerEmu.DatabaseAccess.Models;												  
 using MHServerEmu.Games.Achievements;
 using MHServerEmu.Games.Common;
 using MHServerEmu.Games.Dialog;
@@ -150,7 +151,9 @@ namespace MHServerEmu.Games.Entities
         public uint FullscreenMovieSyncRequestId { get; set; }
 
         public bool IsSwitchingAvatar { get; private set; }
-
+        public bool IsVanished { get; set; }
+        private readonly Dictionary<PrototypeId, int> _extraSlotsByGroup = new();
+        public event Action ExtraSlotsChanged;
         public PlayerConnection PlayerConnection { get; private set; }
         public AreaOfInterest AOI { get => PlayerConnection.AOI; }
 
@@ -421,6 +424,7 @@ namespace MHServerEmu.Games.Entities
                     string emptyString = string.Empty;
                     success &= Serializer.Transfer(archive, ref emptyString);
                 }
+
             }
 
             bool hasCommunityData = archive.IsPersistent || archive.IsMigration ||
@@ -510,6 +514,11 @@ namespace MHServerEmu.Games.Entities
             base.EnterGame(settings);
 
             InitPermaBuffs();
+			if (IsVanished)
+            {
+                CurrentAvatar.Properties[PropertyEnum.Stealth] = true;
+                CurrentAvatar.Properties[PropertyEnum.StealthDetection] = 10000;
+            }			   
 
             OnEnterGameInitStashTabOptions();
 
@@ -560,13 +569,35 @@ namespace MHServerEmu.Games.Entities
         /// </summary>
         public string GetName(PlayerAvatarIndex avatarIndex = PlayerAvatarIndex.Primary)
         {
+            string baseName;
             if ((avatarIndex >= PlayerAvatarIndex.Primary && avatarIndex < PlayerAvatarIndex.Count) == false)
-                Logger.Warn("GetName(): avatarIndex out of range");
+            {
+                // Logger.Warn("GetName(): avatarIndex out of range");
+                baseName = _playerName.Get(); // Fallback to primary player name
+            }
+            else if (avatarIndex == PlayerAvatarIndex.Secondary)
+            {
+                baseName = _secondaryPlayerName.Get();
+            }
+            else // Primary avatar
+            {
+                baseName = _playerName.Get();
+            }
 
-            if (avatarIndex == PlayerAvatarIndex.Secondary)
-                return _secondaryPlayerName.Get();
 
-            return _playerName.Get();
+            bool isAdminEquivalent = this.HasBadge(AvailableBadges.SiteCommands); // Use the badge(s) you've determined for admin/mod
+
+
+            if (isAdminEquivalent)
+            {
+
+                return $"{baseName} (Administrator!)";
+
+
+            }
+
+
+            return baseName;
         }
 
         /// <summary>
