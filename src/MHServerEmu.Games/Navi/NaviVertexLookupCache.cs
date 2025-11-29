@@ -6,16 +6,30 @@ namespace MHServerEmu.Games.Navi
     public class NaviVertexLookupCache
     {
         private static readonly Logger Logger = LogManager.CreateLogger();
-        public class VertexCacheKey
+
+        public readonly struct VertexCacheKey : IEquatable<VertexCacheKey>
         {
-            public NaviPoint Point;
-            public int X;
-            public int Y;
+            public readonly NaviPoint Point;
+            public readonly int X;
+            public readonly int Y;
+
+            public VertexCacheKey(NaviPoint point, int x, int y)
+            {
+                Point = point;
+                X = x;
+                Y = y;
+            }
 
             public override bool Equals(object obj)
             {
-                if (obj is not VertexCacheKey other) return false;
+                return obj is VertexCacheKey other && Equals(other);
+            }
+
+            public bool Equals(VertexCacheKey other)
+            {
                 if (X != other.X || Y != other.Y) return false;
+                if (Point == null && other.Point == null) return true;
+                if (Point == null || other.Point == null) return false;
 
                 return Pred.NaviPointCompare2D(Point.Pos, other.Point.Pos);
             }
@@ -31,12 +45,12 @@ namespace MHServerEmu.Games.Navi
             }
 
             public static bool operator ==(VertexCacheKey left, VertexCacheKey right)
-            {                
+            {
                 return left.Equals(right);
             }
 
             public static bool operator !=(VertexCacheKey left, VertexCacheKey right)
-            { 
+            {
                 return !left.Equals(right);
             }
         }
@@ -48,6 +62,7 @@ namespace MHServerEmu.Games.Navi
 
         public HashSet<VertexCacheKey> _vertexCache;
         private int _maxSize;
+        private static readonly ThreadLocal<NaviPoint> _lookupPoint = new(() => new NaviPoint(Vector3.Zero));
 
         public NaviVertexLookupCache(NaviSystem naviSystem)
         {
@@ -78,12 +93,7 @@ namespace MHServerEmu.Games.Navi
             }
 
             point = new NaviPoint(pos);
-            VertexCacheKey entry = new()
-            {
-                Point = point,
-                X = (int)(point.Pos.X / CellSize),
-                Y = (int)(point.Pos.Y / CellSize)
-            };
+            VertexCacheKey entry = new(point, (int)(point.Pos.X / CellSize), (int)(point.Pos.Y / CellSize));
 
             addedOut = _vertexCache.Add(entry);
             if (addedOut == false)
@@ -102,16 +112,13 @@ namespace MHServerEmu.Games.Navi
             int y0 = (int)((pos.Y - NaviPointBoxEpsilon) / CellSize);
             int y1 = (int)((pos.Y + NaviPointBoxEpsilon) / CellSize);
 
-            VertexCacheKey entry = new()
-            {
-                Point = new NaviPoint(pos)
-            };
+            NaviPoint lookupPt = _lookupPoint.Value;
+            lookupPt.Pos = pos;
 
             for (int x = x0; x <= x1; x++)
                 for (int y = y0; y <= y1; y++)
                 {
-                    entry.X = x;
-                    entry.Y = y;
+                    VertexCacheKey entry = new(lookupPt, x, y);
 
                     if (_vertexCache.TryGetValue(entry, out var key))
                         return key;
@@ -123,17 +130,14 @@ namespace MHServerEmu.Games.Navi
         public NaviPoint FindVertex(Vector3 pos)
         {
             VertexCacheKey key = FindVertexKey(pos);
-            return key?.Point;
+            // key is the struct from the HashSet. key.Point is the REAL point.
+            // if key is default, key.Point is null.
+            return key.Point;
         }
 
         public void RemoveVertex(NaviPoint point)
         {
-            VertexCacheKey entry = new()
-            {
-                Point = point,
-                X = (int)(point.Pos.X / CellSize),
-                Y = (int)(point.Pos.Y / CellSize)
-            };
+            VertexCacheKey entry = new(point, (int)(point.Pos.X / CellSize), (int)(point.Pos.Y / CellSize));
 
             if (_vertexCache.TryGetValue(entry, out var key) == false)
             {
@@ -155,12 +159,8 @@ namespace MHServerEmu.Games.Navi
             RemoveVertex(point);
 
             point.Pos = pos;
-            VertexCacheKey entry = new()
-            {
-                Point = point,
-                X = (int)(point.Pos.X / CellSize),
-                Y = (int)(point.Pos.Y / CellSize)
-            };
+            VertexCacheKey entry = new(point, (int)(point.Pos.X / CellSize), (int)(point.Pos.Y / CellSize));
+
             bool vertexAdded = _vertexCache.Add(entry);
             if (vertexAdded == false && _vertexCache.TryGetValue(entry, out var key)) // Second try?
             {
@@ -173,6 +173,5 @@ namespace MHServerEmu.Games.Navi
                 _vertexCache.Add(entry);
             }
         }
-
     }
 }

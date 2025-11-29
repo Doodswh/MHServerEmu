@@ -9,7 +9,7 @@ namespace MHServerEmu.Games.Navi
     {
         private const int MaxPathNodes = 256;
 
-        public bool IsValid { get =>  _pathNodes.Count > 0 ; }
+        public bool IsValid { get => _pathNodes.Count > 0; }
 
         private List<NaviPathNode> _pathNodes;
         private int _currentNodeIndex;
@@ -22,8 +22,8 @@ namespace MHServerEmu.Games.Navi
 
         public List<NaviPathNode> PathNodeList { get => _pathNodes; }
         public bool IsComplete { get => IsValid ? GetCurrentGoalNodeIndex() == _pathNodes.Count : true; }
-        public bool IsCurrentGoalNodeLastNode 
-        { 
+        public bool IsCurrentGoalNodeLastNode
+        {
             get
             {
                 if (IsValid == false) return false;
@@ -39,7 +39,7 @@ namespace MHServerEmu.Games.Navi
 
         public void Copy(NaviPath other)
         {
-            _pathNodes = new (other._pathNodes);
+            _pathNodes = new(other._pathNodes);
             _currentNodeIndex = other._currentNodeIndex;
             _radius = other._radius;
             _radiusSq = other._radiusSq;
@@ -133,7 +133,7 @@ namespace MHServerEmu.Games.Navi
                 {
                     Vector3 dir0 = prevVert - node0.Vertex;
                     Vector3 dir1 = segment.Start - node0.Vertex;
-                    distance += node0.Radius * Vector3.Angle2D(dir0, dir1); 
+                    distance += node0.Radius * Vector3.Angle2D(dir0, dir1);
                 }
                 distance += Vector3.Distance2D(segment.Start, segment.End);
                 prevVert = segment.End;
@@ -196,7 +196,7 @@ namespace MHServerEmu.Games.Navi
                 }
                 else
                 {
-                    if (Segment.CircleTangentPoints2D(node0.Vertex, node0.Radius, node0.VertexSide == NaviSide.Left, 
+                    if (Segment.CircleTangentPoints2D(node0.Vertex, node0.Radius, node0.VertexSide == NaviSide.Left,
                         node1.Vertex, node1.Radius, node1.VertexSide == NaviSide.Left, ref segment) == false)
                     {
                         segment.Start = node0.Vertex;
@@ -250,7 +250,7 @@ namespace MHServerEmu.Games.Navi
 
         private static Vector3 GetNodeGoalPosition(NaviPathNode goalNode, Vector3 position)
         {
-            if (goalNode.VertexSide == NaviSide.Point) 
+            if (goalNode.VertexSide == NaviSide.Point)
                 return goalNode.Vertex;
 
             Segment tangent = new();
@@ -267,7 +267,7 @@ namespace MHServerEmu.Games.Navi
 
         public void PopGoal()
         {
-            if (_pathNodes.Count > 0) 
+            if (_pathNodes.Count > 0)
                 _pathNodes.RemoveAt(_pathNodes.Count - 1);
         }
 
@@ -298,20 +298,36 @@ namespace MHServerEmu.Games.Navi
         public static NaviPathResult CheckCanPathTo(NaviMesh naviMesh, Vector3 position, Vector3 goalPosition, float radius, PathFlags pathFlags)
         {
             List<NaviPathNode> pathNodes = ListPool<NaviPathNode>.Instance.Get(MaxPathNodes);
-            var pathGen = new NaviPathGenerator(naviMesh);
-            NaviPathResult result = pathGen.GeneratePath(position, goalPosition, radius, pathFlags, pathNodes, true, 0, 0f);
-            ListPool<NaviPathNode>.Instance.Return(pathNodes);
-            return result;
+
+            var pathGen = NaviPathGeneratorPool.Get(naviMesh);
+            try
+            {
+                NaviPathResult result = pathGen.GeneratePath(position, goalPosition, radius, pathFlags, pathNodes, true, 0, 0f);
+                return result;
+            }
+            finally
+            {
+                NaviPathGeneratorPool.Return(pathGen);
+                ListPool<NaviPathNode>.Instance.Return(pathNodes);
+            }
         }
 
         public NaviPathResult GeneratePath(NaviMesh naviMesh, Vector3 position, Vector3 goalPosition, float radius, PathFlags pathFlags, PathGenerationFlags pathGenerationFlags, float incompleteDistance)
         {
             List<NaviPathNode> pathNodes = ListPool<NaviPathNode>.Instance.Get(MaxPathNodes);
-            var generator = new NaviPathGenerator(naviMesh);
-            NaviPathResult result = generator.GeneratePath(position, goalPosition, radius, pathFlags, pathNodes, false, pathGenerationFlags, incompleteDistance);
-            Init(radius, pathFlags, pathNodes);
-            ListPool<NaviPathNode>.Instance.Return(pathNodes);
-            return result;
+
+            var generator = NaviPathGeneratorPool.Get(naviMesh);
+            try
+            {
+                NaviPathResult result = generator.GeneratePath(position, goalPosition, radius, pathFlags, pathNodes, false, pathGenerationFlags, incompleteDistance);
+                Init(radius, pathFlags, pathNodes);
+                return result;
+            }
+            finally
+            {
+                NaviPathGeneratorPool.Return(generator);
+                ListPool<NaviPathNode>.Instance.Return(pathNodes);
+            }
         }
 
         public NaviPathResult GenerateWaypointPath(NaviMesh naviMesh, Vector3 position, List<Waypoint> waypoints, float radius, PathFlags pathFlags)
@@ -323,7 +339,8 @@ namespace MHServerEmu.Games.Navi
             List<NaviPathNode> wpPath = ListPool<NaviPathNode>.Instance.Get(MaxPathNodes);
 
             var startNode = new NaviPathNode(position, NaviSide.Point, 0f, false);
-            var generator = new NaviPathGenerator(naviMesh);
+
+            var generator = NaviPathGeneratorPool.Get(naviMesh);
             NaviPathResult result = NaviPathResult.Success;
 
             try
@@ -333,7 +350,10 @@ namespace MHServerEmu.Games.Navi
                     if (!Vector3.IsFinite(wp.Point)
                         || (wp.Side == NaviSide.Point && wp.Radius != 0f)
                         || (wp.Side != NaviSide.Point && wp.Radius <= 0f))
-                        return NaviPathResult.Failed;
+                    {
+                        result = NaviPathResult.Failed;
+                        break;
+                    }
 
                     var pathNode = new NaviPathNode(wp.Point, wp.Side, wp.Radius, false);
                     Segment pathSegment = GetPathSegment(pathNodes.Count > 0 ? pathNodes[^1] : startNode, pathNode);
@@ -342,7 +362,10 @@ namespace MHServerEmu.Games.Navi
                     if (result == NaviPathResult.Success)
                     {
                         if (pathNodes.Count + wpPath.Count > MaxPathNodes)
-                            return NaviPathResult.FailedOutMaxSize;
+                        {
+                            result = NaviPathResult.FailedOutMaxSize;
+                            break;
+                        }
 
                         if (wp.Side != NaviSide.Point)
                             wpPath[^1] = pathNode;
@@ -362,6 +385,7 @@ namespace MHServerEmu.Games.Navi
             }
             finally
             {
+                NaviPathGeneratorPool.Return(generator);
                 ListPool<NaviPathNode>.Instance.Return(pathNodes);
                 ListPool<NaviPathNode>.Instance.Return(wpPath);
             }

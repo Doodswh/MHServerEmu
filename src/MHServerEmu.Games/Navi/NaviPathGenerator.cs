@@ -21,11 +21,51 @@ namespace MHServerEmu.Games.Navi
         private NaviPoint _goalPoint;
         private readonly FixedPriorityQueue<NaviPathSearchState> _searchStateQueue;
 
+        private readonly Stack<NaviPathSearchState> _statePool = new(128);
+        private readonly List<NaviPathSearchState> _usedStates = new(128);
+        private readonly NaviPathChannel _reusableChannel = new(256);
+        private readonly NaviPathChannel _reusableTempChannel = new(256);
+        private readonly List<NaviPathNode> _reusableTempPathNodes = new(256);
+
+        // Note: This requires NaviFunnel to have a public Reset(NaviPoint p) method.
+        // Initialize with a dummy point; it will be Reset() before use.
+        private readonly NaviFunnel _reusableFunnel = new NaviFunnel(new NaviPoint(Vector3.Zero));
+        // -----------------------------------------------------
+
         public NaviPathGenerator(NaviMesh naviMesh)
         {
             // _navi = naviMesh.NaviSystem; // not used
             _naviMesh = naviMesh;
             _searchStateQueue = new(128);
+        }
+        public void SetMesh(NaviMesh naviMesh)
+        {
+            _naviMesh = naviMesh;
+        }
+        private NaviPathSearchState GetState()
+        {
+            NaviPathSearchState state;
+            if (_statePool.Count > 0)
+                state = _statePool.Pop();
+            else
+                state = new NaviPathSearchState();
+
+            _usedStates.Add(state);
+            return state;
+        }
+
+        private void ResetPools()
+        {
+            foreach (var state in _usedStates)
+            {
+                // Clear references to prevent memory leaks in long-lived pools
+                state.ParentState = null;
+                state.Triangle = null;
+                state.Edge = null;
+                _statePool.Push(state);
+            }
+            _usedStates.Clear();
+            _searchStateQueue.Clear();
         }
 
         public static void GenerateDirectMove(Vector3 startPosition, Vector3 goalPosition, List<NaviPathNode> pathNodes)
@@ -38,8 +78,8 @@ namespace MHServerEmu.Games.Navi
         {
             if (pathNodes.Count < 256) // max_size
             {
-                NaviPathNode pathNode = new ( position, side,
-                    side != NaviSide.Point ? radius + influenceRadius : 0f, 
+                NaviPathNode pathNode = new(position, side,
+                    side != NaviSide.Point ? radius + influenceRadius : 0f,
                     influenceRadius > 0f);
                 pathNodes.Add(pathNode);
             }
@@ -59,7 +99,7 @@ namespace MHServerEmu.Games.Navi
             _goalPosition = goalPosition;
             _pathGenerationFlags = pathGenerationFlags;
             _incompleteDistance = incompleteDistance;
-            if (!_naviMesh.IsMeshValid)  
+            if (!_naviMesh.IsMeshValid)
                 return NaviPathResult.FailedNaviMesh;
 
             var naviCDT = _naviMesh.NaviCdt;
@@ -75,145 +115,160 @@ namespace MHServerEmu.Games.Navi
 
         private NaviPathResult GeneratePathInternal(List<NaviPathNode> outPathNodes, bool skipGen)
         {
-            if (_startTriangle == null || _goalTriangle == null) return NaviPathResult.FailedTriangle;
-            _startPosition = NaviUtil.ProjectToPlane(_startTriangle, _startPosition);
-            _goalPosition = NaviUtil.ProjectToPlane(_goalTriangle, _goalPosition);
-
-            _searchStateQueue.Clear();
-
-            if (_goalTriangle.TestPathFlags(_pathFlags) == false) return NaviPathResult.FailedTriangle;
-
-            float influenceRadius = 0.0f;
-            if (_goalPoint != null)
+            try
             {
-                influenceRadius = _goalPoint.InfluenceRadius;
-                _goalPoint.InfluenceRadius = 0.0f;
-            }
+                if (_startTriangle == null || _goalTriangle == null) return NaviPathResult.FailedTriangle;
+                _startPosition = NaviUtil.ProjectToPlane(_startTriangle, _startPosition);
+                _goalPosition = NaviUtil.ProjectToPlane(_goalTriangle, _goalPosition);
 
-            bool pathFound = false;
-            bool incompletePath = false;
-            List<NaviPathNode> tempPath;
-            bool startTriangleIsGoal = (_startTriangle == _goalTriangle) || (_goalPoint != null && _startTriangle.Contains(_goalPoint));
-            if (startTriangleIsGoal == false || CanCrossTriangle(_startTriangle, _startPosition, _goalPosition, _width) == false)
-            {
-                NaviPathSearchState state = new()
+                // _searchStateQueue.Clear(); // Handled by ResetPools()
+
+                if (_goalTriangle.TestPathFlags(_pathFlags) == false) return NaviPathResult.FailedTriangle;
+
+                float influenceRadius = 0.0f;
+                if (_goalPoint != null)
                 {
-                    Triangle = _startTriangle,
-                    DistDone = 0,
-                    DistLeft = Vector3.Distance2D(_goalPosition, _startPosition)
-                };
-                state.Distance = state.DistDone + state.DistLeft;
-                _searchStateQueue.Push(state);
+                    influenceRadius = _goalPoint.InfluenceRadius;
+                    _goalPoint.InfluenceRadius = 0.0f;
+                }
 
-                NaviPathSearchState closestPathState = (_incompleteDistance == 0.0f || state.DistLeft <= _incompleteDistance) ? state : null;
+                bool pathFound = false;
+                bool incompletePath = false;
+                List<NaviPathNode> tempPath; 
 
-                int maxAttempts = 1;
-                int attempt = 0;
-                int steps = 0;
-                float shortestPathDistance = -1.0f;
-
-                while (GeneratePathStep(out NaviPathSearchState genPathState) && _searchStateQueue.Count < 128 && ++steps < 256)
+                bool startTriangleIsGoal = (_startTriangle == _goalTriangle) || (_goalPoint != null && _startTriangle.Contains(_goalPoint));
+                if (startTriangleIsGoal == false || CanCrossTriangle(_startTriangle, _startPosition, _goalPosition, _width) == false)
                 {
-                    if (genPathState != null)
+                    // Optimization: Use pooled state
+                    NaviPathSearchState state = GetState();
+                    state.Triangle = _startTriangle;
+                    state.DistDone = 0;
+                    state.DistLeft = Vector3.Distance2D(_goalPosition, _startPosition);
+                    state.Distance = state.DistDone + state.DistLeft;
+
+                    _searchStateQueue.Push(state);
+
+                    NaviPathSearchState closestPathState = (_incompleteDistance == 0.0f || state.DistLeft <= _incompleteDistance) ? state : null;
+
+                    int maxAttempts = 1;
+                    int attempt = 0;
+                    int steps = 0;
+                    float shortestPathDistance = -1.0f;
+
+                    while (GeneratePathStep(out NaviPathSearchState genPathState) && _searchStateQueue.Count < 128 && ++steps < 256)
                     {
-                        pathFound = true;
-                        if (skipGen) break;
-                        if (shortestPathDistance < 0.0f)
+                        if (genPathState != null)
                         {
-                            NaviPathChannel shortestPathChannel = new (256);
-                            CopySearchStateToPathChannel(genPathState, shortestPathChannel);
-                            AddPathNodeBack(outPathNodes, _startPosition, NaviSide.Point, _radius, 0.0f);
-                            if (FunnelStep(shortestPathChannel, outPathNodes) == false)
-                                throw new InvalidOperationException("FunnelStep failed.");
-                            shortestPathDistance = NaviPath.CalcAccurateDistance(outPathNodes);
-                            maxAttempts = steps <= 5 ? 1 : steps <= 50 ? 3 : 5;
-                        }
-                        else
-                        {
-                            NaviPathChannel tempPathChannel = new (256);
-                            CopySearchStateToPathChannel(genPathState, tempPathChannel);
-                            tempPath = new(256);
-                            AddPathNodeBack(tempPath, _startPosition, NaviSide.Point, _radius, 0.0f);
-                            if (FunnelStep(tempPathChannel, tempPath) == false)
-                                throw new InvalidOperationException("FunnelStep failed.");
-                            float tempPathDistance = NaviPath.CalcAccurateDistance(tempPath);
-                            if (tempPathDistance < shortestPathDistance)
+                            pathFound = true;
+                            if (skipGen) break;
+                            if (shortestPathDistance < 0.0f)
                             {
-                                shortestPathDistance = tempPathDistance;
-                                outPathNodes.Clear();
-                                outPathNodes.AddRange(tempPath);
+                                _reusableChannel.Clear();
+                                CopySearchStateToPathChannel(genPathState, _reusableChannel);
+
+                                AddPathNodeBack(outPathNodes, _startPosition, NaviSide.Point, _radius, 0.0f);
+                                if (FunnelStep(_reusableChannel, outPathNodes) == false)
+                                    throw new InvalidOperationException("FunnelStep failed.");
+
+                                shortestPathDistance = NaviPath.CalcAccurateDistance(outPathNodes);
+                                maxAttempts = steps <= 5 ? 1 : steps <= 50 ? 3 : 5;
                             }
+                            else
+                            {
+                                _reusableTempChannel.Clear();
+                                CopySearchStateToPathChannel(genPathState, _reusableTempChannel);
+
+                                _reusableTempPathNodes.Clear();
+                                tempPath = _reusableTempPathNodes;
+
+                                AddPathNodeBack(tempPath, _startPosition, NaviSide.Point, _radius, 0.0f);
+                                if (FunnelStep(_reusableTempChannel, tempPath) == false)
+                                    throw new InvalidOperationException("FunnelStep failed.");
+
+                                float tempPathDistance = NaviPath.CalcAccurateDistance(tempPath);
+                                if (tempPathDistance < shortestPathDistance)
+                                {
+                                    shortestPathDistance = tempPathDistance;
+                                    outPathNodes.Clear();
+                                    outPathNodes.AddRange(tempPath);
+                                }
+                            }
+                            steps = 0;
+                            if (++attempt == maxAttempts) break;
                         }
-                        steps = 0;
-                        if (++attempt == maxAttempts) break;
-                    }
-                    else if (_pathGenerationFlags.HasFlag(PathGenerationFlags.IncompletedPath) && !_searchStateQueue.Empty)
-                    {
-                        NaviPathSearchState topState = _searchStateQueue.Top;
-                        const float weight = 4.0f;
-                        if (_incompleteDistance == 0.0f)
+                        else if (_pathGenerationFlags.HasFlag(PathGenerationFlags.IncompletedPath) && !_searchStateQueue.Empty)
                         {
-                            float weightDist = topState.DistLeft * weight + topState.DistDone;
-                            float closestWeightDist = closestPathState.DistLeft * weight + closestPathState.DistDone;
-                            if (weightDist < closestWeightDist)
-                                closestPathState = topState;
-                        }
-                        else if (topState.DistLeft <= _incompleteDistance)
-                        {
-                            if (closestPathState != null)
+                            NaviPathSearchState topState = _searchStateQueue.Top;
+                            const float weight = 4.0f;
+                            if (_incompleteDistance == 0.0f)
                             {
                                 float weightDist = topState.DistLeft * weight + topState.DistDone;
                                 float closestWeightDist = closestPathState.DistLeft * weight + closestPathState.DistDone;
                                 if (weightDist < closestWeightDist)
                                     closestPathState = topState;
                             }
+                            else if (topState.DistLeft <= _incompleteDistance)
+                            {
+                                if (closestPathState != null)
+                                {
+                                    float weightDist = topState.DistLeft * weight + topState.DistDone;
+                                    float closestWeightDist = closestPathState.DistLeft * weight + closestPathState.DistDone;
+                                    if (weightDist < closestWeightDist)
+                                        closestPathState = topState;
+                                }
+                                else
+                                    closestPathState = topState;
+                            }
+                        }
+                    }
+
+                    if (_pathGenerationFlags.HasFlag(PathGenerationFlags.IncompletedPath) && !pathFound && closestPathState != null)
+                    {
+                        _reusableTempChannel.Clear();
+                        if (closestPathState.ParentState != null)
+                            CopySearchStateToPathChannel(closestPathState, _reusableTempChannel);
+
+                        AddPathNodeBack(outPathNodes, _startPosition, NaviSide.Point, _radius, 0.0f);
+                        if (FunnelStep(_reusableTempChannel, outPathNodes) == false)
+                            throw new InvalidOperationException("FunnelStep failed.");
+
+                        int nodes = outPathNodes.Count;
+                        if (nodes >= 2)
+                        {
+                            int index0 = nodes - 2;
+                            int index1 = nodes - 1;
+                            while (index0 > 0 && outPathNodes[index0].HasInfluence)
+                                index0--;
+
+                            Segment pathSegment = NaviPath.GetPathSegment(outPathNodes[index0], outPathNodes[index1]);
+                            Vector3? resultPosition = new();
+                            Vector3? resultNormal = null;
+                            if (_pathGenerationFlags.HasFlag(PathGenerationFlags.IgnoreSweep)
+                                || _naviMesh.Sweep(pathSegment.Start, pathSegment.End, Math.Max(0.0f, _radius - 0.1f), _pathFlags,
+                                ref resultPosition, ref resultNormal) == SweepResult.Success)
+                                incompletePath = true;
                             else
-                                closestPathState = topState;
+                                outPathNodes.Clear();
                         }
                     }
                 }
-
-                if (_pathGenerationFlags.HasFlag(PathGenerationFlags.IncompletedPath) && !pathFound && closestPathState != null)
+                else
                 {
-                    NaviPathChannel tempPathChannel = new(256);
-                    if (closestPathState.ParentState != null)
-                        CopySearchStateToPathChannel(closestPathState, tempPathChannel);
-                    AddPathNodeBack(outPathNodes, _startPosition, NaviSide.Point, _radius, 0.0f);
-                    if (FunnelStep(tempPathChannel, outPathNodes) == false)
-                        throw new InvalidOperationException("FunnelStep failed.");
-
-                    int nodes = outPathNodes.Count;
-                    if (nodes >= 2)
-                    {
-                        int index0 = nodes - 2;
-                        int index1 = nodes - 1;
-                        while (index0 > 0 && outPathNodes[index0].HasInfluence)
-                            index0--;
-
-                        Segment pathSegment = NaviPath.GetPathSegment(outPathNodes[index0], outPathNodes[index1]);
-                        Vector3? resultPosition = new();
-                        Vector3? resultNormal = null;
-                        if (_pathGenerationFlags.HasFlag(PathGenerationFlags.IgnoreSweep) 
-                            || _naviMesh.Sweep(pathSegment.Start, pathSegment.End, Math.Max(0.0f, _radius - 0.1f), _pathFlags,
-                            ref resultPosition, ref resultNormal) == SweepResult.Success)
-                            incompletePath = true;
-                        else
-                            outPathNodes.Clear();
-                    }
+                    pathFound = true;
+                    if (skipGen == false)
+                        GenerateDirectMove(_startPosition, _goalPosition, outPathNodes);
                 }
-            }
-            else
-            {
-                pathFound = true;
-                if (skipGen == false)
-                    GenerateDirectMove(_startPosition, _goalPosition, outPathNodes);
-            }
 
-            if (_goalPoint != null) _goalPoint.InfluenceRadius = influenceRadius;
-            
-            if (pathFound) return NaviPathResult.Success;
-            else if (incompletePath) return NaviPathResult.IncompletedPath;
-            else return NaviPathResult.FailedNoPathFound;
+                if (_goalPoint != null) _goalPoint.InfluenceRadius = influenceRadius;
+
+                if (pathFound) return NaviPathResult.Success;
+                else if (incompletePath) return NaviPathResult.IncompletedPath;
+                else return NaviPathResult.FailedNoPathFound;
+            }
+            finally
+            {
+                ResetPools();
+            }
         }
 
         private bool GeneratePathStep(out NaviPathSearchState resultPathState)
@@ -223,7 +278,7 @@ namespace MHServerEmu.Games.Navi
 
             NaviPathSearchState topState = _searchStateQueue.Top;
             _searchStateQueue.Pop();
-            
+
             NaviTriangle triangle;
             for (int edgeIndex = 0; edgeIndex < 3; edgeIndex++)
             {
@@ -231,15 +286,15 @@ namespace MHServerEmu.Games.Navi
                 if (topState.Edge == edge) continue;
 
                 triangle = edge.OpposedTriangle(topState.Triangle);
-                
-                if (triangle == null || !triangle.TestPathFlags(_pathFlags) || NaviEdge.IsBlockingDoorEdge(edge, _pathFlags)) 
+
+                if (triangle == null || !triangle.TestPathFlags(_pathFlags) || NaviEdge.IsBlockingDoorEdge(edge, _pathFlags))
                     continue;
 
                 bool isGoalTriangle = (triangle == _goalTriangle) || (_goalPoint != null && triangle.Contains(_goalPoint));
                 if (!isGoalTriangle && topState.IsAncestor(triangle)) continue;
 
                 float edgeWidth = edge.Length2D() - edge.Points[0].InfluenceRadius - edge.Points[1].InfluenceRadius;
-                
+
                 if (_width >= edgeWidth) continue;
 
                 if (topState.Edge != null)
@@ -249,16 +304,14 @@ namespace MHServerEmu.Games.Navi
                 }
                 else
                 {
-                    if (CanCrossTriangle(_startTriangle, edgeIndex, edge, _startPosition, _width) == false) 
+                    if (CanCrossTriangle(_startTriangle, edgeIndex, edge, _startPosition, _width) == false)
                         continue;
                 }
 
-                NaviPathSearchState state = new()
-                {
-                    ParentState = topState,
-                    Triangle = triangle,
-                    Edge = edge
-                };
+                NaviPathSearchState state = GetState();
+                state.ParentState = topState;
+                state.Triangle = triangle;
+                state.Edge = edge;
 
                 Vector3 closestPoint = Segment.SegmentPointClosestPoint(edge.Points[0].Pos, edge.Points[1].Pos, _goalPosition);
                 state.DistLeft = Vector3.Length2D(_goalPosition - closestPoint);
@@ -269,6 +322,7 @@ namespace MHServerEmu.Games.Navi
                 float dist3 = topState.DistDone + (topState.DistLeft - state.DistLeft);
                 state.DistDone = Math.Max(dist1, Math.Max(dist2, dist3));
                 state.Distance = state.DistDone + state.DistLeft;
+
                 if (isGoalTriangle && CanCrossTriangle(triangle, triangle.EdgeIndex(edge), edge, _goalPosition, _width))
                 {
                     resultPathState = state;
@@ -360,7 +414,9 @@ namespace MHServerEmu.Games.Navi
             NaviPoint goalPoint = new(_goalPosition);
             NaviSide vertexSide;
             float radiusSq = _radius * _radius;
-            NaviFunnel funnel = new (startPoint);
+
+            NaviFunnel funnel = _reusableFunnel;
+            funnel.Reset(startPoint); 
 
             if (pathChannel.Count > 0)
             {
@@ -417,7 +473,7 @@ namespace MHServerEmu.Games.Navi
 
         private bool SimpleTestFunnelVertexClearOfObstacles(NaviPoint point, NaviTriangle triangle, float radiusSq, PathFlags pathFlags)
         {
-            if (point.InfluenceRef > 0) return false; 
+            if (point.InfluenceRef > 0) return false;
 
             NaviTriangle nextTriangle = triangle;
             do
@@ -496,14 +552,15 @@ namespace MHServerEmu.Games.Navi
             Vector3 perpVect = Vector3.Normalize(Vector3.Perp2D(point1.Pos - point0.Pos));
             Vector3 perpVect0 = perpVect * (radius + point0.InfluenceRadius);
             Vector3 perpVect1 = perpVect * (radius + point1.InfluenceRadius);
-            
+
             Vector3 offset0 = default;
             switch (vertexSide0)
             {
                 case NaviSide.Point: offset0 = point0.Pos; break;
                 case NaviSide.Left: offset0 = point0.Pos + perpVect0; break;
                 case NaviSide.Right: offset0 = point0.Pos - perpVect0; break;
-            };
+            }
+            ;
 
             Vector3 offset1 = default;
             switch (vertexSide1)
@@ -511,7 +568,8 @@ namespace MHServerEmu.Games.Navi
                 case NaviSide.Point: offset1 = point1.Pos; break;
                 case NaviSide.Left: offset1 = point1.Pos + perpVect1; break;
                 case NaviSide.Right: offset1 = point1.Pos - perpVect1; break;
-            };
+            }
+            ;
 
             return new(offset0, offset1);
         }
@@ -539,7 +597,7 @@ namespace MHServerEmu.Games.Navi
 
             while (searchState != null && searchState.Edge != null)
             {
-                NaviChannelEdge channelEdge = new ();
+                NaviChannelEdge channelEdge = new();
                 NaviEdge edge = searchState.Edge;
                 channelEdge.Edge = edge;
                 if (edge.Points[0] == point0)
@@ -569,7 +627,7 @@ namespace MHServerEmu.Games.Navi
 
         private NaviPathResult FixInvalidGoalPosition()
         {
-            if (_startTriangle == null || _goalTriangle == null) 
+            if (_startTriangle == null || _goalTriangle == null)
                 return NaviPathResult.FailedTriangle;
 
             if (_goalTriangle.TestPathFlags(_pathFlags) == false)
@@ -624,7 +682,7 @@ namespace MHServerEmu.Games.Navi
     {
         public NaviEdge Edge;
         public bool Flip;
-        
+
         public readonly NaviPoint LeftEndPoint() => Edge.Points[Flip ? 1 : 0];
         public readonly NaviPoint RightEndPoint() => Edge.Points[Flip ? 0 : 1];
     }
@@ -645,7 +703,7 @@ namespace MHServerEmu.Games.Navi
         public float DistLeft;
         public float Distance;
 
-        public NaviPathSearchState() {}
+        public NaviPathSearchState() { }
 
         public int CompareTo(NaviPathSearchState other)
         {

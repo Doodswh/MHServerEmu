@@ -4,12 +4,22 @@ namespace MHServerEmu.Games.Navi
 {
     public class NaviFunnel : FixedDeque<FunnelVertex>
     {
-        private readonly NaviPoint _pathStart;
+        private NaviPoint _pathStart;
         private FunnelVertex _apex;
 
-        public NaviFunnel(NaviPoint point): base(256) 
+        public NaviFunnel(NaviPoint point) : base(256)
         {
-            PushFront(new(point, NaviSide.Point));
+            Reset(point);
+        }
+
+        /// <summary>
+        /// Resets the funnel state for reuse, mimicking the constructor logic.
+        /// This allows us to pool the NaviFunnel instance.
+        /// </summary>
+        public void Reset(NaviPoint point)
+        {
+            Clear(); // Clears the underlying FixedDeque
+            PushFront(new FunnelVertex(point, NaviSide.Point));
             _apex = LeftV();
             _pathStart = point;
         }
@@ -28,8 +38,8 @@ namespace MHServerEmu.Games.Navi
 
         public void PopLeft() => PopFront();
         public void PopRight() => PopBack();
-        public void AddVertexLeft(NaviPoint point, NaviSide vertexSide) => PushFront(new (point, vertexSide));
-        public void AddVertexRight(NaviPoint point, NaviSide vertexSide) => PushBack(new (point, vertexSide));
+        public void AddVertexLeft(NaviPoint point, NaviSide vertexSide) => PushFront(new(point, vertexSide));
+        public void AddVertexRight(NaviPoint point, NaviSide vertexSide) => PushBack(new(point, vertexSide));
 
         public void AddVertex(NaviSide funnelSide, NaviPoint point, NaviSide vertexSide)
         {
