@@ -25,11 +25,21 @@ namespace MHServerEmu.Commands.Implementations
         private static readonly Logger Logger = LogManager.CreateLogger();
 
         [Command("test")]
-        [CommandDescription("Runs test code.")]
+        [CommandDescription("Runs the Navi Pathfinding Stress Test.")]
         [CommandUserLevel(AccountUserLevel.Admin)]
         public string Test(string[] @params, NetClient client)
         {
-            return string.Empty;
+            // 1. Get the player's current region/mesh
+            PlayerConnection playerConnection = (PlayerConnection)client;
+            var region = playerConnection.AOI.Region;
+
+            if (region == null || region.NaviMesh == null)
+                return "Error: No Navigation Mesh found in this region.";
+
+            // 2. Run the stress test we created earlier
+            MHServerEmu.Games.Navi.NaviTest.RunStressTest(region.NaviMesh);
+
+            return "Navi Stress Test initiated. Check server logs for results.";
         }
 
         [Command("forcegc")]
