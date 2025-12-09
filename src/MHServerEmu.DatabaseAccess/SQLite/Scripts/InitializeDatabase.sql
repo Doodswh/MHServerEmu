@@ -11,7 +11,15 @@ CREATE TABLE "Account" (
 	"Salt"	BLOB NOT NULL,
 	"UserLevel"	INTEGER NOT NULL,
 	"Flags"	INTEGER NOT NULL,
+	"LastKnownMachineId"	TEXT,
 	PRIMARY KEY("Id")
+);
+
+CREATE TABLE "BannedHardware" (
+	"Hwid"	TEXT PRIMARY KEY,
+	"BannedBy"	TEXT,
+	"Reason"	TEXT,
+	"BanDate"	TEXT
 );
 
 CREATE TABLE "Player" (

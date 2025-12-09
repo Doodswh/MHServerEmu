@@ -51,32 +51,7 @@ namespace MHServerEmu.DatabaseAccess.SQLite
                 if (MigrateDatabaseFileToCurrentSchema() == false)
                     return false;
             }
-            try
-            {
-                using var connection = GetConnection();
-
-                connection.Execute(@"
-             CREATE TABLE IF NOT EXISTS BannedHardware (
-                 Hwid TEXT PRIMARY KEY,
-                 BannedBy TEXT,
-                 Reason TEXT,
-                 BanDate TEXT
-             );");
-
-                int colExists = connection.QueryFirstOrDefault<int>(
-                    "SELECT COUNT(*) FROM pragma_table_info('Account') WHERE name='LastKnownMachineId'");
-
-                if (colExists == 0)
-                {
-                    connection.Execute("ALTER TABLE Account ADD COLUMN LastKnownMachineId TEXT");
-                    Logger.Info("Patching Database: Added 'LastKnownMachineId' to Account table.");
-                }
-            }
-            catch (Exception ex)
-            {
-                Logger.Error($"Failed to patch database for HWID bans: {ex.Message}");
-                return false;
-            }
+           
 
             _maxBackupNumber = config.MaxBackupNumber;
             _backupTimer = new(TimeSpan.FromMinutes(config.BackupIntervalMinutes));
