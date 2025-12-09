@@ -103,7 +103,24 @@ namespace MHServerEmu.DatabaseAccess.Json
             // All JSON data is loaded at once (FIXME)
             return true;
         }
+        public bool IsHardwareBanned(string hwid)
+        {
+            // JSON mode does not support hardware bans, so we always return false (not banned).
+            return false;
+        }
 
+        public bool BanHardwareId(string hwid, string bannedBy, string reason)
+        {
+            return Logger.WarnReturn(false, "BanHardwareId(): Operation not supported in JsonDBManager");
+        }
+        public bool IsIPBanned(string ip) => false;
+
+        public bool BanIP(string ip, string bannedBy, string reason)
+        {
+            return Logger.WarnReturn(false, "BanIP(): Not supported in JsonDBManager");
+        }
+
+        public bool CheckBanStatus(string hwid, string ip) => false;
         public bool SavePlayerData(DBAccount account)
         {
             if (account != _account)

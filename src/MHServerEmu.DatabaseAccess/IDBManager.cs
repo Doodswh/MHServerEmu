@@ -54,6 +54,16 @@ namespace MHServerEmu.DatabaseAccess
         /// Updates the Account table in the database with the provided <see cref="DBAccount"/>.
         /// </summary>
         public bool UpdateAccount(DBAccount account);
+        // <summary>
+        /// Checks if the specified Machine ID is present in the blacklist.
+        /// </summary>
+        public bool IsHardwareBanned(string hwid);
+
+        /// <summary>
+        /// Adds a Machine ID to the blacklist.
+        /// </summary>
+        public bool BanHardwareId(string hwid, string bannedBy, string reason);
+
 
         /// <summary>
         /// Loads persistent game data stored in the database for the provided <see cref="DBAccount"/>.

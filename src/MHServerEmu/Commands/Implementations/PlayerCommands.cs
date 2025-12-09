@@ -40,28 +40,24 @@ namespace MHServerEmu.Commands.Implementations
         /// </summary>
         private PlayerConnection FindPlayerConnectionByName(string playerName)
         {
-            // Step 1: Use the PlayerNameCache to resolve the name to a database ID.
-            // This is much more efficient than iterating through all online players.
-            if (!PlayerNameCache.Instance.TryGetPlayerDbId(playerName, out ulong playerDbId, out _))
+                       if (!PlayerNameCache.Instance.TryGetPlayerDbId(playerName, out ulong playerDbId, out _))
             {
-                return null; // Player name doesn't exist in the database.
+                return null;
             }
 
-            // Step 2: Get the GameManager instance.
+            
             var gameInstanceService = ServerManager.Instance.GetGameService(GameServiceType.GameInstance) as GameInstanceService;
             if (gameInstanceService == null) return null;
 
             GameManager gameManager = gameInstanceService.GameManager;
             if (gameManager == null) return null;
 
-            // Step 3: Use the GameManager's fast lookup to find which game instance the player is in.
+           
             if (!gameManager.TryGetGameForPlayerDbId(playerDbId, out Game game))
             {
-                return null; // Player is not online in any game instance.
+                return null; 
             }
-
-            // Step 4: Now that we have the correct game, find the specific PlayerConnection.
-            // This avoids searching through all other games.
+           
             foreach (var connection in game.NetworkManager)
             {
                 if (connection.PlayerDbId == playerDbId)
@@ -70,17 +66,12 @@ namespace MHServerEmu.Commands.Implementations
                 }
             }
 
-            return null; // Should be unreachable if TryGetGameForPlayerDbId succeeded, but good for safety.
+            return null; 
         }
 
-        /// <summary>
-        /// Gets the specific PlayerConnection for the client invoking a command.
-        /// This is the fix for the InvalidCastException and subsequent ArgumentNullException.
-        /// </summary>
         private PlayerConnection GetInvokerConnection(NetClient client)
         {
-            // The NetClient object passed into a player-invoked command is the PlayerConnection itself.
-            // The crash was caused by incorrectly trying to treat it as an IFrontendClient and look it up.
+
             return client as PlayerConnection;
         }
 
@@ -148,13 +139,13 @@ namespace MHServerEmu.Commands.Implementations
 
             if (avatar.EquippedCostumeRef != (PrototypeId)HardcodedBlueprints.Costume)
             {
-                // Apply fallback costume override
+             
                 costumeProtoRef = (PrototypeId)HardcodedBlueprints.Costume;
                 result = "Applied fallback costume override.";
             }
             else
             {
-                // Revert fallback costume override if it is currently applied
+                
                 Inventory costumeInv = avatar.GetInventory(InventoryConvenienceLabel.Costume);
                 if (costumeInv != null && costumeInv.Count > 0)
                 {

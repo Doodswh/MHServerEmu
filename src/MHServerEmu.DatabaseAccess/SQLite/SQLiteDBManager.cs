@@ -51,10 +51,36 @@ namespace MHServerEmu.DatabaseAccess.SQLite
                 if (MigrateDatabaseFileToCurrentSchema() == false)
                     return false;
             }
+            try
+            {
+                using var connection = GetConnection();
+
+                connection.Execute(@"
+             CREATE TABLE IF NOT EXISTS BannedHardware (
+                 Hwid TEXT PRIMARY KEY,
+                 BannedBy TEXT,
+                 Reason TEXT,
+                 BanDate TEXT
+             );");
+
+                int colExists = connection.QueryFirstOrDefault<int>(
+                    "SELECT COUNT(*) FROM pragma_table_info('Account') WHERE name='LastKnownMachineId'");
+
+                if (colExists == 0)
+                {
+                    connection.Execute("ALTER TABLE Account ADD COLUMN LastKnownMachineId TEXT");
+                    Logger.Info("Patching Database: Added 'LastKnownMachineId' to Account table.");
+                }
+            }
+            catch (Exception ex)
+            {
+                Logger.Error($"Failed to patch database for HWID bans: {ex.Message}");
+                return false;
+            }
 
             _maxBackupNumber = config.MaxBackupNumber;
             _backupTimer = new(TimeSpan.FromMinutes(config.BackupIntervalMinutes));
-            
+
             Logger.Info($"Using database file {FileHelper.GetRelativePath(_dbFilePath)}");
             return true;
         }
@@ -135,19 +161,19 @@ namespace MHServerEmu.DatabaseAccess.SQLite
         {
             lock (_writeLock)
             {
-                using SQLiteConnection connection = GetConnection();
+                using var connection = GetConnection();
 
-                try
-                {
-                    connection.Execute(@"UPDATE Account SET Email=@Email, PlayerName=@PlayerName, PasswordHash=@PasswordHash, Salt=@Salt,
-                        UserLevel=@UserLevel, Flags=@Flags WHERE Id=@Id", account);
-                    return true;
-                }
-                catch (Exception e)
-                {
-                    Logger.ErrorException(e, nameof(UpdateAccount));
-                    return false;
-                }
+                return connection.Execute(@"
+                    UPDATE Account SET 
+                        Email = @Email, 
+                        PlayerName = @PlayerName, 
+                        PasswordHash = @PasswordHash, 
+                        Salt = @Salt, 
+                        UserLevel = @UserLevel, 
+                        Flags = @Flags,
+                        LastKnownMachineId = @LastKnownMachineId
+                    WHERE Id = @Id",
+                    account) > 0;
             }
         }
 
@@ -417,7 +443,50 @@ namespace MHServerEmu.DatabaseAccess.SQLite
 
             return Logger.WarnReturn(-1, "GetSchemaVersion(): Failed to query user_version from the DB");
         }
+        public bool IsHardwareBanned(string hwid)
+        {
+            if (string.IsNullOrEmpty(hwid)) return false;
 
+            using var connection = GetConnection();
+
+            string query = @"
+                SELECT COUNT(*) FROM (
+                    SELECT Hwid FROM BannedHardware WHERE Hwid = @Hwid
+                    UNION
+                    SELECT LastKnownMachineId FROM Account WHERE LastKnownMachineId = @Hwid AND (Flags & 1) = 1
+                )";
+
+            return connection.QueryFirstOrDefault<int>(query, new { Hwid = hwid }) > 0;
+        }
+
+        public bool BanHardwareId(string hwid, string bannedBy, string reason)
+        {
+            if (string.IsNullOrEmpty(hwid)) return false;
+
+            try
+            {
+                lock (_writeLock)
+                {
+                    using var connection = GetConnection();
+                    connection.Execute(@"
+                        INSERT OR REPLACE INTO BannedHardware (Hwid, BannedBy, Reason, BanDate)
+                        VALUES (@Hwid, @BannedBy, @Reason, @BanDate)",
+                        new
+                        {
+                            Hwid = hwid,
+                            BannedBy = bannedBy,
+                            Reason = reason,
+                            BanDate = Clock.UnixTime.ToString() // Or DateTime.UtcNow
+                        });
+                }
+                Logger.Info($"Hardware ID banned: {hwid}");
+                return true;
+            }
+            catch (Exception ex)
+            {
+                return Logger.WarnReturn(false, $"Failed to ban HWID {hwid}: {ex.Message}");
+            }
+        }
         /// <summary>
         /// Sets the user_version value of the current database file.
         /// </summary>

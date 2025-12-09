@@ -1,13 +1,15 @@
-﻿using System.Text;
-using Gazillion;
+﻿using Gazillion;
 using MHServerEmu.Commands.Attributes;
 using MHServerEmu.Core.Helpers;
 using MHServerEmu.Core.Network;
+using MHServerEmu.DatabaseAccess;
 using MHServerEmu.DatabaseAccess.Json;
 using MHServerEmu.DatabaseAccess.Models;
 using MHServerEmu.Games.Network;
 using MHServerEmu.PlayerManagement.Auth;
 using MHServerEmu.PlayerManagement.Players;
+using MHServerEmu.PlayerManagement;
+using System.Text;
 
 namespace MHServerEmu.Commands.Implementations
 {
@@ -127,14 +129,30 @@ namespace MHServerEmu.Commands.Implementations
         }
 
         [Command("ban")]
-        [CommandDescription("Bans the specified account.")]
-        [CommandUsage("account ban [email]")]
+        [CommandDescription("Bans the account and its machine ID and kicks the player.")]
         [CommandUserLevel(AccountUserLevel.Moderator)]
-        [CommandParamCount(1)]
         public string Ban(string[] @params, NetClient client)
         {
             string email = @params[0].ToLower();
-            return SetAccountFlag(email, AccountFlags.IsBanned);
+
+            if (!AccountManager.TryGetAccountByEmail(email, out DBAccount targetAccount))
+                return "Account not found.";
+
+            AccountManager.SetFlag(targetAccount, AccountFlags.IsBanned);
+            string response = "Account banned.";
+
+            IDBManager.Instance.BanHardwareId(targetAccount.LastKnownMachineId, "Moderator", "Ban Command");
+            response += " HWID Banned.";
+
+            var targetPlayer = PlayerManagerService.Instance.ClientManager.GetPlayer((ulong)targetAccount.Id);
+
+            if (targetPlayer != null)
+            {
+                targetPlayer.Disconnect();
+                response += " Player kicked.";
+            }
+
+            return response;
         }
 
         [Command("unban")]

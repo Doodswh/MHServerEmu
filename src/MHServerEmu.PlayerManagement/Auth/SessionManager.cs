@@ -1,11 +1,12 @@
-﻿using Google.ProtocolBuffers;
-using Gazillion;
+﻿using Gazillion;
+using Google.ProtocolBuffers;
 using MHServerEmu.Core.Helpers;
 using MHServerEmu.Core.Logging;
 using MHServerEmu.Core.Network;
 using MHServerEmu.Core.Network.Web;
 using MHServerEmu.Core.System;
 using MHServerEmu.Core.System.Time;
+using MHServerEmu.DatabaseAccess;
 using MHServerEmu.DatabaseAccess.Models;
 using MHServerEmu.Games;
 using MHServerEmu.PlayerManagement.Players;
@@ -92,11 +93,25 @@ namespace MHServerEmu.PlayerManagement.Auth
                     return AuthStatusCode.PatchRequired;
             }
 
-            // Verify credentials
             AuthStatusCode statusCode = AccountManager.TryGetAccountByLoginDataPB(loginDataPB, _playerManager.Config.UseWhitelist, out DBAccount account);
 
             if (statusCode != AuthStatusCode.Success)
                 return statusCode;
+            if (loginDataPB.HasMachineId && !string.IsNullOrEmpty(loginDataPB.MachineId))
+            {
+                if (IsHardwareBanned(loginDataPB.MachineId))
+                {
+                    Logger.Warn($"Login rejected: Machine ID {loginDataPB.MachineId} is banned. (Account: {account.Email})");
+                    return AuthStatusCode.AccountBanned;
+                }
+
+     
+                if (account.LastKnownMachineId != loginDataPB.MachineId)
+                {
+                    account.LastKnownMachineId = loginDataPB.MachineId;
+                    IDBManager.Instance.UpdateAccount(account);
+                }
+            }
 
             // Validate client downloader
             ClientDownloader downloaderEnum = ClientDownloader.None;
@@ -251,7 +266,10 @@ namespace MHServerEmu.PlayerManagement.Auth
         {
             return _clientDict.TryGetValue(sessionId, out client);
         }
-
+        private bool IsHardwareBanned(string machineId)
+        {
+            return IDBManager.Instance.IsHardwareBanned(machineId);
+        }
         private void PurgeExpiredSessions()
         {
             lock (_pendingSessionDict)

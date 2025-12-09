@@ -38,7 +38,7 @@ namespace MHServerEmu.DatabaseAccess.Models
         public byte[] Salt { get; set; }
         public AccountUserLevel UserLevel { get; set; }
         public AccountFlags Flags { get; set; }
-
+        public string LastKnownMachineId { get; set; }
         public DBPlayer Player { get; set; }
 
         // NOTE: init is required for collection properties to be compatible with JSON serialization

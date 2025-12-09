@@ -26,11 +26,9 @@ namespace MHServerEmu.Commands.Implementations
             sb.Append(ServerManager.Instance.GetServerStatusString());
             string status = sb.ToString();
 
-            // Display in the console as is
             if (client == null)
                 return status;
-
-            // Split for the client chat window
+            
             CommandHelper.SendMessageSplit(client, status, false);
             return string.Empty;
         }
