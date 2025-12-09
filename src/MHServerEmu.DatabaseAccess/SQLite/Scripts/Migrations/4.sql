@@ -12,3 +12,5 @@ CREATE TABLE IF NOT EXISTS "BannedHardware" (
 -- Add LastKnownMachineId column to Account table
 ALTER TABLE "Account" ADD COLUMN "LastKnownMachineId" TEXT;
 
+-- Update schema version
+PRAGMA user_version=5;
