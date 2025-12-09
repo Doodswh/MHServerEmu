@@ -130,7 +130,7 @@ namespace MHServerEmu.Commands.Implementations
 
         [Command("ban")]
         [CommandDescription("Bans the account and its machine ID and kicks the player.")]
-        [CommandUserLevel(AccountUserLevel.Moderator)]
+        [CommandUserLevel(AccountUserLevel.Admin)]
         public string Ban(string[] @params, NetClient client)
         {
             string email = @params[0].ToLower();
@@ -158,7 +158,7 @@ namespace MHServerEmu.Commands.Implementations
         [Command("unban")]
         [CommandDescription("Unbans the specified account.")]
         [CommandUsage("account unban [email]")]
-        [CommandUserLevel(AccountUserLevel.Moderator)]
+        [CommandUserLevel(AccountUserLevel.Admin)]
         [CommandParamCount(1)]
         public string Unban(string[] @params, NetClient client)
         {
