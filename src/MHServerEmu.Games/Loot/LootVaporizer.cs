@@ -12,6 +12,7 @@ using MHServerEmu.Games.GameData.LiveTuning;
 using MHServerEmu.Games.GameData.Prototypes;
 using MHServerEmu.Games.GameData.Tables;
 using MHServerEmu.Games.Properties;
+using MHServerEmu.Games.Regions;
 
 namespace MHServerEmu.Games.Loot
 {
@@ -102,7 +103,7 @@ namespace MHServerEmu.Games.Loot
             return lootResultSummary.ItemSpecs.Count > 0 || lootResultSummary.AgentSpecs.Count > 0 || lootResultSummary.Credits.Count > 0 || lootResultSummary.Currencies.Count > 0;
         }
 
-        private static bool VaporizeItemSpec(Player player, ItemSpec itemSpec)
+        public static bool VaporizeItemSpec(Player player, ItemSpec itemSpec)
         {
             Avatar avatar = player.CurrentAvatar;
             if (avatar == null) return Logger.WarnReturn(false, "VaporizeItemSpec(): avatar == null");

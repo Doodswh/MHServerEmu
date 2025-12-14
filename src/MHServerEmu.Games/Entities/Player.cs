@@ -1307,7 +1307,7 @@ namespace MHServerEmu.Games.Entities
 
             // Drop item to the ground
             Region region = avatar.Region;
-
+           
             // Find a position to drop
             if (region.ChooseRandomPositionNearPoint(avatar.Bounds, PathFlags.Walk, PositionCheckFlags.CanBeBlockedEntity,
                 BlockingCheckFlags.CheckSpawns, 50f, 100f, out Vector3 dropPosition) == false)

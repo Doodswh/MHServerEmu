@@ -10,6 +10,7 @@ namespace MHServerEmu.DatabaseAccess.Models
         public bool SkipNextUpdate { get; set; }
 
         public bool IsFirstLoad { get; set; } = true;
+		 public bool IsVanished { get; set; }									
 
         public List<(ulong, ulong)> WorldView { get; } = new();
         public byte[] MatchQueueStatus { get; set; }
@@ -38,6 +39,9 @@ namespace MHServerEmu.DatabaseAccess.Models
             SkipNextUpdate = false;
 
             IsFirstLoad = true;
+            
+			IsVanished = false;
+         
 
             // Properties for summoned entities need to be migrated, and these have arbitrary runtime dbIds, so just clear everything.
             _properties.Clear();

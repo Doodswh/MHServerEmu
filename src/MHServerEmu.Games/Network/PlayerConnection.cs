@@ -160,6 +160,7 @@ namespace MHServerEmu.Games.Network
                 throw new($"InitializeFromDBAccount(): Failed to create player entity for {_dbAccount}");
 
             // Restore migrated player data
+ MigrationUtility.RestoreVanishState(migrationData, Player);																			   
             MigrationUtility.Restore(migrationData, Player);
 
             // Add all badges to admin accounts
@@ -264,7 +265,7 @@ namespace MHServerEmu.Games.Network
                     if (updateMigrationData)
                     {
                         MigrationUtility.Store(migrationData, Player);
-
+MigrationUtility.StoreVanishState(migrationData, Player);
                         foreach (Avatar avatar in new AvatarIterator(Player))
                             MigrationUtility.Store(migrationData, avatar);
                     }
