@@ -98,14 +98,14 @@ namespace MHServerEmu.Commands
             ReadOnlySpan<char> span = input.AsSpan().Trim();
 
             // Only input that starts with our command prefix char followed by something else can be a command
-            if (span.Length < 2 || input[0] != CommandPrefix)
+            if (span.Length < 2 || span[0] != CommandPrefix)
                 return false;
 
             int whiteSpaceIndex = span.IndexOf(' ');
 
             // Get the command.
             // The command ends at the first occurrence of white space or the end of the input string.
-            int commandLength = whiteSpaceIndex >= 0 ? whiteSpaceIndex - 1 : input.Length - 1;
+            int commandLength = whiteSpaceIndex >= 0 ? whiteSpaceIndex - 1 : span.Length - 1;
             command = span.Slice(1, commandLength).ToString();
 
             // Get parameters after the first space (if there are any)
