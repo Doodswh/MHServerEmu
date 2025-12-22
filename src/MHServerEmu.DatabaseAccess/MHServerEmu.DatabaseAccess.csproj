@@ -1,0 +1,65 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>disable</Nullable>
+    <Platforms>x64</Platforms>
+  </PropertyGroup>
+
+  <PropertyGroup>
+    <AssemblyVersion>0.8.0.0</AssemblyVersion>
+    <FileVersion>$(AssemblyVersion)</FileVersion>
+    <InformationalVersion>$(AssemblyVersion)</InformationalVersion>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <None Remove="SQLite\Scripts\InitializeDatabase.sql" />
+    <None Remove="SQLite\Scripts\InitializeLeaderboardsDatabase.sql" />
+    <None Remove="SQLite\Scripts\Migrations\0.sql" />
+    <None Remove="SQLite\Scripts\Migrations\1.sql" />
+    <None Remove="SQLite\Scripts\Migrations\2.sql" />
+    <None Remove="SQLite\Scripts\Migrations\3.sql" />
+    <None Remove="SQLite\Scripts\Migrations\4.sql" />
+	<None Remove="SQLite\Scripts\Migrations\5.sql" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <EmbeddedResource Include="SQLite\Scripts\InitializeDatabase.sql" />
+    <EmbeddedResource Include="SQLite\Scripts\InitializeLeaderboardsDatabase.sql" />
+    <EmbeddedResource Include="SQLite\Scripts\Migrations\0.sql" />
+    <EmbeddedResource Include="SQLite\Scripts\Migrations\1.sql" />
+    <EmbeddedResource Include="SQLite\Scripts\Migrations\2.sql" />
+    <EmbeddedResource Include="SQLite\Scripts\Migrations\3.sql" />
+    <EmbeddedResource Include="SQLite\Scripts\Migrations\4.sql" />
+	<EmbeddedResource Include="SQLite\Scripts\Migrations\5.sql" />
+  </ItemGroup>
+  
+  <ItemGroup>
+    <ProjectReference Include="..\MHServerEmu.Core\MHServerEmu.Core.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Reference Include="Dapper">
+      <HintPath>..\..\dep\Dapper\Dapper.dll</HintPath>
+    </Reference>
+    <Reference Include="System.Data.SQLite">
+      <HintPath>..\..\dep\System.Data.SQLite\System.Data.SQLite.dll</HintPath>
+    </Reference>
+  </ItemGroup>
+
+  <ItemGroup Condition="$([MSBuild]::IsOSPlatform('Windows'))">
+    <Content Include="Interop\win-x64\SQLite.Interop.dll">
+      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+      <TargetPath>SQLite.Interop.dll</TargetPath>
+    </Content>
+  </ItemGroup>
+
+  <ItemGroup Condition="$([MSBuild]::IsOSPlatform('Linux'))">
+    <Content Include="Interop\linux-x64\SQLite.Interop.dll">
+      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+      <TargetPath>SQLite.Interop.dll</TargetPath>
+    </Content>
+  </ItemGroup>
+
+</Project>
