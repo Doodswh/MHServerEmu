@@ -10,9 +10,6 @@ using System.Text.Json.Serialization;
 
 namespace MHServerEmu.Games.GameData.PatchManager
 {
-    /// <summary>
-    /// Represents a single patch entry that can modify a prototype field
-    /// </summary>
     public class PrototypePatchEntry
     {
         public bool Enabled { get; }
@@ -75,7 +72,6 @@ namespace MHServerEmu.Games.GameData.PatchManager
         }
     }
 
-
     public class PatchEntryConverter : JsonConverter<PrototypePatchEntry>
     {
         private static readonly Logger Logger = LogManager.CreateLogger();
@@ -84,27 +80,67 @@ namespace MHServerEmu.Games.GameData.PatchManager
         {
             using JsonDocument doc = JsonDocument.ParseValue(ref reader);
             var root = doc.RootElement;
-            string valueTypeString = root.GetProperty("ValueType").GetString();
 
-            // Allow "Type[]" syntax in JSON for array types
-            valueTypeString = valueTypeString.Replace("[]", "Array");
-
-            var valueType = Enum.Parse<ValueType>(valueTypeString, true);
-            var entry = new PrototypePatchEntry
-            (
-                root.GetProperty("Enabled").GetBoolean(),
-                root.GetProperty("Prototype").GetString(),
-                root.GetProperty("Path").GetString(),
-                root.GetProperty("Description").GetString(),
-                GetValueBase(root.GetProperty("Value"), valueType)
-            );
-
-            if (valueType == ValueType.Properties)
+            if (!root.TryGetProperty("ValueType", out var valueTypeProp))
             {
-                entry.Patched = true;
+                throw new JsonException("Patch Entry is missing required property 'ValueType'.");
             }
 
-            return entry;
+            string valueTypeString = valueTypeProp.GetString();
+            if (string.IsNullOrEmpty(valueTypeString))
+                throw new JsonException("Property 'ValueType' cannot be null or empty.");
+
+            valueTypeString = valueTypeString.Replace("[]", "Array");
+            if (!Enum.TryParse<ValueType>(valueTypeString, true, out var valueType))
+            {
+                throw new JsonException($"Invalid ValueType '{valueTypeString}'. Valid types are: {string.Join(", ", Enum.GetNames(typeof(ValueType)))}");
+            }
+
+            if (!root.TryGetProperty("Prototype", out var prototypeProp))
+                throw new JsonException("Patch Entry is missing required property 'Prototype'.");
+            string prototype = prototypeProp.GetString();
+
+            if (!root.TryGetProperty("Path", out var pathProp))
+                throw new JsonException($"Patch Entry for '{prototype}' is missing required property 'Path'.");
+            string path = pathProp.GetString();
+
+            if (!root.TryGetProperty("Value", out var valueProp))
+                throw new JsonException($"Patch Entry '{prototype}' -> '{path}' is missing required property 'Value'.");
+
+            bool enabled = true;
+            if (root.TryGetProperty("Enabled", out var enabledProp))
+            {
+                enabled = enabledProp.GetBoolean();
+            }
+
+            string description = "";
+            if (root.TryGetProperty("Description", out var descProp))
+            {
+                description = descProp.GetString();
+            }
+
+            try
+            {
+                var entry = new PrototypePatchEntry
+                (
+                    enabled,
+                    prototype,
+                    path,
+                    description,
+                    GetValueBase(valueProp, valueType)
+                );
+
+                if (valueType == ValueType.Properties)
+                {
+                    entry.Patched = true;
+                }
+
+                return entry;
+            }
+            catch (Exception ex)
+            {
+                throw new JsonException($"Error creating PatchEntry for {prototype} at {path}: {ex.Message}", ex);
+            }
         }
 
         public override void Write(Utf8JsonWriter writer, PrototypePatchEntry value, JsonSerializerOptions options)
@@ -128,6 +164,7 @@ namespace MHServerEmu.Games.GameData.PatchManager
                 ValueType.String => new SimpleValue<string>(jsonElement.GetString(), valueType),
                 ValueType.Boolean => new SimpleValue<bool>(jsonElement.GetBoolean(), valueType),
                 ValueType.Float => new SimpleValue<float>(jsonElement.GetSingle(), valueType),
+                ValueType.Double => new SimpleValue<double>(jsonElement.GetDouble(), valueType), // Added Double
                 ValueType.Integer => new SimpleValue<int>(jsonElement.GetInt32(), valueType),
                 ValueType.Enum => new SimpleValue<string>(jsonElement.GetString(), valueType),
                 ValueType.PrototypeGuid => new SimpleValue<PrototypeGuid>((PrototypeGuid)jsonElement.GetUInt64(), valueType),
@@ -135,7 +172,7 @@ namespace MHServerEmu.Games.GameData.PatchManager
                 ValueType.LocaleStringId => new SimpleValue<LocaleStringId>((LocaleStringId)jsonElement.GetUInt64(), valueType),
                 ValueType.Vector3 => new SimpleValue<Vector3>(ParseJsonVector3(jsonElement), valueType),
 
-                // Complex types - parse immediately for Eval and ComplexObject
+                // Complex types
                 ValueType.Prototype => new SimpleValue<Prototype>(ParseJsonPrototype(jsonElement), valueType),
                 ValueType.Properties => new SimpleValue<PropertyCollection>(ParseJsonProperties(jsonElement), valueType),
                 ValueType.ComplexObject => new SimpleValue<Prototype>(ParseJsonComplexObject(jsonElement), valueType),
@@ -146,6 +183,7 @@ namespace MHServerEmu.Games.GameData.PatchManager
                 ValueType.PrototypeArray => new ArrayValue<Prototype>(jsonElement, valueType, x => ParseJsonPrototype(x)),
                 ValueType.StringArray => new ArrayValue<string>(jsonElement, valueType, x => x.GetString()),
                 ValueType.FloatArray => new ArrayValue<float>(jsonElement, valueType, x => x.GetSingle()),
+                ValueType.DoubleArray => new ArrayValue<double>(jsonElement, valueType, x => x.GetDouble()), // Added DoubleArray
                 ValueType.IntegerArray => new ArrayValue<int>(jsonElement, valueType, x => x.GetInt32()),
                 ValueType.BooleanArray => new ArrayValue<bool>(jsonElement, valueType, x => x.GetBoolean()),
                 ValueType.Vector3Array => new ArrayValue<Vector3>(jsonElement, valueType, x => ParseJsonVector3(x)),
@@ -167,16 +205,11 @@ namespace MHServerEmu.Games.GameData.PatchManager
             return new Vector3(jsonArray[0].GetSingle(), jsonArray[1].GetSingle(), jsonArray[2].GetSingle());
         }
 
-        /// <summary>
-        /// Parses a ComplexObject from JSON - similar to Prototype but doesn't require ParentDataRef
-        /// Used for rebuilding missing prototype sections
-        /// </summary>
         public static Prototype ParseJsonComplexObject(JsonElement jsonElement)
         {
             if (jsonElement.ValueKind != JsonValueKind.Object)
                 throw new InvalidOperationException("JSON element for ComplexObject parsing must be an object.");
 
-            // ComplexObject can optionally have ParentDataRef, but doesn't require it
             PrototypeId referenceType = PrototypeId.Invalid;
             Type classType = null;
 
@@ -187,7 +220,6 @@ namespace MHServerEmu.Games.GameData.PatchManager
             }
             else if (jsonElement.TryGetProperty("ClassName", out var classNameElement))
             {
-                // Allow specifying class type by name for ComplexObject
                 string className = classNameElement.GetString();
                 classType = GameDatabase.PrototypeClassManager.GetPrototypeClassTypeByName(className);
             }
@@ -200,14 +232,12 @@ namespace MHServerEmu.Games.GameData.PatchManager
 
             var prototype = GameDatabase.PrototypeClassManager.AllocatePrototype(classType);
 
-            // Copy from reference if we have one
             if (referenceType != PrototypeId.Invalid)
             {
                 CalligraphySerializer.CopyPrototypeDataRefFields(prototype, referenceType);
                 prototype.ParentDataRef = referenceType;
             }
 
-            // Apply all properties from JSON
             foreach (var property in jsonElement.EnumerateObject())
             {
                 if (property.Name == "ParentDataRef" || property.Name == "ClassName")
@@ -234,9 +264,6 @@ namespace MHServerEmu.Games.GameData.PatchManager
             return prototype;
         }
 
-        /// <summary>
-        /// Parses an Eval prototype from JSON with full support for nested structures
-        /// </summary>
         public static EvalPrototype ParseJsonEval(JsonElement jsonElement)
         {
             if (jsonElement.ValueKind != JsonValueKind.Object)
@@ -254,7 +281,6 @@ namespace MHServerEmu.Games.GameData.PatchManager
                 return null;
             }
 
-            // Ensure it's actually an EvalPrototype
             if (!typeof(EvalPrototype).IsAssignableFrom(classType))
             {
                 Logger.Warn($"Class type '{classType.Name}' for prototype '{referenceType}' is not an EvalPrototype.");
@@ -266,7 +292,6 @@ namespace MHServerEmu.Games.GameData.PatchManager
             CalligraphySerializer.CopyPrototypeDataRefFields(evalPrototype, referenceType);
             evalPrototype.ParentDataRef = referenceType;
 
-            // Parse all properties
             foreach (var property in jsonElement.EnumerateObject())
             {
                 if (property.Name == "ParentDataRef") continue;
@@ -339,19 +364,14 @@ namespace MHServerEmu.Games.GameData.PatchManager
             return prototype;
         }
 
-        /// <summary>
-        /// Unified property value parser that handles all types including nested prototypes
-        /// </summary>
         private static object ParsePropertyValue(JsonElement propertyValue, System.Reflection.PropertyInfo fieldInfo)
         {
             Type targetType = fieldInfo.PropertyType;
 
-            // Handle string references for Prototype fields
             if (propertyValue.ValueKind == JsonValueKind.String)
             {
                 string stringValue = propertyValue.GetString();
 
-                // If target is a Prototype or PrototypeId, treat string as reference
                 if (typeof(Prototype).IsAssignableFrom(targetType))
                 {
                     PrototypeId protoId = GameDatabase.GetPrototypeRefByName(stringValue);
@@ -370,7 +390,6 @@ namespace MHServerEmu.Games.GameData.PatchManager
                 }
             }
 
-            // Handle PropertyId with special structure
             if (targetType == typeof(PropertyId) && propertyValue.ValueKind == JsonValueKind.Object)
             {
                 if (propertyValue.TryGetProperty("ParentDataRef", out var idElement))
@@ -390,19 +409,16 @@ namespace MHServerEmu.Games.GameData.PatchManager
                 }
             }
 
-            // Handle nested EvalPrototype
             if (typeof(EvalPrototype).IsAssignableFrom(targetType) && propertyValue.ValueKind == JsonValueKind.Object)
             {
                 return ParseJsonEval(propertyValue);
             }
 
-            // Handle nested Prototype
             if (typeof(Prototype).IsAssignableFrom(targetType) && propertyValue.ValueKind == JsonValueKind.Object)
             {
                 return ParseJsonPrototype(propertyValue);
             }
 
-            // Handle arrays of prototypes
             if (targetType.IsArray && propertyValue.ValueKind == JsonValueKind.Array)
             {
                 Type elementType = targetType.GetElementType();
@@ -432,7 +448,6 @@ namespace MHServerEmu.Games.GameData.PatchManager
                 return resultArray;
             }
 
-            // Handle simple types
             object parsedElement = ParseJsonElement(propertyValue, targetType);
             return PrototypePatchManager.ConvertValue(parsedElement, targetType);
         }
@@ -608,6 +623,7 @@ namespace MHServerEmu.Games.GameData.PatchManager
         String,
         Boolean,
         Float,
+        Double, // NEW: Added Double support
         Integer,
         Enum,
         PrototypeGuid,
@@ -627,6 +643,7 @@ namespace MHServerEmu.Games.GameData.PatchManager
         StringArray,
         BooleanArray,
         FloatArray,
+        DoubleArray, // NEW: Added DoubleArray support
         IntegerArray,
         PrototypeIdArray,
         PrototypeDataRefArray,

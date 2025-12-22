@@ -61,10 +61,8 @@ namespace MHServerEmu.Commands.Implementations
         }
 
 
-        // Replace the existing Craft command in ItemCommands.cs with this improved version
-
         [Command("craft")]
-        [CommandDescription("Creates a max-level cosmic item with max grade (80) and massive random affixes (bypassing limits).")]
+        [CommandDescription("Creates a max-level item with max grade")]
         [CommandUsage("item craft [item_pattern] [runeword=random] [blessing=random] [grade=80]")]
         [CommandUserLevel(AccountUserLevel.Admin)]
         [CommandInvokerType(CommandInvokerType.Client)]
@@ -75,7 +73,7 @@ namespace MHServerEmu.Commands.Implementations
             Player player = playerConnection.Player;
             LootManager lootManager = player.Game.LootManager;
 
-            // 1. Parse Parameters with defaults
+            
             string itemPattern = @params[0];
             string runewordPattern = @params.Length > 1 ? @params[1] : "random";
             string blessingPattern = @params.Length > 2 ? @params[2] : "random";
@@ -85,8 +83,7 @@ namespace MHServerEmu.Commands.Implementations
                 return "Error: Invalid grade specified. Must be a number.";
             }
             grade = Math.Clamp(grade, 0, 80);
-
-            // 2. Find Item Prototype
+            
             PrototypeId itemProtoRef = CommandHelper.FindPrototype(HardcodedBlueprints.Item, itemPattern, client);
             if (itemProtoRef == PrototypeId.Invalid)
                 return $"Error: Item prototype not found for '{itemPattern}'.";
@@ -95,7 +92,6 @@ namespace MHServerEmu.Commands.Implementations
             if (itemProto == null)
                 return "Error: Invalid item prototype.";
 
-            // 3. Set Defaults (Max Rarity, Max Level)
             int itemLevel = 63;
             PrototypeId rarityProtoRef = GameDatabase.LootGlobalsPrototype.RarityCosmic;
             if (rarityProtoRef == PrototypeId.Invalid)
@@ -103,7 +99,6 @@ namespace MHServerEmu.Commands.Implementations
                 rarityProtoRef = GameDatabase.LootGlobalsPrototype.RarityDefault;
             }
 
-            // 4. Prepare Affix List and Filter Arguments
             List<AffixSpec> affixSpecs = new List<AffixSpec>();
             using DropFilterArguments filterArgs = ObjectPoolManager.Instance.Get<DropFilterArguments>();
             filterArgs.ItemProto = itemProto;
@@ -116,26 +111,30 @@ namespace MHServerEmu.Commands.Implementations
 
             var random = new System.Random(player.Game.Random.Next());
 
-            // 5. Special Handling: Force "Cosmic" Affix if Rarity is Cosmic
-            // We search for a non-prefix/suffix/runeword/blessing affix with "Cosmic" in the name.
             if (rarityProtoRef == GameDatabase.LootGlobalsPrototype.RarityCosmic)
             {
+                int cosmicCount = 0;
                 foreach (PrototypeId affixId in GameDatabase.DataDirectory.IteratePrototypesInHierarchy<AffixPrototype>(PrototypeIterateFlags.NoAbstractApprovedOnly))
                 {
                     AffixPrototype ap = affixId.As<AffixPrototype>();
-                    if (ap != null &&
-                        (ap.Position != AffixPosition.Prefix && ap.Position != AffixPosition.Suffix && ap.Position != AffixPosition.Runeword && ap.Position != AffixPosition.Blessing) &&
+                    if (ap == null) continue;
+
+                    bool isCosmicPosition = (ap.Position != AffixPosition.Prefix &&
+                                             ap.Position != AffixPosition.Suffix &&
+                                             ap.Position != AffixPosition.Runeword &&
+                                             ap.Position != AffixPosition.Blessing);
+
+                    if (isCosmicPosition &&
                         GameDatabase.GetPrototypeName(affixId).Contains("Cosmic", StringComparison.OrdinalIgnoreCase) &&
                         ap.AllowAttachment(filterArgs))
                     {
                         affixSpecs.Add(new AffixSpec(ap, PrototypeId.Invalid, player.Game.Random.Next()));
-                        Logger.Debug($"Craft: Forced Cosmic affix {GameDatabase.GetPrototypeName(affixId)} onto item.");
-                        break; // Only need one cosmic tier affix
+                        cosmicCount++;
                     }
                 }
+                Logger.Info($"Craft: Forced {cosmicCount} Cosmic affixes onto item '{itemPattern}'.");
             }
 
-            // 6. Add Runeword
             if (!string.IsNullOrEmpty(runewordPattern) && !runewordPattern.Equals("none", StringComparison.OrdinalIgnoreCase))
             {
                 AffixPrototype runewordAffix = null;
@@ -159,7 +158,6 @@ namespace MHServerEmu.Commands.Implementations
                 if (runewordAffix != null) affixSpecs.Add(new AffixSpec(runewordAffix, PrototypeId.Invalid, player.Game.Random.Next()));
             }
 
-            // 7. Add Blessing
             if (!string.IsNullOrEmpty(blessingPattern) && !blessingPattern.Equals("none", StringComparison.OrdinalIgnoreCase))
             {
                 AffixPrototype blessingAffix = null;
@@ -183,10 +181,9 @@ namespace MHServerEmu.Commands.Implementations
                 if (blessingAffix != null) affixSpecs.Add(new AffixSpec(blessingAffix, PrototypeId.Invalid, player.Game.Random.Next()));
             }
 
-            // 8. Fill with Random Prefixes and Suffixes (BYPASSING LIMITS)
-            // We ignore AffixLimitsPrototype and hardcode a high limit (8) to fill the item slots
-            int numPrefixes = 8;
-            int numSuffixes = 8;
+
+            int numPrefixes = 12;
+            int numSuffixes = 12;
 
             List<AffixPrototype> validPrefixes = new List<AffixPrototype>();
             List<AffixPrototype> validSuffixes = new List<AffixPrototype>();
@@ -200,7 +197,7 @@ namespace MHServerEmu.Commands.Implementations
                 }
             }
 
-            // Shuffle valid lists to get random variety
+
             var randomForShuffle = new System.Random(player.Game.Random.Next());
             int n = validPrefixes.Count;
             while (n > 1) { n--; int k = randomForShuffle.Next(n + 1); (validPrefixes[k], validPrefixes[n]) = (validPrefixes[n], validPrefixes[k]); }
@@ -208,7 +205,6 @@ namespace MHServerEmu.Commands.Implementations
             n = validSuffixes.Count;
             while (n > 1) { n--; int k = randomForShuffle.Next(n + 1); (validSuffixes[k], validSuffixes[n]) = (validSuffixes[n], validSuffixes[k]); }
 
-            // Add Prefixes (up to our high limit)
             int actualPrefixesAdded = 0;
             for (int i = 0; i < validPrefixes.Count && actualPrefixesAdded < numPrefixes; i++)
             {
@@ -216,7 +212,6 @@ namespace MHServerEmu.Commands.Implementations
                 actualPrefixesAdded++;
             }
 
-            // Add Suffixes (up to our high limit)
             int actualSuffixesAdded = 0;
             for (int i = 0; i < validSuffixes.Count && actualSuffixesAdded < numSuffixes; i++)
             {
@@ -224,20 +219,17 @@ namespace MHServerEmu.Commands.Implementations
                 actualSuffixesAdded++;
             }
 
-            // 9. Create and Give Item
             ItemSpec finalSpec = new ItemSpec(itemProtoRef, rarityProtoRef, itemLevel, 0, affixSpecs, player.Game.Random.Next());
 
             using (LootResultSummary lootResultSummary = ObjectPoolManager.Instance.Get<LootResultSummary>())
             {
                 lootResultSummary.Add(new LootResult(finalSpec));
 
-                // We use CreateAndGiveItem to get the specific Item entity reference for grading
                 Item createdItem = lootManager.CreateAndGiveItem(finalSpec, player);
 
                 if (createdItem == null)
                     return "Error: Failed to create or give the item.";
 
-                // 10. Set Grade (for Legendaries/Uniques)
                 if (grade > 0 && createdItem.Prototype is LegendaryPrototype)
                 {
                     long totalXpNeeded = 0;

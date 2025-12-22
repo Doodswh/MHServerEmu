@@ -9,6 +9,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System;
 using MHServerEmu.Games.Properties;
+using System.Collections;
 
 namespace MHServerEmu.Games.GameData.PatchManager
 {
@@ -211,10 +212,10 @@ namespace MHServerEmu.Games.GameData.PatchManager
         {
             Logger.Trace($"[CheckAndUpdate] Entry: Prototype={entry.Prototype}, Path={entry.Path}, ClearPath={entry.СlearPath}, FieldName={entry.FieldName}, ArrayValue={entry.ArrayValue}, ArrayIndex={entry.ArrayIndex}");
 
-            var targetObject = GetObjectFromPath(prototype, entry.СlearPath);
+            var targetObject = GetOrCreateObjectFromPath(prototype, entry.СlearPath);
             if (targetObject == null)
             {
-                Logger.Warn($"[CheckAndUpdate] FAILED: Target object not found for path '{entry.СlearPath}'. Full path: '{entry.Path}'");
+                Logger.Warn($"[CheckAndUpdate] FAILED: Target object could not be resolved or created for path '{entry.СlearPath}'. Full path: '{entry.Path}'");
                 Logger.Warn($"  Available paths from prototype root: {string.Join(", ", GetAvailableProperties(prototype))}");
                 return false;
             }
@@ -275,12 +276,12 @@ namespace MHServerEmu.Games.GameData.PatchManager
                     if (entry.Value.ValueType == ValueType.Eval || entry.Value.ValueType == ValueType.ComplexObject)
                     {
                         Logger.Debug($"[UpdateValue] Setting pre-parsed {entry.Value.ValueType} value");
-                        fieldInfo.SetValue(targetObject, convertedValue);
+                        SetPropertyOrBackingField(targetObject, fieldInfo, convertedValue);
                     }
                     else
                     {
                         Logger.Debug($"[UpdateValue] Setting converted value of type: {convertedValue?.GetType().Name ?? "null"}");
-                        fieldInfo.SetValue(targetObject, convertedValue);
+                        SetPropertyOrBackingField(targetObject, fieldInfo, convertedValue);
                     }
                 }
                 entry.Patched = true;
@@ -294,6 +295,30 @@ namespace MHServerEmu.Games.GameData.PatchManager
                 Logger.Error($"  Field type: {fieldInfo.PropertyType.Name}");
                 Logger.Error($"  Value type: {entry.Value.ValueType}");
                 Logger.Error($"  Raw value: {entry.Value.GetValue()}");
+            }
+        }
+
+        // Helper to force set value even if property is read-only
+        private void SetPropertyOrBackingField(object target, System.Reflection.PropertyInfo propInfo, object value)
+        {
+            if (propInfo.CanWrite)
+            {
+                propInfo.SetValue(target, value);
+            }
+            else
+            {
+                // Try to find the backing field (convention: <PropName>k__BackingField)
+                var backingField = target.GetType().GetField($"<{propInfo.Name}>k__BackingField", BindingFlags.Instance | BindingFlags.NonPublic);
+                if (backingField != null)
+                {
+                    Logger.Debug($"[SetPropertyOrBackingField] Property '{propInfo.Name}' is read-only. Setting backing field directly.");
+                    backingField.SetValue(target, value);
+                }
+                else
+                {
+                    Logger.Error($"[SetPropertyOrBackingField] Property '{propInfo.Name}' is read-only and no backing field found. Cannot set value.");
+                    throw new InvalidOperationException($"Property {propInfo.Name} is read-only and cannot be patched.");
+                }
             }
         }
 
@@ -434,15 +459,15 @@ namespace MHServerEmu.Games.GameData.PatchManager
             }
         }
 
-        private object GetObjectFromPath(object root, string path)
+        private object GetOrCreateObjectFromPath(object root, string path)
         {
             if (string.IsNullOrEmpty(path))
             {
-                Logger.Trace($"[GetObjectFromPath] Empty path, returning root of type {root?.GetType().Name}");
+                Logger.Trace($"[GetOrCreateObjectFromPath] Empty path, returning root of type {root?.GetType().Name}");
                 return root;
             }
 
-            Logger.Trace($"[GetObjectFromPath] Navigating path: '{path}' from root type {root?.GetType().Name}");
+            Logger.Trace($"[GetOrCreateObjectFromPath] Navigating path: '{path}' from root type {root?.GetType().Name}");
 
             object current = root;
             var pathParts = path.Split('.');
@@ -452,7 +477,7 @@ namespace MHServerEmu.Games.GameData.PatchManager
                 string part = pathParts[i];
                 if (current == null)
                 {
-                    Logger.Warn($"[GetObjectFromPath] Current object is null at path part {i}: '{part}'");
+                    Logger.Warn($"[GetOrCreateObjectFromPath] CRITICAL: Current object became null unexpectedly at part '{part}'");
                     return null;
                 }
 
@@ -464,54 +489,81 @@ namespace MHServerEmu.Games.GameData.PatchManager
                         var propertyName = arrayMatch.Groups[1].Value;
                         var index = int.Parse(arrayMatch.Groups[2].Value);
 
-                        Logger.Trace($"[GetObjectFromPath] Array access: {propertyName}[{index}]");
+                        Logger.Trace($"[GetOrCreateObjectFromPath] Array access: {propertyName}[{index}]");
 
                         var propInfo = current.GetType().GetProperty(propertyName);
                         if (propInfo == null)
                         {
-                            Logger.Warn($"[GetObjectFromPath] Property '{propertyName}' not found on type {current.GetType().Name}");
+                            Logger.Warn($"[GetOrCreateObjectFromPath] Property '{propertyName}' not found on type {current.GetType().Name}");
                             return null;
                         }
 
-                        if (propInfo.GetValue(current) is not System.Collections.IList list)
+                        var listObj = propInfo.GetValue(current);
+                        if (listObj == null)
                         {
-                            Logger.Warn($"[GetObjectFromPath] Property '{propertyName}' is not a list");
+                            Logger.Warn($"[GetOrCreateObjectFromPath] Array/List '{propertyName}' is null. Cannot index into null array.");
+                            return null;
+                        }
+
+                        if (listObj is not IList list)
+                        {
+                            Logger.Warn($"[GetOrCreateObjectFromPath] Property '{propertyName}' is not a list/array");
                             return null;
                         }
 
                         if (index >= list.Count)
                         {
-                            Logger.Warn($"[GetObjectFromPath] Index {index} out of bounds for list of size {list.Count}");
+                            Logger.Warn($"[GetOrCreateObjectFromPath] Index {index} out of bounds for list of size {list.Count}");
                             return null;
                         }
 
                         current = list[index];
-                        Logger.Trace($"[GetObjectFromPath] Navigated to array element of type {current?.GetType().Name}");
                     }
                     else
                     {
-                        Logger.Trace($"[GetObjectFromPath] Property access: {part}");
+                        Logger.Trace($"[GetOrCreateObjectFromPath] Property access: {part}");
 
                         var propInfo = current.GetType().GetProperty(part);
                         if (propInfo == null)
                         {
-                            Logger.Warn($"[GetObjectFromPath] Property '{part}' not found on type {current.GetType().Name}");
+                            Logger.Warn($"[GetOrCreateObjectFromPath] Property '{part}' not found on type {current.GetType().Name}");
                             Logger.Warn($"  Available: {string.Join(", ", GetAvailableProperties(current))}");
                             return null;
                         }
 
-                        current = propInfo.GetValue(current);
-                        Logger.Trace($"[GetObjectFromPath] Navigated to property of type {current?.GetType().Name}");
+                        object nextObj = propInfo.GetValue(current);
+
+                        // AUTO-VIVIFICATION LOGIC
+                        if (nextObj == null)
+                        {
+                            Logger.Info($"[GetOrCreateObjectFromPath] Property '{part}' is null. Attempting to auto-create instance of {propInfo.PropertyType.Name}...");
+                            try
+                            {
+                                // Attempt to create a new instance (requires parameterless constructor)
+                                nextObj = Activator.CreateInstance(propInfo.PropertyType);
+
+                                SetPropertyOrBackingField(current, propInfo, nextObj);
+
+                                Logger.Info($"[GetOrCreateObjectFromPath] SUCCESS: Created and assigned new {propInfo.PropertyType.Name} to '{part}'");
+                            }
+                            catch (Exception createEx)
+                            {
+                                Logger.ErrorException(createEx, $"[GetOrCreateObjectFromPath] Failed to auto-create instance for '{part}'");
+                                return null;
+                            }
+                        }
+
+                        current = nextObj;
                     }
                 }
                 catch (Exception ex)
                 {
-                    Logger.WarnException(ex, $"[GetObjectFromPath] Failed at path part '{part}' (index {i}) in full path '{path}'");
+                    Logger.WarnException(ex, $"[GetOrCreateObjectFromPath] Failed at path part '{part}' (index {i}) in full path '{path}'");
                     return null;
                 }
             }
 
-            Logger.Trace($"[GetObjectFromPath] Successfully navigated to object of type {current?.GetType().Name}");
+            Logger.Trace($"[GetOrCreateObjectFromPath] Successfully navigated to object of type {current?.GetType().Name}");
             return current;
         }
 
