@@ -4212,7 +4212,8 @@ namespace MHServerEmu.Games.Entities
             if (Game.GameOptions.VeteranRewardsEnabled)
             {
                 int loginCount = GetLoginCount();
-
+                var giftRequest = new ServiceMessage.PlayerRequestsGifts(DatabaseUniqueId, Game.Id, GetName());
+                ServerManager.Instance.SendMessageToService(GameServiceType.GiftItemDistributor, giftRequest);
                 GiveLoginRewards(loginCount);
                 Properties[PropertyEnum.LoginCount] = loginCount;
             }

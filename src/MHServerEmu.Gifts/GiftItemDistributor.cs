@@ -14,24 +14,17 @@ using System.IO;
 using System.Text.Json;
 using System.Threading.Tasks;
 
-
 namespace MHServerEmu.Gifts
 {
-    /// <summary>
-    /// Defines the structure for a single gift entry in the JSON configuration.
-    /// </summary>
     public class GiftItemEntry
     {
         public ulong ItemPrototype { get; set; }
         public int Count { get; set; }
         public DateTime AddedDate { get; set; }
-        // Using the Player Name (string) as the key
+        public bool IsDaily { get; set; } = false;
         public Dictionary<string, DateTime> ClaimedByPlayers { get; set; } = new();
     }
 
-    /// <summary>
-    /// A game service checks for online players when they login  and distributes any unclaimed gifts.
-    /// </summary>
     public class GiftItemDistributor : IGameService
     {
         public GameServiceState State { get; set; }
@@ -47,8 +40,9 @@ namespace MHServerEmu.Gifts
         public void Run()
         {
             LoadGiftItems();
-            Logger.Info("[GiftDistributor] Service started and is waiting for player gift requests.");
+            Logger.Info("[GiftDistributor] Service started.");
             State = GameServiceState.Running;
+            _isRunning = true;
         }
 
         public void ReceiveServiceMessage<T>(in T message) where T : struct, IGameServiceMessage
@@ -66,14 +60,43 @@ namespace MHServerEmu.Gifts
             ulong instanceId = request.InstanceId;
             var giftsToAward = new List<ServiceMessage.GiftInfo>();
 
+            DateTime now = DateTime.UtcNow;
+
             lock (_cachedItems)
             {
-                foreach (var entry in _cachedItems)
+                for (int i = 0; i < _cachedItems.Count; i++)
                 {
-                    if (entry.AddedDate <= DateTime.UtcNow && !entry.ClaimedByPlayers.ContainsKey(playerName))
+                    var entry = _cachedItems[i];
+                    bool shouldAward = false;
+
+                    if (entry.AddedDate > now)
+                        continue;
+
+                    if (entry.IsDaily)
+                    {
+                        if (entry.ClaimedByPlayers.TryGetValue(playerName, out DateTime lastClaimDate))
+                        {
+                            if (lastClaimDate.Date < now.Date)
+                            {
+                                shouldAward = true;
+                            }
+                        }
+                        else
+                        {
+                            shouldAward = true;
+                        }
+                    }
+                    else
+                    {
+                        if (!entry.ClaimedByPlayers.ContainsKey(playerName))
+                        {
+                            shouldAward = true;
+                        }
+                    }
+                    if (shouldAward)
                     {
                         giftsToAward.Add(new ServiceMessage.GiftInfo(entry.ItemPrototype, entry.Count));
-                        entry.ClaimedByPlayers.Add(playerName, DateTime.UtcNow);
+                        entry.ClaimedByPlayers[playerName] = now;
                         _isDirty = true;
                     }
                 }
@@ -81,20 +104,44 @@ namespace MHServerEmu.Gifts
 
             if (giftsToAward.Count > 0)
             {
-                // Create the award message with the critical instance and player identification
+                Logger.Info($"[GiftDistributor] Awarding {giftsToAward.Count} gifts to {playerName}.");
                 var awardMessage = new ServiceMessage.AwardPlayerGifts(playerDbId, instanceId, giftsToAward);
                 ServerManager.Instance.SendMessageToService(GameServiceType.GameInstance, awardMessage);
-
-                SaveChangesAsync().GetAwaiter().GetResult();
+                _ = SaveChangesAsync();
             }
+        }
+
+        private Task SaveChangesAsync()
+        {
+            if (!_isDirty) return Task.CompletedTask;
+            if (_currentSaveTask != null && !_currentSaveTask.IsCompleted) return Task.CompletedTask;
+
+            _isDirty = false;
+            _currentSaveTask = Task.Run(async () =>
+            {
+                List<GiftItemEntry> itemsToSave;
+                lock (_cachedItems) { itemsToSave = new List<GiftItemEntry>(_cachedItems); }
+                try
+                {
+                    string jsonContent = JsonSerializer.Serialize(itemsToSave, new JsonSerializerOptions { WriteIndented = true });
+                    string tempPath = PendingItemsPath + ".tmp";
+                    await File.WriteAllTextAsync(tempPath, jsonContent);
+                    lock (_ioLock) { File.Move(tempPath, PendingItemsPath, true); }
+                    Logger.Info($"[GiftDistributor] Saved claims to disk.");
+                }
+                catch (Exception ex)
+                {
+                    Logger.ErrorException(ex, "[GiftDistributor] Failed to save JSON.");
+                    _isDirty = true;
+                }
+            });
+            return _currentSaveTask;
         }
 
         public void Shutdown()
         {
             _isRunning = false;
-            // Perform one final save on shutdown, if needed.
             SaveChangesAsync().GetAwaiter().GetResult();
-
             State = GameServiceState.ShuttingDown;
         }
 
@@ -104,16 +151,14 @@ namespace MHServerEmu.Gifts
             statusDict["Changes Pending Save"] = _isDirty ? 1 : 0;
         }
 
-
-
-
         private void LoadGiftItems()
         {
             try
             {
                 if (File.Exists(PendingItemsPath))
                 {
-                    _cachedItems = JsonSerializer.Deserialize<List<GiftItemEntry>>(File.ReadAllText(PendingItemsPath)) ?? new List<GiftItemEntry>();
+                    string json = File.ReadAllText(PendingItemsPath);
+                    _cachedItems = JsonSerializer.Deserialize<List<GiftItemEntry>>(json) ?? new List<GiftItemEntry>();
                     Logger.Info($"[GiftDistributor] Loaded {_cachedItems.Count} gift item entries.");
                 }
                 else
@@ -126,39 +171,6 @@ namespace MHServerEmu.Gifts
                 Logger.ErrorException(ex, "[GiftDistributor] Failed to load PendingItems.json.");
                 _cachedItems = new List<GiftItemEntry>();
             }
-        }
-
-        private Task SaveChangesAsync()
-        {
-            if (!_isDirty || (_currentSaveTask != null && !_currentSaveTask.IsCompleted))
-            {
-                return Task.CompletedTask;
-            }
-            _isDirty = false;
-
-            _currentSaveTask = Task.Run(async () =>
-            {
-                List<GiftItemEntry> itemsToSave;
-                lock (_cachedItems) { itemsToSave = new List<GiftItemEntry>(_cachedItems); }
-
-                try
-                {
-                    string jsonContent = JsonSerializer.Serialize(itemsToSave, new JsonSerializerOptions { WriteIndented = true });
-                    string tempPath = PendingItemsPath + ".tmp";
-                    await File.WriteAllTextAsync(tempPath, jsonContent);
-                    lock (_ioLock)
-                    {
-                        File.Move(tempPath, PendingItemsPath, true);
-                        Logger.Info("[GiftDistributor] Saved gift claims to disk.");
-                    }
-                }
-                catch (Exception ex)
-                {
-                    Logger.ErrorException(ex, "[GiftDistributor] Failed to save pending gift items.");
-                    _isDirty = true; // Mark as dirty again to retry on the next cycle.
-                }
-            });
-            return _currentSaveTask;
         }
     }
 }
