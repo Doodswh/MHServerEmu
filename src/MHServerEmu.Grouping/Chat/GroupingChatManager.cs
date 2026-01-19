@@ -1,6 +1,5 @@
 ﻿using Gazillion;
 using Google.ProtocolBuffers;
-using MHServerEmu.Core.Config;
 using MHServerEmu.Core.Logging;
 using MHServerEmu.Core.Memory;
 using MHServerEmu.Core.Network;
@@ -11,6 +10,8 @@ namespace MHServerEmu.Grouping.Chat
 {
     public class GroupingChatManager
     {
+        private const string PrivateChatPlaceholder = "***";
+
         private static readonly Logger Logger = LogManager.CreateLogger();
 
         private static readonly ChatErrorMessage NoSuchUserErrorMessage = ChatErrorMessage.CreateBuilder()
@@ -25,13 +26,13 @@ namespace MHServerEmu.Grouping.Chat
         private readonly int _serverPrestigeLevel;
 
         private readonly ChatBroadcastMessage _motd;
-        private readonly bool _logTells;
+        private readonly bool _logPrivateChatRooms;
 
         public GroupingChatManager(GroupingManagerService groupingManager)
         {
             _groupingManager = groupingManager;
 
-            GroupingManagerConfig config = ConfigManager.Instance.GetConfig<GroupingManagerConfig>();
+            GroupingManagerConfig config = _groupingManager.Config;
             _serverName = config.ServerName;
             _serverPrestigeLevel = config.ServerPrestigeLevel;
 
@@ -42,7 +43,7 @@ namespace MHServerEmu.Grouping.Chat
                 .SetPrestigeLevel(_serverPrestigeLevel)
                 .Build();
 
-            _logTells = config.LogTells;
+            _logPrivateChatRooms = config.LogPrivateChatRooms;
 
             // Initialize chat room types
             for (ChatRoomTypes chatRoomType = 0; chatRoomType < ChatRoomTypes.CHAT_ROOM_TYPE_NUM_TYPES; chatRoomType++)
@@ -98,12 +99,19 @@ namespace MHServerEmu.Grouping.Chat
             else
             {
                 // Chat rooms with multiple instances
-                if (SendMessageToChatRoom(message, chat.RoomType, (ulong)account.Id, out roomId) == false)
-                    Logger.Warn($"OnChat(): Player [{account}] failed to send message to chat room {chat.RoomType}");
+                if (SendMessageToChatRoom(message, roomType, (ulong)account.Id, out roomId) == false)
+                    Logger.Warn($"OnChat(): Player [{account}] failed to send message to chat room {roomType}");
             }
 
-            if (string.IsNullOrEmpty(chat.TheMessage.Body) == false)
-                Logger.Info($"[{chat.RoomType.GetRoomName()} (0x{roomId:X})] [{account})]: {chat.TheMessage.Body}", LogCategory.Chat);
+            string messageBody = chat.TheMessage.Body;
+            if (string.IsNullOrEmpty(messageBody) == false)
+            {
+                // Hide the contents of messages in private rooms (party / guild) if needed.
+                if (_logPrivateChatRooms == false && roomType.IsPrivateChatRoom())
+                    messageBody = PrivateChatPlaceholder;
+
+                Logger.Info($"[{roomType.GetRoomName()} (0x{roomId:X})] [{account})]: {messageBody}", LogCategory.Chat);
+            }
         }
 
         public void OnTell(IFrontendClient senderClient, NetMessageTell tell, int prestigeLevel)
@@ -125,7 +133,8 @@ namespace MHServerEmu.Grouping.Chat
 
             SendMessage(message, targetClient);
 
-            Logger.Info($"[Tell] [{fromPlayerName} => {tell.TargetPlayerName}]: {(_logTells ? tell.TheMessage.Body : "***")}", LogCategory.Chat);
+            string messageBody = _logPrivateChatRooms ? tell.TheMessage.Body : PrivateChatPlaceholder;
+            Logger.Info($"[Tell] [{fromPlayerName} => {tell.TargetPlayerName}]: {messageBody}", LogCategory.Chat);
         }
 
         public void OnMetagameMessage(IFrontendClient client, string text, bool showSender)
