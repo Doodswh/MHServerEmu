@@ -461,6 +461,128 @@ namespace MHServerEmu.Commands.Implementations
 
             return $"You are now dead. Thank you for using Stop-and-Drop.";
         }
+        [Command("sendgift")]
+        [CommandDescription("Sends a gift item to a player that will be waiting when they log in.")]
+        [CommandUsage("player sendgift [playerName] [itemPrototype] [count] [daily]")]
+        [CommandUserLevel(AccountUserLevel.Admin)]
+        [CommandInvokerType(CommandInvokerType.Client)]
+       
+        public string SendGift(string[] @params, NetClient client)
+        {
+            PlayerConnection adminConnection = GetInvokerConnection(client);
+            if (adminConnection == null) return "Error: Could not find your player connection.";
+
+            string targetPlayerName = @params[0];
+            string itemSearch = @params[1];
+
+            if (!int.TryParse(@params[2], out int count) || count <= 0)
+            {
+                return $"Invalid count: {@params[2]}. Must be a positive integer.";
+            }
+
+            bool isDaily = false;
+            if (@params.Length == 4)
+            {
+                if (!bool.TryParse(@params[3], out isDaily))
+                {
+                    return $"Invalid daily flag: {@params[3]}. Use 'true' or 'false'.";
+                }
+            }
+
+            // Search for the item prototype
+            var matches = GameDatabase.SearchPrototypes(itemSearch,
+                DataFileSearchFlags.SortMatchesByName | DataFileSearchFlags.CaseInsensitive);
+
+            if (!matches.Any())
+                return $"Failed to find any items containing '{itemSearch}'.";
+
+            if (matches.Count() > 1)
+            {
+                CommandHelper.SendMessage(client, $"Found multiple matches for '{itemSearch}':");
+                CommandHelper.SendMessages(client, matches.Select(match => GameDatabase.GetPrototypeName(match)), false);
+                return string.Empty;
+            }
+
+            PrototypeId itemProtoRef = matches.First();
+
+            // Verify the target player exists
+            if (!PlayerNameCache.Instance.TryGetPlayerDbId(targetPlayerName, out ulong playerDbId, out _))
+            {
+                return $"Player '{targetPlayerName}' not found in the database.";
+            }
+
+            // Check if player is online - if so, get their instance ID for immediate delivery
+            PlayerConnection targetConnection = FindPlayerConnectionByName(targetPlayerName);
+            ulong instanceId = 0;
+            bool playerOnline = false;
+
+            if (targetConnection != null && targetConnection.Player != null)
+            {
+                var game = targetConnection.Player.Game;
+                if (game != null)
+                {
+                    instanceId = game.Id;
+                    playerOnline = true;
+                }
+            }
+
+            // Send message to GiftItemDistributor service to add the gift
+            var giftMessage = new ServiceMessage.AddPlayerGift(
+                targetPlayerName,
+                (ulong)itemProtoRef,
+                count,
+                isDaily,
+                playerOnline,
+                instanceId
+            );
+
+            ServerManager.Instance.SendMessageToService(GameServiceType.GiftItemDistributor, giftMessage);
+
+            string giftType = isDaily ? "daily gift" : "one-time gift";
+            string deliveryStatus = playerOnline ? " (delivered immediately)" : " (will be delivered on next login)";
+            return $"Successfully queued {giftType} for '{targetPlayerName}': {count}x {GameDatabase.GetPrototypeName(itemProtoRef)}{deliveryStatus}";
+        }
+
+        [Command("listgifts")]
+        [CommandDescription("Lists all pending gifts in the system.")]
+        [CommandUsage("player listgifts [playerName]")]
+        [CommandUserLevel(AccountUserLevel.Admin)]
+        [CommandInvokerType(CommandInvokerType.Client)]
+       
+        public string ListGifts(string[] @params, NetClient client)
+        {
+            PlayerConnection adminConnection = GetInvokerConnection(client);
+            if (adminConnection == null) return "Error: Could not find your player connection.";
+
+            string filterPlayerName = @params.Length > 0 ? @params[0] : null;
+
+            var listMessage = new ServiceMessage.ListPlayerGifts(filterPlayerName);
+            ServerManager.Instance.SendMessageToService(GameServiceType.GiftItemDistributor, listMessage);
+
+            return "Requesting gift list...";
+        }
+
+        [Command("removegift")]
+        [CommandDescription("Removes a pending gift by index.")]
+        [CommandUsage("player removegift [index]")]
+        [CommandUserLevel(AccountUserLevel.Admin)]
+        [CommandInvokerType(CommandInvokerType.Client)]
+        [CommandParamCount(1)]
+        public string RemoveGift(string[] @params, NetClient client)
+        {
+            PlayerConnection adminConnection = GetInvokerConnection(client);
+            if (adminConnection == null) return "Error: Could not find your player connection.";
+
+            if (!int.TryParse(@params[0], out int index) || index < 0)
+            {
+                return $"Invalid index: {@params[0]}. Must be a non-negative integer.";
+            }
+
+            var removeMessage = new ServiceMessage.RemovePlayerGift(index);
+            ServerManager.Instance.SendMessageToService(GameServiceType.GiftItemDistributor, removeMessage);
+
+            return $"Attempting to remove gift at index {index}...";
+        }
     }
 }
 

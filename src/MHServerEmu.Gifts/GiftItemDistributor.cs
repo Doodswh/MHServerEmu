@@ -8,6 +8,7 @@ using MHServerEmu.Games.GameData;
 using MHServerEmu.Games.GameData.Prototypes;
 using MHServerEmu.Games.Loot;
 using MHServerEmu.PlayerManagement;
+using MHServerEmu.PlayerManagement.Social;
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -22,7 +23,7 @@ namespace MHServerEmu.Gifts
         public int Count { get; set; }
         public DateTime AddedDate { get; set; }
         public bool IsDaily { get; set; } = false;
-        public Dictionary<string, DateTime> ClaimedByPlayers { get; set; } = new();
+        public Dictionary<ulong, DateTime> ClaimedByPlayers { get; set; } = new();
     }
 
     public class GiftItemDistributor : IGameService
@@ -51,11 +52,148 @@ namespace MHServerEmu.Gifts
             {
                 HandleGiftRequest(in request);
             }
+            else if (message is ServiceMessage.AddPlayerGift addGift)
+            {
+                HandleAddGift(in addGift);
+            }
+            else if (message is ServiceMessage.ListPlayerGifts listGifts)
+            {
+                HandleListGifts(in listGifts);
+            }
+            else if (message is ServiceMessage.RemovePlayerGift removeGift)
+            {
+                HandleRemoveGift(in removeGift);
+            }
+        }
+
+        private void HandleAddGift(in ServiceMessage.AddPlayerGift message)
+        {
+            var newEntry = new GiftItemEntry
+            {
+                ItemPrototype = message.ItemPrototype,
+                Count = message.Count,
+                AddedDate = DateTime.UtcNow,
+                IsDaily = message.IsDaily,
+                ClaimedByPlayers = new Dictionary<ulong, DateTime>()
+            };
+
+            lock (_cachedItems)
+            {
+                _cachedItems.Add(newEntry);
+                _isDirty = true;
+            }
+
+            string itemName = GameDatabase.GetPrototypeName((PrototypeId)message.ItemPrototype);
+            string giftType = message.IsDaily ? "daily" : "one-time";
+            Logger.Info($"[GiftDistributor] Added {giftType} gift for '{message.PlayerName}': {message.Count}x {itemName}");
+
+            // If player is online, deliver the gift immediately
+            if (message.PlayerOnline && message.InstanceId != 0)
+            {
+                Logger.Info($"[GiftDistributor] Player '{message.PlayerName}' is online. Delivering gift immediately.");
+
+                // Resolve the ID so we can mark it as claimed
+                if (PlayerNameCache.Instance.TryGetPlayerDbId(message.PlayerName, out ulong playerDbId, out _))
+                {
+                    var giftsToAward = new List<ServiceMessage.GiftInfo>
+                    {
+                        new ServiceMessage.GiftInfo(message.ItemPrototype, message.Count)
+                    };
+
+                    // Mark as claimed immediately using the ID
+                    DateTime now = DateTime.UtcNow;
+                    lock (_cachedItems)
+                    {
+                        newEntry.ClaimedByPlayers[playerDbId] = now;
+                        _isDirty = true;
+                    }
+
+                    var awardMessage = new ServiceMessage.AwardPlayerGifts(playerDbId, message.InstanceId, giftsToAward);
+                    ServerManager.Instance.SendMessageToService(GameServiceType.GameInstance, awardMessage);
+                }
+                else
+                {
+                    Logger.Warn($"[GiftDistributor] Could not resolve DbId for online player '{message.PlayerName}'. Gift added but not auto-delivered.");
+                }
+            }
+
+            _ = SaveChangesAsync();
+        }
+
+        private void HandleListGifts(in ServiceMessage.ListPlayerGifts message)
+        {
+            // Try to resolve the filter name to an ID if a filter is provided
+            ulong filterId = 0;
+            bool hasFilter = !string.IsNullOrEmpty(message.FilterPlayerName);
+
+            if (hasFilter)
+            {
+                if (!PlayerNameCache.Instance.TryGetPlayerDbId(message.FilterPlayerName, out filterId, out _))
+                {
+                    Logger.Info($"[GiftDistributor] Player '{message.FilterPlayerName}' not found in cache. Cannot filter gifts.");
+                    return;
+                }
+            }
+
+            lock (_cachedItems)
+            {
+                Logger.Info($"[GiftDistributor] === Pending Gifts ({_cachedItems.Count} total) ===");
+
+                for (int i = 0; i < _cachedItems.Count; i++)
+                {
+                    var entry = _cachedItems[i];
+                    string itemName = GameDatabase.GetPrototypeName((PrototypeId)entry.ItemPrototype);
+                    string giftType = entry.IsDaily ? "Daily" : "One-time";
+
+                    if (!hasFilter)
+                    {
+                        Logger.Info($"[{i}] {giftType}: {entry.Count}x {itemName} | Claimed by {entry.ClaimedByPlayers.Count} players | Added: {entry.AddedDate:yyyy-MM-dd HH:mm}");
+                    }
+                    else
+                    {
+                        // Filter by player ID now
+                        if (entry.ClaimedByPlayers.ContainsKey(filterId))
+                        {
+                            DateTime claimedDate = entry.ClaimedByPlayers[filterId];
+                            Logger.Info($"[{i}] {giftType}: {entry.Count}x {itemName} | Claimed by '{message.FilterPlayerName}' on {claimedDate:yyyy-MM-dd HH:mm}");
+                        }
+                        else if (!entry.IsDaily)
+                        {
+                            Logger.Info($"[{i}] {giftType}: {entry.Count}x {itemName} | NOT claimed by '{message.FilterPlayerName}'");
+                        }
+                        else
+                        {
+                            Logger.Info($"[{i}] {giftType}: {entry.Count}x {itemName} | Available for '{message.FilterPlayerName}'");
+                        }
+                    }
+                }
+            }
+        }
+
+        private void HandleRemoveGift(in ServiceMessage.RemovePlayerGift message)
+        {
+            lock (_cachedItems)
+            {
+                if (message.Index < 0 || message.Index >= _cachedItems.Count)
+                {
+                    Logger.Warn($"[GiftDistributor] Invalid gift index: {message.Index}");
+                    return;
+                }
+
+                var entry = _cachedItems[message.Index];
+                string itemName = GameDatabase.GetPrototypeName((PrototypeId)entry.ItemPrototype);
+
+                _cachedItems.RemoveAt(message.Index);
+                _isDirty = true;
+
+                Logger.Info($"[GiftDistributor] Removed gift at index {message.Index}: {entry.Count}x {itemName}");
+            }
+
+            _ = SaveChangesAsync();
         }
 
         private void HandleGiftRequest(in ServiceMessage.PlayerRequestsGifts request)
         {
-            string playerName = request.PlayerName;
             ulong playerDbId = request.PlayerDbId;
             ulong instanceId = request.InstanceId;
             var giftsToAward = new List<ServiceMessage.GiftInfo>();
@@ -74,7 +212,7 @@ namespace MHServerEmu.Gifts
 
                     if (entry.IsDaily)
                     {
-                        if (entry.ClaimedByPlayers.TryGetValue(playerName, out DateTime lastClaimDate))
+                        if (entry.ClaimedByPlayers.TryGetValue(playerDbId, out DateTime lastClaimDate))
                         {
                             if (lastClaimDate.Date < now.Date)
                             {
@@ -88,15 +226,16 @@ namespace MHServerEmu.Gifts
                     }
                     else
                     {
-                        if (!entry.ClaimedByPlayers.ContainsKey(playerName))
+                        if (!entry.ClaimedByPlayers.ContainsKey(playerDbId))
                         {
                             shouldAward = true;
                         }
                     }
+
                     if (shouldAward)
                     {
                         giftsToAward.Add(new ServiceMessage.GiftInfo(entry.ItemPrototype, entry.Count));
-                        entry.ClaimedByPlayers[playerName] = now;
+                        entry.ClaimedByPlayers[playerDbId] = now;
                         _isDirty = true;
                     }
                 }
@@ -104,7 +243,7 @@ namespace MHServerEmu.Gifts
 
             if (giftsToAward.Count > 0)
             {
-                Logger.Info($"[GiftDistributor] Awarding {giftsToAward.Count} gifts to {playerName}.");
+                Logger.Info($"[GiftDistributor] Awarding {giftsToAward.Count} gifts to {playerDbId}.");
                 var awardMessage = new ServiceMessage.AwardPlayerGifts(playerDbId, instanceId, giftsToAward);
                 ServerManager.Instance.SendMessageToService(GameServiceType.GameInstance, awardMessage);
                 _ = SaveChangesAsync();

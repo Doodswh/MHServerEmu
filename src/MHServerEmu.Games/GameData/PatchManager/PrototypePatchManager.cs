@@ -212,6 +212,7 @@ namespace MHServerEmu.Games.GameData.PatchManager
         {
             Logger.Trace($"[CheckAndUpdate] Entry: Prototype={entry.Prototype}, Path={entry.Path}, ClearPath={entry.СlearPath}, FieldName={entry.FieldName}, ArrayValue={entry.ArrayValue}, ArrayIndex={entry.ArrayIndex}");
 
+            // Navigate to the target object using the path
             var targetObject = GetOrCreateObjectFromPath(prototype, entry.СlearPath);
             if (targetObject == null)
             {
@@ -222,32 +223,39 @@ namespace MHServerEmu.Games.GameData.PatchManager
 
             Logger.Trace($"[CheckAndUpdate] Found target object of type: {targetObject.GetType().Name}");
 
-            var fieldInfo = targetObject.GetType().GetProperty(entry.FieldName);
-            if (fieldInfo == null)
+            // Use the enhanced field lookup from PrototypeClassManager
+            var enhancedField = GameDatabase.PrototypeClassManager.GetFieldByName(targetObject.GetType(), entry.FieldName);
+            if (!enhancedField.HasValue)
             {
                 Logger.Warn($"[CheckAndUpdate] FAILED: Field '{entry.FieldName}' not found on target type '{targetObject.GetType().Name}'");
-                Logger.Warn($"  Available properties: {string.Join(", ", GetAvailableProperties(targetObject))}");
+                Logger.Warn($"  Available properties: {string.Join(", ", GameDatabase.PrototypeClassManager.GetAvailablePropertyNames(targetObject.GetType()))}");
                 return false;
             }
 
-            Logger.Trace($"[CheckAndUpdate] Found field '{entry.FieldName}' of type: {fieldInfo.PropertyType.Name}");
+            var fieldInfo = enhancedField.Value;
+            Logger.Trace($"[CheckAndUpdate] Found field '{entry.FieldName}' of type: {fieldInfo.PropertyInfo.PropertyType.Name}");
+            Logger.Trace($"[CheckAndUpdate] Field is writable: {fieldInfo.CanWrite}, Is array: {fieldInfo.IsArray}");
             Logger.Trace($"[CheckAndUpdate] Value to apply: {entry.Value.GetValue()} (ValueType: {entry.Value.ValueType})");
 
-            UpdateValue(targetObject, fieldInfo, entry);
-            return true;
+            // Validate field writability
+            if (!fieldInfo.CanWrite)
+            {
+                Logger.Warn($"[CheckAndUpdate] FAILED: Field '{entry.FieldName}' is read-only and has no backing field");
+                return false;
+            }
+
+            // Apply the update
+            return UpdateValue(targetObject, fieldInfo, entry);
         }
 
         private List<string> GetAvailableProperties(object obj)
         {
             if (obj == null) return new List<string> { "null object" };
 
-            return obj.GetType()
-                .GetProperties(BindingFlags.Public | BindingFlags.Instance)
-                .Select(p => $"{p.Name}:{p.PropertyType.Name}")
-                .ToList();
+            return GameDatabase.PrototypeClassManager.GetAvailablePropertyNames(obj.GetType()).ToList();
         }
 
-        private void UpdateValue(object targetObject, System.Reflection.PropertyInfo fieldInfo, PrototypePatchEntry entry)
+        private bool UpdateValue(object targetObject, PrototypeClassManager.EnhancedFieldInfo fieldInfo, PrototypePatchEntry entry)
         {
             try
             {
@@ -268,59 +276,44 @@ namespace MHServerEmu.Games.GameData.PatchManager
                 else
                 {
                     object rawValue = entry.Value.GetValue();
-                    Logger.Debug($"[UpdateValue] Converting value. Raw type: {rawValue?.GetType().Name ?? "null"}, Target type: {fieldInfo.PropertyType.Name}");
+                    Logger.Debug($"[UpdateValue] Converting value. Raw type: {rawValue?.GetType().Name ?? "null"}, Target type: {fieldInfo.PropertyInfo.PropertyType.Name}");
 
-                    object convertedValue = ConvertValue(rawValue, fieldInfo.PropertyType);
+                    object convertedValue = ConvertValue(rawValue, fieldInfo.PropertyInfo.PropertyType);
 
                     // Special handling for Eval and ComplexObject - they're already parsed
                     if (entry.Value.ValueType == ValueType.Eval || entry.Value.ValueType == ValueType.ComplexObject)
                     {
                         Logger.Debug($"[UpdateValue] Setting pre-parsed {entry.Value.ValueType} value");
-                        SetPropertyOrBackingField(targetObject, fieldInfo, convertedValue);
                     }
                     else
                     {
                         Logger.Debug($"[UpdateValue] Setting converted value of type: {convertedValue?.GetType().Name ?? "null"}");
-                        SetPropertyOrBackingField(targetObject, fieldInfo, convertedValue);
+                    }
+
+                    // Use the centralized property setting method
+                    if (!GameDatabase.PrototypeClassManager.TrySetPropertyValue(targetObject, fieldInfo.PropertyInfo, convertedValue))
+                    {
+                        Logger.Error($"[UpdateValue] FAILED: Could not set property '{fieldInfo.PropertyInfo.Name}'");
+                        return false;
                     }
                 }
+
                 entry.Patched = true;
                 Logger.Debug($"[UpdateValue] SUCCESS: Marked entry as patched");
+                return true;
             }
             catch (Exception ex)
             {
                 Logger.ErrorException(ex, $"[UpdateValue] FAILED: [{entry.Prototype}] [{entry.Path}]");
                 Logger.Error($"  Target object type: {targetObject.GetType().Name}");
-                Logger.Error($"  Field name: {fieldInfo.Name}");
-                Logger.Error($"  Field type: {fieldInfo.PropertyType.Name}");
+                Logger.Error($"  Field name: {fieldInfo.PropertyInfo.Name}");
+                Logger.Error($"  Field type: {fieldInfo.PropertyInfo.PropertyType.Name}");
                 Logger.Error($"  Value type: {entry.Value.ValueType}");
                 Logger.Error($"  Raw value: {entry.Value.GetValue()}");
+                return false;
             }
         }
 
-        // Helper to force set value even if property is read-only
-        private void SetPropertyOrBackingField(object target, System.Reflection.PropertyInfo propInfo, object value)
-        {
-            if (propInfo.CanWrite)
-            {
-                propInfo.SetValue(target, value);
-            }
-            else
-            {
-                // Try to find the backing field (convention: <PropName>k__BackingField)
-                var backingField = target.GetType().GetField($"<{propInfo.Name}>k__BackingField", BindingFlags.Instance | BindingFlags.NonPublic);
-                if (backingField != null)
-                {
-                    Logger.Debug($"[SetPropertyOrBackingField] Property '{propInfo.Name}' is read-only. Setting backing field directly.");
-                    backingField.SetValue(target, value);
-                }
-                else
-                {
-                    Logger.Error($"[SetPropertyOrBackingField] Property '{propInfo.Name}' is read-only and no backing field found. Cannot set value.");
-                    throw new InvalidOperationException($"Property {propInfo.Name} is read-only and cannot be patched.");
-                }
-            }
-        }
 
         public void SetPath(Prototype parent, Prototype child, string fieldName)
         {
@@ -348,11 +341,13 @@ namespace MHServerEmu.Games.GameData.PatchManager
             Logger.Trace($"[SetPathIndex] Registered indexed path: {newPath} for child type {child.GetType().Name}");
         }
 
-        private static void SetIndexValue(object target, System.Reflection.PropertyInfo fieldInfo, int index, ValueBase value)
+        private static void SetIndexValue(object target, PrototypeClassManager.EnhancedFieldInfo fieldInfo, int index, ValueBase value)
         {
-            if (fieldInfo.GetValue(target) is not Array array)
+            var propertyInfo = fieldInfo.PropertyInfo;
+
+            if (propertyInfo.GetValue(target) is not Array array)
             {
-                Logger.Warn($"[SetIndexValue] Field '{fieldInfo.Name}' is not an array");
+                Logger.Warn($"[SetIndexValue] Field '{propertyInfo.Name}' is not an array");
                 return;
             }
 
@@ -362,12 +357,8 @@ namespace MHServerEmu.Games.GameData.PatchManager
                 return;
             }
 
-            Type elementType = fieldInfo.PropertyType.GetElementType();
-            if (elementType == null)
-            {
-                Logger.Warn($"[SetIndexValue] Could not determine element type for array field '{fieldInfo.Name}'");
-                return;
-            }
+            // Use the cached element type from EnhancedFieldInfo
+            Type elementType = fieldInfo.ElementType;
 
             object valueEntry = value.GetValue();
             object finalValue;
@@ -412,19 +403,20 @@ namespace MHServerEmu.Games.GameData.PatchManager
             Logger.Debug($"[SetIndexValue] Successfully set array index {index}");
         }
 
-        private static void InsertValue(object target, System.Reflection.PropertyInfo fieldInfo, ValueBase value)
+        private static void InsertValue(object target, PrototypeClassManager.EnhancedFieldInfo fieldInfo, ValueBase value)
         {
-            Logger.Debug($"[InsertValue] Inserting into field '{fieldInfo.Name}'");
+            var propertyInfo = fieldInfo.PropertyInfo;
 
-            if (!fieldInfo.PropertyType.IsArray)
-                throw new InvalidOperationException($"Field {fieldInfo.Name} is not an array.");
+            Logger.Debug($"[InsertValue] Inserting into field '{propertyInfo.Name}'");
 
-            Type elementType = fieldInfo.PropertyType.GetElementType();
-            if (elementType == null)
-                throw new InvalidOperationException($"Could not determine element type for array {fieldInfo.Name}.");
+            if (!fieldInfo.IsArray)
+                throw new InvalidOperationException($"Field {propertyInfo.Name} is not an array.");
+
+            // Use the cached element type from EnhancedFieldInfo
+            Type elementType = fieldInfo.ElementType;
 
             var valueEntry = value.GetValue();
-            var currentArray = (Array)fieldInfo.GetValue(target);
+            var currentArray = (Array)propertyInfo.GetValue(target);
             var valuesToAdd = valueEntry as Array;
 
             Logger.Debug($"[InsertValue] Current array length: {currentArray?.Length ?? 0}, Element type: {elementType.Name}");
@@ -442,7 +434,7 @@ namespace MHServerEmu.Games.GameData.PatchManager
                     newArray.SetValue(element, (currentArray?.Length ?? 0) + i);
                     Logger.Trace($"[InsertValue] Added element {i}: {element?.GetType().Name ?? "null"}");
                 }
-                fieldInfo.SetValue(target, newArray);
+                propertyInfo.SetValue(target, newArray);
                 Logger.Debug($"[InsertValue] Successfully inserted array of {valuesToAdd.Length} elements");
             }
             else
@@ -454,20 +446,14 @@ namespace MHServerEmu.Games.GameData.PatchManager
 
                 object element = GetElementValue(valueEntry, elementType);
                 newArray.SetValue(element, newArray.Length - 1);
-                fieldInfo.SetValue(target, newArray);
+                propertyInfo.SetValue(target, newArray);
                 Logger.Debug($"[InsertValue] Successfully inserted single element of type {element?.GetType().Name ?? "null"}");
             }
         }
 
         private object GetOrCreateObjectFromPath(object root, string path)
         {
-            if (string.IsNullOrEmpty(path))
-            {
-                Logger.Trace($"[GetOrCreateObjectFromPath] Empty path, returning root of type {root?.GetType().Name}");
-                return root;
-            }
-
-            Logger.Trace($"[GetOrCreateObjectFromPath] Navigating path: '{path}' from root type {root?.GetType().Name}");
+            if (string.IsNullOrEmpty(path)) return root;
 
             object current = root;
             var pathParts = path.Split('.');
@@ -475,95 +461,138 @@ namespace MHServerEmu.Games.GameData.PatchManager
             for (int i = 0; i < pathParts.Length; i++)
             {
                 string part = pathParts[i];
-                if (current == null)
+                if (current == null) return null;
+
+            
+                if (part.Contains("[\"") || part.Contains("['"))
                 {
-                    Logger.Warn($"[GetOrCreateObjectFromPath] CRITICAL: Current object became null unexpectedly at part '{part}'");
-                    return null;
-                }
+                    int bracketStart = part.IndexOf('[');
+                    string propertyName = part.Substring(0, bracketStart);
 
-                var arrayMatch = System.Text.RegularExpressions.Regex.Match(part, @"(\w+)\[(\d+)\]");
-                try
-                {
-                    if (arrayMatch.Success)
+                    var propInfo = current.GetType().GetProperty(propertyName);
+                    if (propInfo == null) return null;
+
+                    var dictObj = propInfo.GetValue(current) as System.Collections.IDictionary;
+                    if (dictObj == null) return null;
+
+                    var keyMatch = System.Text.RegularExpressions.Regex.Match(part, @"\[[""'](.+?)[""']\]");
+                    if (keyMatch.Success)
                     {
-                        var propertyName = arrayMatch.Groups[1].Value;
-                        var index = int.Parse(arrayMatch.Groups[2].Value);
-
-                        Logger.Trace($"[GetOrCreateObjectFromPath] Array access: {propertyName}[{index}]");
-
-                        var propInfo = current.GetType().GetProperty(propertyName);
-                        if (propInfo == null)
+                        string key = keyMatch.Groups[1].Value;
+                        if (dictObj.Contains(key))
                         {
-                            Logger.Warn($"[GetOrCreateObjectFromPath] Property '{propertyName}' not found on type {current.GetType().Name}");
-                            return null;
-                        }
-
-                        var listObj = propInfo.GetValue(current);
-                        if (listObj == null)
-                        {
-                            Logger.Warn($"[GetOrCreateObjectFromPath] Array/List '{propertyName}' is null. Cannot index into null array.");
-                            return null;
-                        }
-
-                        if (listObj is not IList list)
-                        {
-                            Logger.Warn($"[GetOrCreateObjectFromPath] Property '{propertyName}' is not a list/array");
-                            return null;
-                        }
-
-                        if (index >= list.Count)
-                        {
-                            Logger.Warn($"[GetOrCreateObjectFromPath] Index {index} out of bounds for list of size {list.Count}");
-                            return null;
-                        }
-
-                        current = list[index];
-                    }
-                    else
-                    {
-                        Logger.Trace($"[GetOrCreateObjectFromPath] Property access: {part}");
-
-                        var propInfo = current.GetType().GetProperty(part);
-                        if (propInfo == null)
-                        {
-                            Logger.Warn($"[GetOrCreateObjectFromPath] Property '{part}' not found on type {current.GetType().Name}");
-                            Logger.Warn($"  Available: {string.Join(", ", GetAvailableProperties(current))}");
-                            return null;
-                        }
-
-                        object nextObj = propInfo.GetValue(current);
-
-                        // AUTO-VIVIFICATION LOGIC
-                        if (nextObj == null)
-                        {
-                            Logger.Info($"[GetOrCreateObjectFromPath] Property '{part}' is null. Attempting to auto-create instance of {propInfo.PropertyType.Name}...");
-                            try
+                            current = dictObj[key];
+                            
+                            if (current is PrototypeId pidDict && pidDict != PrototypeId.Invalid)
                             {
-                                // Attempt to create a new instance (requires parameterless constructor)
-                                nextObj = Activator.CreateInstance(propInfo.PropertyType);
-
-                                SetPropertyOrBackingField(current, propInfo, nextObj);
-
-                                Logger.Info($"[GetOrCreateObjectFromPath] SUCCESS: Created and assigned new {propInfo.PropertyType.Name} to '{part}'");
+                                var resolved = GameDatabase.GetPrototype<Prototype>(pidDict);
+                                if (resolved != null) current = resolved;
                             }
-                            catch (Exception createEx)
-                            {
-                                Logger.ErrorException(createEx, $"[GetOrCreateObjectFromPath] Failed to auto-create instance for '{part}'");
-                                return null;
-                            }
+                            continue;
                         }
-
-                        current = nextObj;
+                        else
+                        {
+                            Logger.Warn($"Key '{key}' not found in dictionary '{propertyName}'");
+                            return null;
+                        }
                     }
                 }
-                catch (Exception ex)
+
+
+                if (part.Contains("["))
                 {
-                    Logger.WarnException(ex, $"[GetOrCreateObjectFromPath] Failed at path part '{part}' (index {i}) in full path '{path}'");
-                    return null;
+                    int bracketStart = part.IndexOf('[');
+                    string propertyName = part.Substring(0, bracketStart);
+
+                    var propInfo = current.GetType().GetProperty(propertyName);
+                    if (propInfo == null)
+                    {
+                        Logger.Warn($"Property '{propertyName}' not found on {current.GetType().Name}");
+                        return null;
+                    }
+
+                    var listObj = propInfo.GetValue(current);
+                    if (listObj == null)
+                    {
+                        Logger.Warn($"Array property '{propertyName}' is null");
+                        return null;
+                    }
+
+                    var matches = System.Text.RegularExpressions.Regex.Matches(part.Substring(bracketStart), @"\[(\d+)\]");
+                    current = listObj;
+
+                    foreach (System.Text.RegularExpressions.Match match in matches)
+                    {
+                        if (!match.Success) continue;
+                        int index = int.Parse(match.Groups[1].Value);
+
+                        if (current is IList list && index < list.Count)
+                        {
+                            current = list[index];
+
+                           
+                            if (current is PrototypeId pidList && pidList != PrototypeId.Invalid)
+                            {
+                                var resolved = GameDatabase.GetPrototype<Prototype>(pidList);
+                                if (resolved != null)
+                                {
+                                    current = resolved;
+                                    Logger.Trace($"Resolved PrototypeId to {resolved.GetType().Name}");
+                                }
+                            }
+                        }
+                        else if (current is Array array && index < array.Length)
+                        {
+                            
+                            current = array.GetValue(index);
+
+                            if (current is PrototypeId pidArr && pidArr != PrototypeId.Invalid)
+                            {
+                                var resolved = GameDatabase.GetPrototype<Prototype>(pidArr);
+                                if (resolved != null)
+                                {
+                                    current = resolved;
+                                    Logger.Trace($"Resolved PrototypeId from array to {resolved.GetType().Name}");
+                                }
+                            }
+                        }
+                        else
+                        {
+                            Logger.Warn($"Index {index} out of bounds or current object is not a list/array");
+                            return null;
+                        }
+                    }
+                    continue; 
                 }
+
+                var standardProp = current.GetType().GetProperty(part);
+                if (standardProp == null) return null;
+
+                object nextObj = standardProp.GetValue(current);
+
+    
+                if (nextObj is PrototypeId pid && pid != PrototypeId.Invalid)
+                {
+                    var resolvedProto = GameDatabase.GetPrototype<Prototype>(pid);
+                    if (resolvedProto != null)
+                    {
+                        nextObj = resolvedProto;
+                    }
+                }
+          
+                if (nextObj == null)
+                {
+                    try
+                    {
+                        nextObj = Activator.CreateInstance(standardProp.PropertyType);
+                        if (!GameDatabase.PrototypeClassManager.TrySetPropertyValue(current, standardProp, nextObj))
+                            return null;
+                    }
+                    catch { return null; }
+                }
+                current = nextObj;
             }
 
-            Logger.Trace($"[GetOrCreateObjectFromPath] Successfully navigated to object of type {current?.GetType().Name}");
             return current;
         }
 

@@ -73,7 +73,7 @@ namespace MHServerEmu.Commands.Implementations
             Player player = playerConnection.Player;
             LootManager lootManager = player.Game.LootManager;
 
-            
+
             string itemPattern = @params[0];
             string runewordPattern = @params.Length > 1 ? @params[1] : "random";
             string blessingPattern = @params.Length > 2 ? @params[2] : "random";
@@ -83,7 +83,7 @@ namespace MHServerEmu.Commands.Implementations
                 return "Error: Invalid grade specified. Must be a number.";
             }
             grade = Math.Clamp(grade, 0, 80);
-            
+
             PrototypeId itemProtoRef = CommandHelper.FindPrototype(HardcodedBlueprints.Item, itemPattern, client);
             if (itemProtoRef == PrototypeId.Invalid)
                 return $"Error: Item prototype not found for '{itemPattern}'.";
@@ -182,14 +182,26 @@ namespace MHServerEmu.Commands.Implementations
             }
 
 
-            int numPrefixes = 12;
-            int numSuffixes = 12;
+            int numPrefixes = 17;
+            int numSuffixes = 17;
 
             List<AffixPrototype> validPrefixes = new List<AffixPrototype>();
             List<AffixPrototype> validSuffixes = new List<AffixPrototype>();
 
             foreach (AffixPrototype affix in GetAllBonusAffixes())
             {
+
+                string affixName = GameDatabase.GetPrototypeName(affix.DataRef);
+                bool isGarbageAffix = (affixName.Contains("Loot", StringComparison.OrdinalIgnoreCase) &&
+                                       affixName.Contains("Debug", StringComparison.OrdinalIgnoreCase))
+                                       || affixName.Contains("Test", StringComparison.OrdinalIgnoreCase);
+
+                if (isGarbageAffix)
+                {
+                    continue; 
+                }
+               
+
                 if (affix.AllowAttachment(filterArgs))
                 {
                     if (affix.Position == AffixPosition.Prefix) validPrefixes.Add(affix);

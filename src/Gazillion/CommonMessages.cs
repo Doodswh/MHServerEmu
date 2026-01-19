@@ -812,8 +812,9 @@ namespace Gazillion {
     eAETV_XPBuffDisplay = 1,
     eAETV_EternitySplinterPrice = 2,
     eAETV_Enabled = 3,
-    eAETV_NumAvatarEntityTuningVars = 4,
-  }
+        eAETV_CooldownGlobalMult = 4,    
+        eAETV_NumAvatarEntityTuningVars = 5,
+    }
   
   public enum PopObjTuningVar {
     ePOTV_PopulationObjectWeight = 0,
@@ -825,7 +826,8 @@ namespace Gazillion {
     ePTV_PowerDamagePVE = 1,
     ePTV_PowerDamagePVP = 2,
     ePTV_PowerEnabled = 3,
-    ePTV_NumPowerTuningVars = 4,
+    ePTV_CooldownDuration = 4,
+    ePTV_NumPowerTuningVars = 5,
   }
   
   public enum RegionTuningVar {

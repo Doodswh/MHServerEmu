@@ -155,6 +155,16 @@ namespace MHServerEmu.Games.Loot
             if (itemProto.IsPetItem)
                 return ItemPrototype.UpdatePetTechAffixes(resolver.Random, args.RollFor, itemSpec);
 
+          
+            if (ShouldApplyCosmicBossLogic(resolver, args, itemProto, settings))
+            {
+           
+                args.Rarity = GameDatabase.LootGlobalsPrototype.RarityCosmic;
+                itemSpec.RarityProtoRef = GameDatabase.LootGlobalsPrototype.RarityCosmic;
+
+                ApplyCosmicBossLogic(resolver, args, itemSpec, affixSet);
+            }
+
             MutationResults result = MutationResults.None;
 
             AffixLimitsPrototype affixLimits = itemProto.GetAffixLimits(args.Rarity, args.LootContext);
@@ -231,6 +241,115 @@ namespace MHServerEmu.Games.Loot
             }
 
             return result;
+        }
+
+        // CUSTOM: Check if this is a Cosmic/Superheroic Difficulty drop
+        // Applies to ANY valid equipment slot.
+        private static bool ShouldApplyCosmicBossLogic(IItemResolver resolver, DropFilterArguments args, ItemPrototype itemProto, LootRollSettings settings)
+        {
+            if (settings == null) return false;
+
+            // 1. Check Difficulty Tier exists
+            if (settings.DifficultyTier == PrototypeId.Invalid) return false;
+
+            // 2. Get Difficulty Name
+            string diffName = GameDatabase.GetPrototypeName(settings.DifficultyTier);
+
+            // 3. Verify this is a valid equipment slot (not Invalid, i.e., not a currency or crafting mat)
+            EquipmentInvUISlot slot = args.Slot;
+            if (slot == EquipmentInvUISlot.Invalid)
+            {
+                AgentPrototype agentProto = args.RollFor.As<AgentPrototype>();
+                if (agentProto != null)
+                    slot = itemProto.GetInventorySlotForAgent(agentProto);
+            }
+
+            // Only apply to items that go into a valid equipment slot
+            if (slot == EquipmentInvUISlot.Invalid)
+                return false;
+
+            // 4. Check for "Cosmic" OR "Superheroic" in Difficulty Name
+            bool isCosmicDifficulty = !string.IsNullOrEmpty(diffName) &&
+                                      (diffName.Contains("Cosmic", StringComparison.OrdinalIgnoreCase) ||
+                                       diffName.Contains("Superheroic", StringComparison.OrdinalIgnoreCase));
+
+            if (isCosmicDifficulty)
+            {
+                string itemName = GameDatabase.GetPrototypeName(itemProto.DataRef);
+                Logger.Info($"[CosmicLootDebug] -> APPLIED Cosmic Logic to {itemName}. (Difficulty: {diffName}, Slot: {slot})");
+                return true;
+            }
+
+            return false;
+        }
+
+        // CUSTOM: Logic to force Cosmic rarity/affix and populate random Prefixes/Suffixes/Runewords/Blessings/Uniques
+        // Note: skipChecks=true forces these even if the item type (like a Medal) doesn't normally support them.
+        private static void ApplyCosmicBossLogic(IItemResolver resolver, DropFilterArguments args, ItemSpec itemSpec, HashSet<ScopedAffixRef> affixSet)
+        {
+            itemSpec.RarityProtoRef = GameDatabase.LootGlobalsPrototype.RarityCosmic;
+
+            AddUniqueRandomAffixes(resolver, args, itemSpec, affixSet, AffixPosition.Cosmic, 5, true);
+
+            AddUniqueRandomAffixes(resolver, args, itemSpec, affixSet, AffixPosition.Prefix, 16, true);
+
+            AddUniqueRandomAffixes(resolver, args, itemSpec, affixSet, AffixPosition.Suffix, 16, true);
+
+            AddUniqueRandomAffixes(resolver, args, itemSpec, affixSet, AffixPosition.Runeword, 5, true);
+
+            AddUniqueRandomAffixes(resolver, args, itemSpec, affixSet, AffixPosition.Blessing, 5, true);
+
+            AddUniqueRandomAffixes(resolver, args, itemSpec, affixSet, AffixPosition.Unique, 5, true);
+        }
+
+        // CUSTOM: Helper to pick N unique random affixes for a position
+        // skipChecks: If true, ignore AllowAttachment validation (forcing the roll).
+        private static void AddUniqueRandomAffixes(IItemResolver resolver, DropFilterArguments args, ItemSpec itemSpec, HashSet<ScopedAffixRef> affixSet, AffixPosition position, int count, bool skipChecks = false)
+        {
+            IReadOnlyList<AffixPrototype> pool = GameDataTables.Instance.LootPickingTable.GetAffixesByPosition(position);
+            if (pool == null) return;
+
+            // Filter valid affixes (or grab all if skipping checks)
+            List<AffixPrototype> valid = ListPool<AffixPrototype>.Instance.Get();
+            foreach (var affix in pool)
+            {
+                if (skipChecks || affix.AllowAttachment(args))
+                {
+                    valid.Add(affix);
+                }
+            }
+
+            if (valid.Count > 0)
+            {
+                // Shuffle logic to ensure randomness
+                int n = valid.Count;
+                while (n > 1)
+                {
+                    n--;
+                    int k = resolver.Random.Next(n + 1);
+                    (valid[k], valid[n]) = (valid[n], valid[k]);
+                }
+
+                // Add up to 'count' unique affixes
+                int added = 0;
+                foreach (var affix in valid)
+                {
+                    if (added >= count) break;
+
+                    // Use a temporary picker for the single affix to utilize existing roll logic
+                    Picker<AffixPrototype> singlePicker = new(resolver.Random);
+                    singlePicker.Add(affix, 1);
+
+                    AffixSpec spec = new();
+                    if (spec.RollAffix(resolver.Random, args.RollFor, itemSpec, singlePicker, affixSet) != MutationResults.Error)
+                    {
+                        itemSpec.AddAffixSpec(spec);
+                        added++;
+                    }
+                }
+            }
+
+            ListPool<AffixPrototype>.Instance.Return(valid);
         }
 
         public static MutationResults AddAffixes(IItemResolver resolver, DropFilterArguments args, short affixCountNeeded,
@@ -323,7 +442,7 @@ namespace MHServerEmu.Games.Loot
 
                 AffixSpec affixSpec = new();
                 MutationResults result = affixSpec.RollAffix(resolver.Random, args.RollFor, itemSpec, picker, affixSet);
-                
+
                 if (result.HasFlag(MutationResults.Error))
                     return result;
 
@@ -349,7 +468,7 @@ namespace MHServerEmu.Games.Loot
                 return result;
 
             result |= UpdateAffixes(resolver, args, AffixCountBehavior.Keep, itemSpec, null);
-            
+
             return result;
         }
 
@@ -478,7 +597,7 @@ namespace MHServerEmu.Games.Loot
 
             return result;
         }
-        
+
         public static uint BuildAffixPickers(AffixPickerTable pickerTable, DropFilterArguments args, AssetId[] keywords, Region region)
         {
             uint duplicateMask = 0;     // Cleared bit indicates that the position has an affix with DuplicateHandlingBehavior set to Append
@@ -522,7 +641,7 @@ namespace MHServerEmu.Games.Loot
             return duplicateMask;
         }
 
-        private static MutationResults AddCategorizedAffixesToItemSpec(IItemResolver resolver, DropFilterArguments args, AffixCategoryPrototype categoryProto, 
+        private static MutationResults AddCategorizedAffixesToItemSpec(IItemResolver resolver, DropFilterArguments args, AffixCategoryPrototype categoryProto,
             int affixCountNeeded, ItemSpec itemSpec, HashSet<ScopedAffixRef> affixSet, AssetId[] keywords = null)
         {
             //Logger.Trace($"AddCategorizedAffixesToItemSpec(): {categoryProto} (x{numAffixesNeeded})");
@@ -682,7 +801,7 @@ namespace MHServerEmu.Games.Loot
             // NOTE: This is used by public DropAffixes() and ReplaceAffixes() functions.
 
             MutationResults result = MutationResults.None;
-            
+
             List<AffixSpec> filteredAffixSpecs = ListPool<AffixSpec>.Instance.Get();
 
             bool hasKeywords = keywords.HasValue();
@@ -692,7 +811,7 @@ namespace MHServerEmu.Games.Loot
             for (int i = 0; i < affixSpecs.Count; i++)
             {
                 AffixSpec affixSpec = affixSpecs[i];
-                
+
                 if (affixSpec.IsValid == false)
                 {
                     Logger.Warn($"DropAffixes(): Invalid affix prototype in item!\nItem: {itemSpec}\nResolver: {resolver}");

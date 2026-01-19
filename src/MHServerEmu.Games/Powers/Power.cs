@@ -144,7 +144,10 @@ namespace MHServerEmu.Games.Powers
                 if (owner == null || owner is not Avatar)
                     return true;
             }
-
+            if (IsTalentPower())
+            {
+                HandleTriggerPowerEventOnSpecializationPowerAssigned();
+            }
             foreach (var kvp in owner.Properties.IteratePropertyRange(PropertyEnum.PowerKeywordChange, powerProto.DataRef))
             {
                 Property.FromParam(kvp.Key, 1, out PrototypeId keywordProtoRef);
@@ -215,7 +218,19 @@ namespace MHServerEmu.Games.Powers
 
                 DictionaryPool<PropertyId, PropertyValue>.Instance.Return(bonusDict);
             }
+            if (GetActivationType() == PowerActivationType.Passive)
+            {
+                PowerApplication powerApplication = new()
+                {
+                    UserEntityId = Owner.Id,
+                    UserPosition = Owner.RegionLocation.Position,
+                    TargetEntityId = Owner.Id,
+                    TargetPosition = Owner.RegionLocation.Position,
+                    IsFree = true
+                };
 
+                ApplyInternal(powerApplication);
+            }
             return true;
         }
 
@@ -245,6 +260,10 @@ namespace MHServerEmu.Games.Powers
 
             _situationalComponent?.Shutdown();
 
+            if (IsTalentPower() && Owner != null && Owner.TestStatus(EntityStatus.ExitingWorld) == false)
+            {
+                HandleTriggerPowerEventOnSpecializationPowerUnassigned();
+            }
             EndPowerFlags endPowerFlags = EndPowerFlags.ExplicitCancel | EndPowerFlags.Unassign;
             if (Owner.TestStatus(EntityStatus.ExitingWorld))
                 endPowerFlags |= EndPowerFlags.ExitWorld;
@@ -3178,14 +3197,32 @@ namespace MHServerEmu.Games.Powers
             cooldown += flatCooldownModifier;               // Apply flat modifier to base
             cooldown += cooldown * cooldownModifierPct;     // Apply percentage modifier
 
-            // Get interrupt cooldown and use it to override the value we calculated if its longer
+            
             TimeSpan interruptCooldown = owner.GetPowerInterruptCooldown(powerProto);
             cooldown = Clock.Max(cooldown, interruptCooldown);
 
-            // Halve the final calculated cooldown duration
-            cooldown *= 0.5f;
+            float combinedTuningMult = 1.0f;
 
-            // Make we don't get a negative cooldown
+            if (owner is Avatar avatarOwner)
+            {
+       
+                combinedTuningMult *= LiveTuningManager.GetLiveAvatarTuningVar(
+                    (AvatarPrototype)avatarOwner.Prototype,
+                    AvatarEntityTuningVar.eAETV_CooldownGlobalMult
+                );
+            }
+
+ 
+            combinedTuningMult *= LiveTuningManager.GetLivePowerTuningVar(
+                powerProto,
+                PowerTuningVar.ePTV_CooldownDuration
+            );
+
+            if (combinedTuningMult != 1.0f)
+            {
+                cooldown = TimeSpan.FromTicks((long)(cooldown.Ticks * combinedTuningMult));
+            }
+
             return Clock.Max(cooldown, TimeSpan.Zero);
         }
 

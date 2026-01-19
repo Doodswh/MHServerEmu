@@ -92,6 +92,30 @@ namespace MHServerEmu.Core.Network
             public readonly ulong InstanceId = instanceId;
             public readonly List<GiftInfo> GiftsToAward = gifts;
         }
+        public readonly struct AddPlayerGift(string playerName, ulong itemPrototype, int count, bool isDaily, bool playerOnline, ulong instanceId)
+       : IGameServiceMessage
+        {
+            public readonly string PlayerName = playerName;
+            public readonly ulong ItemPrototype = itemPrototype;
+            public readonly int Count = count;
+            public readonly bool IsDaily = isDaily;
+            public readonly bool PlayerOnline = playerOnline;
+            public readonly ulong InstanceId = instanceId;
+        }
+
+        // Message from Admin Command -> GiftDistributor to list all gifts
+        public readonly struct ListPlayerGifts(string filterPlayerName)
+            : IGameServiceMessage
+        {
+            public readonly string FilterPlayerName = filterPlayerName;
+        }
+
+        // Message from Admin Command -> GiftDistributor to remove a gift by index
+        public readonly struct RemovePlayerGift(int index)
+            : IGameServiceMessage
+        {
+            public readonly int Index = index;
+        }
 
 
 
