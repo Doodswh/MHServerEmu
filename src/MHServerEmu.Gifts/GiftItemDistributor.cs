@@ -8,6 +8,7 @@ using MHServerEmu.Games.GameData;
 using MHServerEmu.Games.GameData.Prototypes;
 using MHServerEmu.Games.Loot;
 using MHServerEmu.PlayerManagement;
+using MHServerEmu.PlayerManagement.Players;
 using MHServerEmu.PlayerManagement.Social;
 using System;
 using System.Collections.Generic;
@@ -76,7 +77,7 @@ namespace MHServerEmu.Gifts
                 IsDaily = message.IsDaily,
                 ClaimedByPlayers = new Dictionary<ulong, DateTime>()
             };
-
+            
             lock (_cachedItems)
             {
                 _cachedItems.Add(newEntry);

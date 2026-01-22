@@ -7,12 +7,12 @@ namespace MHServerEmu.PlayerManagement.Players
     {
         private static readonly Logger Logger = LogManager.CreateLogger();
 
-        private readonly Dictionary<ulong, string> _playerNames = new();
-        private readonly Dictionary<string, ulong> _playerDbIds = new(StringComparer.OrdinalIgnoreCase);
+        public readonly Dictionary<ulong, string> _playerNames = new();
+        public readonly Dictionary<string, ulong> _playerDbIds = new(StringComparer.OrdinalIgnoreCase);
 
         public static PlayerNameCache Instance { get; } = new();
 
-        private PlayerNameCache() { }
+        public PlayerNameCache() { }
 
         // The database queries here are synchronous. Should be fine with the lower player counts we have.
 

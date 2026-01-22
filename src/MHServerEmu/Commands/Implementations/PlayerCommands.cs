@@ -24,6 +24,7 @@ using MHServerEmu.Games.Properties;
 using MHServerEmu.Games.Regions;
 using MHServerEmu.Grouping;
 using MHServerEmu.PlayerManagement;
+using MHServerEmu.PlayerManagement.Players;
 using MHServerEmu.PlayerManagement.Social;
 using System;
 using System.Collections.Generic;
