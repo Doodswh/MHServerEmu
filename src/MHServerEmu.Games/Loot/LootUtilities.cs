@@ -260,7 +260,7 @@ namespace MHServerEmu.Games.Loot
 
             bool isCosmicDifficulty = !string.IsNullOrEmpty(diffName) &&
                                       (diffName.Contains("Cosmic", StringComparison.OrdinalIgnoreCase) ||
-                                       diffName.Contains("Superheroic", StringComparison.OrdinalIgnoreCase));
+                                       diffName.Contains("Omega", StringComparison.OrdinalIgnoreCase));
 
             if (isCosmicDifficulty)
             {
