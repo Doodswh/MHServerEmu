@@ -1,6 +1,8 @@
-﻿using MHServerEmu.Core.Collisions;
+﻿using MHServerEmu.Core.Collections;
+using MHServerEmu.Core.Collisions;
 using MHServerEmu.Core.Extensions;
 using MHServerEmu.Core.Helpers;
+using MHServerEmu.Core.Memory;
 using MHServerEmu.Core.VectorMath;
 using MHServerEmu.Games.Entities;
 using MHServerEmu.Games.GameData.Prototypes;
@@ -8,7 +10,7 @@ using MHServerEmu.Games.Regions;
 
 namespace MHServerEmu.Games.Navi
 {
-    public class NaviSweep
+    public readonly struct NaviSweep
     {
         private readonly NaviMesh _naviMesh;
         private readonly Region _region;
@@ -577,8 +579,8 @@ namespace MHServerEmu.Games.Navi
             float magnitude = MathHelper.SquareRoot(magnitudeSq);
             Vector3 direction = velocity / magnitude;
 
-            Stack<NaviTriangle> triStack = new();
-            NaviSerialCheck naviSerialCheck = new (_naviMesh.NaviCdt);
+            PoolableStack<NaviTriangle> triStack = StackPool<NaviTriangle>.Instance.Get();
+            using NaviSerialCheck naviSerialCheck = new(_naviMesh.NaviCdt);
 
             triStack.Push(GetFacingStartTriangle(start2d, direction));
 
@@ -674,6 +676,7 @@ namespace MHServerEmu.Games.Navi
                 result = SweepResult.Success;
             }
 
+            StackPool<NaviTriangle>.Instance.Return(triStack);
             return result;
         }
 
