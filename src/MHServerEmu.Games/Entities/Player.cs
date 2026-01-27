@@ -339,7 +339,7 @@ namespace MHServerEmu.Games.Entities
             // Restore persistent cooldowns
             if (archive.IsPersistent)
             {
-                Dictionary<PropertyId, PropertyValue> setDict = DictionaryPool<PropertyId, PropertyValue>.Instance.Get();
+                using var setDictHandle = DictionaryPool<PropertyId, PropertyValue>.Instance.Get(out Dictionary<PropertyId, PropertyValue> setDict);
 
                 foreach (var kvp in Properties.IteratePropertyRange(PropertyEnum.PowerCooldownDurationPersistent))
                 {
@@ -377,8 +377,6 @@ namespace MHServerEmu.Games.Entities
 
                 foreach (var kvp in setDict)
                     Properties[kvp.Key] = kvp.Value;
-
-                DictionaryPool<PropertyId, PropertyValue>.Instance.Return(setDict);
             }
         }
 
@@ -1105,7 +1103,7 @@ namespace MHServerEmu.Games.Entities
             // Update vendor inventories if we are adding a recipe
             if (invLoc.InventoryConvenienceLabel == InventoryConvenienceLabel.CraftingRecipesLearned)
             {
-                List<VendorTypePrototype> vendorsToUpdate = ListPool<VendorTypePrototype>.Instance.Get();
+                using var vendorsToUpdateHandle = ListPool<VendorTypePrototype>.Instance.Get(out List<VendorTypePrototype> vendorsToUpdate);
 
                 foreach (var kvp in Properties.IteratePropertyRange(PropertyEnum.VendorLevel))
                 {
@@ -1125,8 +1123,6 @@ namespace MHServerEmu.Games.Entities
 
                 foreach (VendorTypePrototype vendorTypeProto in vendorsToUpdate)
                     RollVendorInventory(vendorTypeProto, false);
-
-                ListPool<VendorTypePrototype>.Instance.Return(vendorsToUpdate);
             }
 
             // Adjust available ingredients for auto populated inputs
@@ -1711,7 +1707,7 @@ namespace MHServerEmu.Games.Entities
         /// </summary>
         private void OnEnterGameInitStashTabOptions()
         {
-            List<PrototypeId> stashInvRefs = ListPool<PrototypeId>.Instance.Get();
+            using var stashInvRefsHandle = ListPool<PrototypeId>.Instance.Get(out List<PrototypeId> stashInvRefs);
             if (GetStashInventoryProtoRefs(stashInvRefs, false, true))
             {
                 foreach (PrototypeId stashRef in stashInvRefs)
@@ -1722,10 +1718,8 @@ namespace MHServerEmu.Games.Entities
             }
             else
             {
-                Logger.Warn("OnEnterGameInitStashTabOptions()(): GetStashInventoryProtoRefs(stashInvRefs, false, true) == false");
+                Logger.Warn("OnEnterGameInitStashTabOptions(): GetStashInventoryProtoRefs(stashInvRefs, false, true) == false");
             }
-
-            ListPool<PrototypeId>.Instance.Return(stashInvRefs);
         }
 
         #endregion
@@ -3369,17 +3363,14 @@ namespace MHServerEmu.Games.Entities
             if (playerB.GetInventoriesForPlayerTrade(out Inventory tradeInvB, out Inventory generalInvB, out Inventory fallbackInvB) == false)
                 return Logger.WarnReturn(false, $"ExchangePlayerTradeInventories(): Failed to get one or more trade inventories for target player [{playerA}]");
 
-            List<Entity> itemsA = ListPool<Entity>.Instance.Get();
-            List<Entity> itemsB = ListPool<Entity>.Instance.Get();
+            using var itemsAHandle = ListPool<Entity>.Instance.Get(out List<Entity> itemsA);
+            using var itemsBHandle = ListPool<Entity>.Instance.Get(out List<Entity> itemsB);
 
             GatherItemsForPlayerTrade(tradeInvA, itemsA);
             GatherItemsForPlayerTrade(tradeInvB, itemsB);
 
             ReceiveItemsFromPlayerTrade(playerA, itemsA, generalInvB, fallbackInvB);
             ReceiveItemsFromPlayerTrade(playerB, itemsB, generalInvA, fallbackInvA);
-
-            ListPool<Entity>.Instance.Return(itemsA);
-            ListPool<Entity>.Instance.Return(itemsB);
 
             return true;
         }
@@ -3981,7 +3972,7 @@ namespace MHServerEmu.Games.Entities
             Party party = GetParty();
             if (party != null && party.Type == GroupType.GroupType_Party && avatars.Count > 0)
             {
-                List<PrototypeId> newFilters = ListPool<PrototypeId>.Instance.Get();
+                using var newFiltersHandle = ListPool<PrototypeId>.Instance.Get(out List<PrototypeId> newFilters);
 
                 foreach (PrototypeId partyFilterProtoRef in DataDirectory.Instance.IteratePrototypesInHierarchy<PartyFilterPrototype>(PrototypeIterateFlags.NoAbstractApprovedOnly))
                 {
@@ -3997,8 +3988,6 @@ namespace MHServerEmu.Games.Entities
                     PartyFilters.Set(newFilters);
                     updateContext = true;
                 }
-
-                ListPool<PrototypeId>.Instance.Return(newFilters);
             }
             else if (PartyFilters.Count > 0)
             {
@@ -4378,8 +4367,8 @@ namespace MHServerEmu.Games.Entities
             CommunityCircle partyCircle = Community?.GetCircle(CircleId.__Party);
             if (partyCircle == null) return Logger.WarnReturn(false, "OnPartyCircleChanged(): partyCircle == null");
 
-            List<AvatarPrototype> avatars = ListPool<AvatarPrototype>.Instance.Get();
-            List<CostumePrototype> costumes = ListPool<CostumePrototype>.Instance.Get();
+            using var avatarsHandle = ListPool<AvatarPrototype>.Instance.Get(out List<AvatarPrototype> avatars);
+            using var costumesHandle = ListPool<CostumePrototype>.Instance.Get(out List<CostumePrototype> costumes);
 
             ulong playerDbId = DatabaseUniqueId;
             int playerIndex = -1;
@@ -4415,9 +4404,6 @@ namespace MHServerEmu.Games.Entities
             }
 
             UpdatePartyFilters(avatars, costumes, playerIndex);
-
-            ListPool<AvatarPrototype>.Instance.Return(avatars);
-            ListPool<CostumePrototype>.Instance.Return(costumes);
 
             return true;
         }

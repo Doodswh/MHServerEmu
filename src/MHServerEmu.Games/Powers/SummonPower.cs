@@ -285,7 +285,7 @@ namespace MHServerEmu.Games.Powers
 
             if (powerProto.AttachSummonsToTarget || powerProto.UseTargetAsSource)
             {
-                List<WorldEntity> targetList = ListPool<WorldEntity>.Instance.Get();
+                using var targetListHandle = ListPool<WorldEntity>.Instance.Get(out List<WorldEntity> targetList);
                 GetTargets(targetList, payload);
 
                 foreach (var target in targetList)
@@ -293,8 +293,6 @@ namespace MHServerEmu.Games.Powers
 
                 if (targetList.Count == 0 && powerProto.UseTargetAsSource)
                     SummonPayloadEntity(manager, powerProto, payload, null);
-
-                ListPool<WorldEntity>.Instance.Return(targetList);
             }
             else
             {
@@ -754,7 +752,7 @@ namespace MHServerEmu.Games.Powers
             var inventory = Owner.SummonedInventory;
             if (inventory == null) return count;
 
-            List<WorldEntity> summons = ListPool<WorldEntity>.Instance.Get();
+            using var summonsHandle = ListPool<WorldEntity>.Instance.Get(out List<WorldEntity> summons);
 
             foreach (var summoned in new SummonedEntityIterator(Owner))
             {
@@ -782,8 +780,6 @@ namespace MHServerEmu.Games.Powers
                 }
             }
 
-            ListPool<WorldEntity>.Instance.Return(summons);
-
             return count;
         }
 
@@ -792,7 +788,7 @@ namespace MHServerEmu.Games.Powers
             var inventory = owner.SummonedInventory;
             if (inventory == null) return;
             
-            List<WorldEntity> summons = ListPool<WorldEntity>.Instance.Get();
+            using var summonsHandle = ListPool<WorldEntity>.Instance.Get(out List<WorldEntity> summons);
 
             foreach (var summoned in new SummonedEntityIterator(owner))
             {
@@ -809,8 +805,6 @@ namespace MHServerEmu.Games.Powers
 
             foreach (var summoned in summons)
                 KillSummoned(summoned, owner);
-
-            ListPool<WorldEntity>.Instance.Return(summons);
         }
 
         private static List<Vector3> GetSummonPositions(WorldEntity owner, SummonPowerPrototype powerProto, WorldEntityPrototype summonProto, SummonEntityContextPrototype contextProto, 
