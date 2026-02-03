@@ -64,12 +64,12 @@ namespace MHServerEmu.Games.Populations
             _reservationOctree = null;
         }
 
-        public IEnumerable<SpawnReservation> IterateReservationsInVolume<B>(B bound) where B : IBounds
+        public SpawnReservationSpatialPartition.ElementIterator<TVolume> IterateReservationsInVolume<TVolume>(TVolume volume) where TVolume : IBounds
         {
-            if (_reservationOctree != null)
-                return _reservationOctree.IterateElementsInVolume(bound);
-            else
-                return Enumerable.Empty<SpawnReservation>();
+            if (_reservationOctree == null)
+                return default;
+
+            return _reservationOctree.IterateElementsInVolume(volume);
         }
 
         public void InitializeSpacialPartition(in Aabb bound)
@@ -141,7 +141,7 @@ namespace MHServerEmu.Games.Populations
             if (_reservationOctree != null)
             {
                 SpawnReservation managedObject = spot;
-                if (managedObject != null && !managedObject.SpatialPartitionLocation.IsValid())
+                if (managedObject != null && !managedObject.SpatialPartitionLocation.IsValid)
                     _reservationOctree.Insert(managedObject);
             }
 
@@ -189,7 +189,7 @@ namespace MHServerEmu.Games.Populations
             foreach (SpawnReservation reservation in reservations)
             {
                 if (reservation == null || reservation.Cell != cell) continue;
-                if (_reservationOctree != null && reservation.SpatialPartitionLocation.IsValid()) _reservationOctree.Remove(reservation);
+                if (_reservationOctree != null && reservation.SpatialPartitionLocation.IsValid) _reservationOctree.Remove(reservation);
                 bool success = true;
                 success &= RemoveFromMasterVector(reservation);
                 success &= RemoveFromRegionLookup(reservation);

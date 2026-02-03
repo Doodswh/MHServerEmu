@@ -19,7 +19,9 @@ namespace MHServerEmu.Games.Navi
 
     public class NaviTriangle
     {
-        public NaviEdge[] Edges { get; private set; }
+        private InlineArray3<NaviEdge> _edges;
+
+        public ref InlineArray3<NaviEdge> Edges { get => ref _edges; }
         public byte EdgeSideFlags { get; private set; }
         public NaviTriangleFlags Flags { get; private set; }
         public PathFlags PathingFlags { get; set; }
@@ -29,7 +31,6 @@ namespace MHServerEmu.Games.Navi
 
         public NaviTriangle(NaviEdge e0, NaviEdge e1, NaviEdge e2)
         {
-            Edges = new NaviEdge[3];
             Edges[0] = e0;
             Edges[1] = e1;
             Edges[2] = e2;
@@ -336,7 +337,6 @@ namespace MHServerEmu.Games.Navi
             NaviEdge edge = OpposedEdge(point);
             return SearchWidth(point, this, edge, float.MaxValue);
         }
-
     }
 
     public class NaviTriangleState

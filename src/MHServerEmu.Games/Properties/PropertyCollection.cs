@@ -1,5 +1,5 @@
 ﻿using System.Collections;
-using System.Runtime.CompilerServices;
+using MHServerEmu.Core.Collections;
 using MHServerEmu.Core.Collisions;
 using MHServerEmu.Core.Helpers;
 using MHServerEmu.Core.Logging;
@@ -860,6 +860,11 @@ namespace MHServerEmu.Games.Properties
                     prevProperty = propertyEnum;
                 }
 
+                // HACK: Do not migrate mana because we don't migrate conditions, which can cause some heroes to get stuck in bad state (e.g. Human Torch).
+                // This can be removed if we ever start migrating runtime-only conditions.
+                if (propertyEnum == PropertyEnum.Endurance)
+                    continue;
+
                 // Migrate properties that are not saved to the database, but are supposed to be replicated for transfer
                 if (propInfoProto.ReplicateToDatabase == DatabasePolicy.None && propInfoProto.ReplicateForTransfer)
                     propertyList.Add((kvp.Key.Raw, kvp.Value));
@@ -1425,7 +1430,7 @@ namespace MHServerEmu.Games.Properties
 
         // Protection flags to prevent parent / child collections from being added during iteration.
 
-        private ProtectionCounts _protections = new();
+        private InlineArray2<int> _protections;
 
         private bool IsNotProtected(ProtectionType protection)
         {
@@ -1437,12 +1442,6 @@ namespace MHServerEmu.Games.Properties
             Parent,
             Child,
             NumProtectionTypes
-        }
-
-        [InlineArray((int)ProtectionType.NumProtectionTypes)]
-        private struct ProtectionCounts
-        {
-            private int _element0;
         }
 
         private readonly struct ProtectionScope : IDisposable

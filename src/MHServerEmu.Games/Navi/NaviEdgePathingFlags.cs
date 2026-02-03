@@ -1,4 +1,5 @@
 ﻿using System.Runtime.InteropServices;
+using MHServerEmu.Core.Collections;
 
 namespace MHServerEmu.Games.Navi
 {
@@ -173,7 +174,7 @@ namespace MHServerEmu.Games.Navi
 
     public class NaviEdgePathingFlags
     {
-        public ContentFlagCounts[] ContentFlagCounts = new ContentFlagCounts[2];
+        public InlineArray2<ContentFlagCounts> ContentFlagCounts;
 
         public NaviEdgePathingFlags()
         {
