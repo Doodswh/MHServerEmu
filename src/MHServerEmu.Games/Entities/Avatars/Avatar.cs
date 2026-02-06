@@ -362,7 +362,7 @@ namespace MHServerEmu.Games.Entities.Avatars
 
         public override ChangePositionResult ChangeRegionPosition(Vector3? position, Orientation? orientation, ChangePositionFlags flags = ChangePositionFlags.None)
         {
-            if (RegionLocation.IsValid() == false)
+            if (RegionLocation.IsValid == false)
                 return Logger.WarnReturn(ChangePositionResult.NotChanged, "ChangeRegionPosition(): Cannot change region position without entering the world first");
 
             // We only need to do AOI processing if the avatar is changing its position
@@ -1328,7 +1328,7 @@ namespace MHServerEmu.Games.Entities.Avatars
 
                     if (targetIsValid)
                     {
-                        if (target?.RegionLocation.IsValid() == true)
+                        if (target?.RegionLocation.IsValid == true)
                         {
                             // Update target position
                             switch (continuousPower.GetTargetingShape())
@@ -6921,9 +6921,9 @@ namespace MHServerEmu.Games.Entities.Avatars
             }
         }
 
-        public override void OnAreaChanged(RegionLocation oldLocation, RegionLocation newLocation)
+        public override void OnAreaChanged(ref RegionLocation oldLocation, ref RegionLocation newLocation)
         {
-            base.OnAreaChanged(oldLocation, newLocation);
+            base.OnAreaChanged(ref oldLocation, ref newLocation);
 
             var oldArea = oldLocation.Area;
             var newArea = newLocation.Area;
@@ -6950,9 +6950,9 @@ namespace MHServerEmu.Games.Entities.Avatars
             }
         }
 
-        public override void OnCellChanged(RegionLocation oldLocation, RegionLocation newLocation, ChangePositionFlags flags)
+        public override void OnCellChanged(ref RegionLocation oldLocation, ref RegionLocation newLocation, ChangePositionFlags flags)
         {
-            base.OnCellChanged(oldLocation, newLocation, flags);
+            base.OnCellChanged(ref oldLocation, ref newLocation, flags);
 
             Cell oldCell = oldLocation.Cell;
             Cell newCell = newLocation.Cell;
