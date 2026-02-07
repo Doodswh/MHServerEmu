@@ -114,7 +114,7 @@ namespace MHServerEmu.Games.Regions
         public int PlayerCount { get => _players.Count; }
 
         public Dictionary<uint, Area> Areas { get; } = new();
-        public IEnumerable<Cell> Cells { get => IterateCellsInVolume(Aabb); }
+        public CellSpatialPartition.ElementIterator<Aabb> Cells { get => IterateCellsInVolume(Aabb); }
         public IEnumerable<Entity> Entities { get => Game.EntityManager.IterateEntities(this); }
 
         // ArchiveData
@@ -692,12 +692,12 @@ namespace MHServerEmu.Games.Regions
             return null;
         }
 
-        public IEnumerable<Cell> IterateCellsInVolume<B>(B bounds) where B : IBounds
+        public CellSpatialPartition.ElementIterator<TVolume> IterateCellsInVolume<TVolume>(TVolume volume) where TVolume : IBounds
         {
-            if (CellSpatialPartition != null)
-                return CellSpatialPartition.IterateElementsInVolume(bounds);
-            else
-                return Enumerable.Empty<Cell>(); //new CellSpatialPartition.ElementIterator();
+            if (CellSpatialPartition == null)
+                return default;
+
+            return CellSpatialPartition.IterateElementsInVolume(volume);
         }
 
         #endregion
@@ -708,28 +708,28 @@ namespace MHServerEmu.Games.Regions
         public void UpdateEntityInSpatialPartition(WorldEntity entity) => EntitySpatialPartition.Update(entity);
         public bool RemoveEntityFromSpatialPartition(WorldEntity entity) => EntitySpatialPartition.Remove(entity);
 
-        public IEnumerable<WorldEntity> IterateEntitiesInRegion(EntityRegionSPContext context)
+        public EntityRegionSpatialPartition.ElementIterator<Aabb> IterateEntitiesInRegion(EntityRegionSPContext context)
         {
             return IterateEntitiesInVolume(Aabb, context);
         }
 
-        public IEnumerable<WorldEntity> IterateEntitiesInVolume<B>(B bound, EntityRegionSPContext context) where B : IBounds
+        public EntityRegionSpatialPartition.ElementIterator<TVolume> IterateEntitiesInVolume<TVolume>(TVolume volume, EntityRegionSPContext context) where TVolume : IBounds
         {
-            if (EntitySpatialPartition != null)
-                return EntitySpatialPartition.IterateElementsInVolume(bound, context);
-            else
-                return Enumerable.Empty<WorldEntity>();
+            if (EntitySpatialPartition == null)
+                return default;
+
+            return EntitySpatialPartition.IterateElementsInVolume(volume, context);
         }
 
-        public IEnumerable<Avatar> IterateAvatarsInVolume(in Sphere bound)
+        public EntityRegionSpatialPartition.RegionAvatarIterator IterateAvatarsInVolume(in Sphere bound)
         {
-            if (EntitySpatialPartition != null)
-                return EntitySpatialPartition.IterateAvatarsInVolume(bound);
-            else
-                return Enumerable.Empty<Avatar>();
+            if (EntitySpatialPartition == null)
+                return default;
+
+            return EntitySpatialPartition.IterateAvatarsInVolume(bound);
         }
 
-        public void GetEntitiesInVolume<B>(List<WorldEntity> entities, B volume, EntityRegionSPContext context) where B : IBounds
+        public void GetEntitiesInVolume<TVolume>(List<WorldEntity> entities, TVolume volume, EntityRegionSPContext context) where TVolume : IBounds
         {
             EntitySpatialPartition?.GetElementsInVolume(entities, volume, context);
         }
@@ -1236,9 +1236,8 @@ namespace MHServerEmu.Games.Regions
             float minTime = 1.0f;
             float minDot = -1f;
             WorldEntity hitEntity = null;
-            var spContext = new EntityRegionSPContext(EntityRegionSPContextFlags.All);
 
-            foreach (var otherEntity in IterateEntitiesInVolume(sweepBox, spContext))
+            foreach (var otherEntity in IterateEntitiesInVolume(sweepBox, new()))
             {
                 if (canBlockFunc(otherEntity))
                 {
@@ -1353,7 +1352,7 @@ namespace MHServerEmu.Games.Regions
             if (posFlags.HasFlag(PositionCheckFlags.CanBeBlockedEntity) || posFlags.HasFlag(PositionCheckFlags.CanPathToEntities))
             {
                 entitiesInRadius.Capacity = 256;
-                GetEntitiesInVolume(entitiesInRadius, new Sphere(point, maxDistanceFromPoint), new EntityRegionSPContext(EntityRegionSPContextFlags.ActivePartition));
+                GetEntitiesInVolume(entitiesInRadius, new Sphere(point, maxDistanceFromPoint), new EntityRegionSPContext(EntityRegionSPContextFlags.PrimaryPartition));
 
                 if (posFlags.HasFlag(PositionCheckFlags.CanBeBlockedEntity) && checkPredicate != null)
                 {
@@ -1497,7 +1496,7 @@ namespace MHServerEmu.Games.Regions
             if (posFlags.HasFlag(PositionCheckFlags.CanBeBlockedEntity) || posFlags.HasFlag(PositionCheckFlags.CanBeBlockedAvatar))
             {
                 var volume = new Sphere(bounds.Center, bounds.Radius);
-                foreach (WorldEntity entity in IterateEntitiesInVolume(volume, new(EntityRegionSPContextFlags.ActivePartition)))
+                foreach (WorldEntity entity in IterateEntitiesInVolume(volume, new(EntityRegionSPContextFlags.PrimaryPartition)))
                 {
                     if (posFlags.HasFlag(PositionCheckFlags.CanBeBlockedAvatar) && entity is not Avatar) continue;
                     if (IsBoundsBlockedByEntity(bounds, entity, blockFlags))
