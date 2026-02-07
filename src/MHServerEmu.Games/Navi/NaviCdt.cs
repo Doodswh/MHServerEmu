@@ -406,7 +406,8 @@ namespace MHServerEmu.Games.Navi
 
                 if (degenerates[i])
                 {
-                    NaviTriangle degTriangle = edge.Triangles[0] ?? edge.Triangles[1];
+                    // Using the null coalescing operator here causes the compiler to crash on Ubuntu as of 2026/02/03.
+                    NaviTriangle degTriangle = edge.Triangles[0] != null ? edge.Triangles[0] : edge.Triangles[1];
                     var oppoPoint = degTriangle.OpposedVertex(edge);
 
                     if (Pred.Clockwise2D(point, points[i0], oppoPoint) && 
@@ -830,10 +831,11 @@ namespace MHServerEmu.Games.Navi
                     int edgeIndex0 = t0.EdgeIndex(edge);
                     int edgeIndex1 = t1.EdgeIndex(edge);
 
-                    NaviEdge[] edges = {
-                        t0.EdgeMod(edgeIndex0 + 1), t0.EdgeMod(edgeIndex0 + 2),
-                        t1.EdgeMod(edgeIndex1 + 1), t1.EdgeMod(edgeIndex1 + 2)
-                    };
+                    using PoolSpan<NaviEdge> edges = PoolSpan<NaviEdge>.Allocate(4);
+                    edges[0] = t0.EdgeMod(edgeIndex0 + 1);
+                    edges[1] = t0.EdgeMod(edgeIndex0 + 2);
+                    edges[2] = t1.EdgeMod(edgeIndex1 + 1);
+                    edges[3] = t1.EdgeMod(edgeIndex1 + 2);
 
                     foreach (var e in edges)
                         if (e.TestFlag(NaviEdgeFlags.Delaunay) == false)
