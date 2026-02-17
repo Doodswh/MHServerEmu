@@ -557,10 +557,14 @@ namespace MHServerEmu.Games.Loot
                         _processedItemList.Add(new(LootType.Credits, pendingItem.LootResult.Amount, isVaporized));
                         break;
 
-                    default:
-                        // Non-item loot does not need additional processing
-                        _processedItemList.Add(pendingItem.LootResult);
+                    case LootType.Currency:
+                        // We need to re-wrap the currency spec with the isVaporized flag we calculated above
+                        _processedItemList.Add(new(pendingItem.LootResult.CurrencySpec, isVaporized));
                         break;
+
+                    default:
+                        _processedItemList.Add(pendingItem.LootResult);
+                        break; ;
                 }
             }
 

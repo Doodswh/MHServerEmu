@@ -152,8 +152,11 @@ namespace MHServerEmu.Games.Loot
             if (itemProto.IsPetItem)
                 return ItemPrototype.UpdatePetTechAffixes(resolver.Random, args.RollFor, itemSpec);
 
+            // CUSTOM: Apply Cosmic Boss Logic
+            // Checks difficulty and filters item types (See ShouldApplyCosmicBossLogic for details)
             if (ShouldApplyCosmicBossLogic(resolver, args, itemProto, settings))
             {
+                // FORCE Rarity Logic
                 PrototypeId targetRarity = GameDatabase.LootGlobalsPrototype.RarityCosmic;
 
                 if (args.Rarity == GameDatabase.LootGlobalsPrototype.RarityUnique)
@@ -163,6 +166,16 @@ namespace MHServerEmu.Games.Loot
 
                 args.Rarity = targetRarity;
                 itemSpec.RarityProtoRef = targetRarity;
+
+                // FORCE ITEM LEVEL based on type
+                if (itemProto is LegendaryPrototype)
+                {
+                    itemSpec.ItemLevel = 80;
+                }
+                else
+                {
+                    itemSpec.ItemLevel = 69;
+                }
 
                 ApplyCosmicBossLogic(resolver, args, itemSpec, affixSet);
             }
@@ -179,15 +192,18 @@ namespace MHServerEmu.Games.Loot
                 if (affixLimits != null)
                 {
                     foreach (CategorizedAffixEntryPrototype entry in affixLimits.CategorizedAffixes)
-                        affixCategoryDict.GetValueRefOrAddDefault(entry.Category) += entry.MinAffixes;
+                    {
+                        affixCategoryDict.TryGetValue(entry.Category, out short numAffixes);
+                        affixCategoryDict[entry.Category] = (short)(numAffixes + entry.MinAffixes);
+                    }
                 }
 
                 if (settings != null)
                 {
                     foreach (var kvp in settings.AffixLimitByCategoryModifierDict)
                     {
-                        ref short numAffixes = ref affixCategoryDict.GetValueRefOrAddDefault(kvp.Key);
-                        numAffixes = (short)Math.Max(0, numAffixes + kvp.Value);
+                        affixCategoryDict.TryGetValue(kvp.Key, out short numAffixes);
+                        affixCategoryDict[kvp.Key] = (short)Math.Max(0, numAffixes + kvp.Value);
                     }
                 }
 
@@ -240,8 +256,56 @@ namespace MHServerEmu.Games.Loot
         {
             if (settings == null) return false;
 
+            // 1. DIFFICULTY CHECK FIRST (Performance Optimization)
             if (settings.DifficultyTier == PrototypeId.Invalid) return false;
 
+            string diffName = GameDatabase.GetPrototypeName(settings.DifficultyTier);
+            bool isCosmicDifficulty = !string.IsNullOrEmpty(diffName) &&
+                                      (diffName.Contains("Omega1", StringComparison.OrdinalIgnoreCase) ||
+                                       diffName.Contains("Omega", StringComparison.OrdinalIgnoreCase));
+
+            if (!isCosmicDifficulty) return false;
+
+            string itemName = GameDatabase.GetPrototypeName(itemProto.DataRef);
+
+            // 2. EXCLUSION LIST (Blacklist)
+            // Filter out Crafting Ingredients (Elements, Cores)
+            if (itemProto is CraftingIngredientPrototype) return false;
+
+            // Filter out Costumes
+            if (itemProto is CostumePrototype) return false;
+
+            // Filter out Stackable Items (Relics, Currencies, Splinters, Fragments)
+            if (itemProto.StackSettings != null && itemProto.StackSettings.MaxStacks > 1) return false;
+
+            // Filter out specific names as a safety net (Runes, Uru, Tokens)
+            if (itemName.Contains("Rune", StringComparison.OrdinalIgnoreCase) ||
+                itemName.Contains("Uru", StringComparison.OrdinalIgnoreCase) ||
+                itemName.Contains("Token", StringComparison.OrdinalIgnoreCase) ||
+                itemName.Contains("Credit", StringComparison.OrdinalIgnoreCase) ||
+                itemName.Contains("Currency", StringComparison.OrdinalIgnoreCase) ||
+                itemName.Contains("Bundle", StringComparison.OrdinalIgnoreCase) ||
+                itemName.Contains("Box", StringComparison.OrdinalIgnoreCase) ||
+                itemName.Contains("Chest", StringComparison.OrdinalIgnoreCase))
+            {
+                return false;
+            }
+
+            // 3. INCLUSION LIST (Whitelist)
+            // Allow Team-Up Gear explicitly by Class Type
+            if (itemProto is TeamUpGearPrototype)
+            {
+                Logger.Info($"[CosmicLoot] APPLIED to Team-Up Gear: {itemName}");
+                return true;
+            }
+
+            // Allow Gems
+            if (itemProto.IsGem)
+            {
+                return true;
+            }
+
+            // Allow Standard Player Equipment (must be a valid slot)
             EquipmentInvUISlot slot = args.Slot;
             if (slot == EquipmentInvUISlot.Invalid)
             {
@@ -250,19 +314,9 @@ namespace MHServerEmu.Games.Loot
                     slot = itemProto.GetInventorySlotForAgent(agentProto);
             }
 
-            if (slot == EquipmentInvUISlot.Invalid)
-                return false;
-
-            string diffName = GameDatabase.GetPrototypeName(settings.DifficultyTier);
-
-            bool isCosmicDifficulty = !string.IsNullOrEmpty(diffName) &&
-                                      (diffName.Contains("Cosmic", StringComparison.OrdinalIgnoreCase) ||
-                                       diffName.Contains("Omega", StringComparison.OrdinalIgnoreCase));
-
-            if (isCosmicDifficulty)
+            if (slot != EquipmentInvUISlot.Invalid)
             {
-                string itemName = GameDatabase.GetPrototypeName(itemProto.DataRef);
-                Logger.Info($"[CosmicLootDebug] -> APPLIED Cosmic Logic to {itemName}. (Difficulty: {diffName}, Slot: {slot})");
+                // This is a standard piece of gear (Head, Chest, Ring, etc.)
                 return true;
             }
 
@@ -271,13 +325,15 @@ namespace MHServerEmu.Games.Loot
 
         private static void ApplyCosmicBossLogic(IItemResolver resolver, DropFilterArguments args, ItemSpec itemSpec, HashSet<ScopedAffixRef> affixSet)
         {
-            AddUniqueRandomAffixes(resolver, args, itemSpec, affixSet, AffixPosition.Cosmic, 3, true);
-            AddUniqueRandomAffixes(resolver, args, itemSpec, affixSet, AffixPosition.Prefix, 5, true);
-            AddUniqueRandomAffixes(resolver, args, itemSpec, affixSet, AffixPosition.Suffix, 5, true);
-            AddUniqueRandomAffixes(resolver, args, itemSpec, affixSet, AffixPosition.Runeword, 2, true);
-            AddUniqueRandomAffixes(resolver, args, itemSpec, affixSet, AffixPosition.Blessing, 2, true);
-            AddUniqueRandomAffixes(resolver, args, itemSpec, affixSet, AffixPosition.Unique, 3, true);
-            AddUniqueRandomAffixes(resolver, args, itemSpec, affixSet, AffixPosition.Ultimate, 2, true);
+            AddUniqueRandomAffixes(resolver, args, itemSpec, affixSet, AffixPosition.Cosmic, 1, true);
+            AddUniqueRandomAffixes(resolver, args, itemSpec, affixSet, AffixPosition.Prefix, 4, true);
+            AddUniqueRandomAffixes(resolver, args, itemSpec, affixSet, AffixPosition.Suffix, 4, true);
+            AddUniqueRandomAffixes(resolver, args, itemSpec, affixSet, AffixPosition.Runeword, 1, true);
+            AddUniqueRandomAffixes(resolver, args, itemSpec, affixSet, AffixPosition.Blessing, 1, true);
+            AddUniqueRandomAffixes(resolver, args, itemSpec, affixSet, AffixPosition.Unique, 1, true);
+            AddUniqueRandomAffixes(resolver, args, itemSpec, affixSet, AffixPosition.Ultimate, 1, true);
+            AddUniqueRandomAffixes(resolver, args, itemSpec, affixSet, AffixPosition.Socket1, 1, true);
+            AddUniqueRandomAffixes(resolver, args, itemSpec, affixSet, AffixPosition.Visual, 1, true);
         }
 
         private static void AddUniqueRandomAffixes(IItemResolver resolver, DropFilterArguments args, ItemSpec itemSpec, HashSet<ScopedAffixRef> affixSet, AffixPosition position, int count, bool skipChecks = false)
@@ -304,7 +360,6 @@ namespace MHServerEmu.Games.Loot
                     (valid[k], valid[n]) = (valid[n], valid[k]);
                 }
 
-                // FIXED: Using PropertyId instead of PropertyInfo to match prototype data
                 HashSet<PropertyId> usedProperties = new();
 
                 int added = 0;
@@ -341,6 +396,40 @@ namespace MHServerEmu.Games.Loot
 
                     Picker<AffixPrototype> singlePicker = new(resolver.Random);
                     singlePicker.Add(affix, 1);
+                    Logger.Info($"[QuickDiag] === Rolling Affix: {GameDatabase.GetPrototypeName(affix.DataRef)} ===");
+                    Logger.Info($"[QuickDiag] ItemSpec.Seed: {itemSpec.Seed}");
+                    Logger.Info($"[QuickDiag] Resolver.Random test: {resolver.Random.Next(1000)}");
+                    Logger.Info($"[QuickDiag] Has PropertyEntries: {affix.PropertyEntries != null && affix.PropertyEntries.Length > 0}");
+
+                    if (affix.PropertyEntries != null && affix.PropertyEntries.Length > 0)
+                    {
+                        Logger.Info($"[QuickDiag] PropertyEntries Count: {affix.PropertyEntries.Length}");
+                        foreach (var entry in affix.PropertyEntries)
+                        {
+                            Logger.Info($"[QuickDiag]   Entry.Prop: {entry.Prop}");
+
+                            // Check if it's a ProcProp
+                            if (entry.Prop.Enum == PropertyEnum.Proc)
+                            {
+                                Logger.Info($"[QuickDiag]   This is a PROC PROPERTY entry");
+                                Logger.Info($"[QuickDiag]   ValueMin: {entry.ValueMin}");
+                                Logger.Info($"[QuickDiag]   ValueMax: {entry.ValueMax}");
+                            }
+                        }
+                    }
+                    else
+                    {
+                        Logger.Warn($"[QuickDiag] PROBLEM: Affix has NO PropertyEntries to roll!");
+                    }
+
+                    if (affix.Properties != null)
+                    {
+                        Logger.Info($"[QuickDiag] Static Properties Count: {affix.Properties.Count()}");
+                        foreach (var kvp in affix.Properties)
+                        {
+                            Logger.Info($"[QuickDiag]   Static: {kvp.Key} = {kvp.Value}");
+                        }
+                    }
 
                     AffixSpec spec = new();
                     if (spec.RollAffix(resolver.Random, args.RollFor, itemSpec, singlePicker, affixSet) != MutationResults.Error)
@@ -609,7 +698,7 @@ namespace MHServerEmu.Games.Loot
 
         public static uint BuildAffixPickers(AffixPickerTable pickerTable, DropFilterArguments args, AssetId[] keywords, Region region)
         {
-            uint duplicateMask = 0;
+            uint duplicateMask = 0;     // Cleared bit indicates that the position has an affix with DuplicateHandlingBehavior set to Append
 
             for (AffixPosition position = AffixPosition.None + 1; position < AffixPosition.NumPositions; position++)
             {
@@ -794,12 +883,17 @@ namespace MHServerEmu.Games.Loot
 
         private static void ValidateAddAffixCount(int affixCountAdded, int affixCountNeeded)
         {
+            // Most of the arguments in this function are unused in the client, so we have just a simple
+            // needed / added count check.
+
             if (affixCountNeeded != affixCountAdded)
                 Logger.Warn($"ValidateAddAffixCount(): The pool of affixes is too small for these parameters! affixCountAdded={affixCountAdded}, affixCountNeeded={affixCountNeeded}");
         }
 
         private static MutationResults DropAffixes(IItemResolver resolver, ItemSpec itemSpec, AffixPosition position, AssetId[] keywords, PrototypeId[] categories)
         {
+            // NOTE: This is used by public DropAffixes() and ReplaceAffixes() functions.
+
             MutationResults result = MutationResults.None;
 
             List<AffixSpec> filteredAffixSpecs = ListPool<AffixSpec>.Instance.Get();
@@ -821,24 +915,30 @@ namespace MHServerEmu.Games.Loot
 
                 bool shouldDrop = true;
 
+                // Metadata affixes are never dropped
                 if (affixSpec.AffixProto.Position == AffixPosition.Metadata)
                     shouldDrop = false;
 
+                // Check position
                 if (shouldDrop && position != AffixPosition.None && affixSpec.AffixProto.Position != position)
                     shouldDrop = false;
 
+                // Check keywords
                 if (shouldDrop && hasKeywords && affixSpec.AffixProto.HasKeywords(keywords, true) == false)
                     shouldDrop = false;
 
+                // Check categories
                 if (shouldDrop && hasCategories && affixSpec.AffixProto.HasAnyCategory(categories) == false)
                     shouldDrop = false;
 
+                // Not adding the affix to the filtered list drops it
                 if (shouldDrop)
                     result |= MutationResults.AffixChange;
                 else
                     filteredAffixSpecs.Add(affixSpec);
             }
 
+            // Overwrite affixes with our filtered list if everything is okay
             if (result.HasFlag(MutationResults.Error) == false)
                 itemSpec.SetAffixes(filteredAffixSpecs);
 
@@ -874,6 +974,7 @@ namespace MHServerEmu.Games.Loot
                     goto end;
                 }
 
+                // Filter affixes by provided position / keywords / categories
                 if (position != AffixPosition.None && affixProto.Position != position)
                     continue;
 
@@ -888,6 +989,7 @@ namespace MHServerEmu.Games.Loot
                         continue;
                 }
 
+                // Copy the affix
                 AffixSpec affixSpecCopy = new(sourceAffixSpecIt);
                 if (affixSpecCopy.SetScope(resolver.Random, rollFor, destItemSpec, affixSet, BehaviorOnPowerMatch.Ignore).HasFlag(MutationResults.Error))
                 {
@@ -895,6 +997,7 @@ namespace MHServerEmu.Games.Loot
                     break;
                 }
 
+                // Check for duplicates
                 if (affixSet.Contains(new(affixProto.DataRef, affixSpecCopy.ScopeProtoRef)))
                 {
                     switch (affixProto.DuplicateHandlingBehavior)
@@ -918,18 +1021,26 @@ namespace MHServerEmu.Games.Loot
                 }
                 else
                 {
+                    // Allow the affix to be copied
                     affixSet.Add(new(affixSpecCopy.AffixProto.DataRef, affixSpecCopy.ScopeProtoRef));
                     affixSpecsToAdd.Add(affixSpecCopy);
 
                     if (categoryProto != null)
-                        addedCategoryCounts.GetValueRefOrAddDefault(categoryProto)++;
+                    {
+                        addedCategoryCounts.TryGetValue(categoryProto, out int count);
+                        addedCategoryCounts[categoryProto] = count + 1;
+                    }
                     else
+                    {
                         addedPositionCounts[(int)affixProto.Position]++;
+                    }
                 }
             }
 
+            // Check limits if needed
             if (affixLimits != null)
             {
+                // Position limits
                 for (AffixPosition positionIt = 0; positionIt < AffixPosition.NumPositions; positionIt++)
                 {
                     int i = (int)positionIt;
@@ -944,6 +1055,7 @@ namespace MHServerEmu.Games.Loot
                     }
                 }
 
+                // Category limits
                 if (addedCategoryCounts.Count > 0)
                 {
                     foreach (var kvp in addedCategoryCounts)
@@ -957,6 +1069,7 @@ namespace MHServerEmu.Games.Loot
                 }
             }
 
+            // Add affix copies if there are no issues
             if (result.HasFlag(MutationResults.Error) == false)
                 destItemSpec.AddAffixSpecs(affixSpecsToAdd);
 
@@ -1028,8 +1141,10 @@ namespace MHServerEmu.Games.Loot
         {
             lastRolloverTime = default;
 
+            // NOTE: Properties store time with millisecond precision, so we need to reduce the precision here.
             currentTime = TimeSpan.FromMilliseconds((long)currentTime.TotalMilliseconds);
 
+            // Remove the day part from the current time for calculations
             TimeSpan currentTime24Hr = new(0, currentTime.Hours, currentTime.Minutes, currentTime.Seconds, currentTime.Milliseconds);
 
             Weekday currentWeekday = GetCurrentWeekday(false);
@@ -1040,10 +1155,11 @@ namespace MHServerEmu.Games.Loot
             if (itRolloverTimeProp.GetEnumerator().MoveNext() == false)
                 return Logger.WarnReturn(false, "GetLastLootCooldownRolloverWallTime(): No properties to iterate");
 
-            TimeSpan lastRolloverTimeDelta = TimeSpan.FromDays(7 + 1);
+            TimeSpan lastRolloverTimeDelta = TimeSpan.FromDays(7 + 1);  // 7 days per week + 1, a rollover must have happened within period
 
             foreach (var kvp in itRolloverTimeProp)
             {
+                // Get rollover time and weekday from the property
                 float wallClockTime24HrHours = kvp.Value;
                 wallClockTime24HrHours = Math.Clamp(wallClockTime24HrHours, 0f, 23.99f);
                 TimeSpan wallClockTime24Hr = TimeSpan.FromHours(wallClockTime24HrHours);
@@ -1055,43 +1171,57 @@ namespace MHServerEmu.Games.Loot
 
                 if (wallClockTimeDay == Weekday.All)
                 {
+                    // Daily loot
                     if (currentTime24Hr > wallClockTime24Hr)
                     {
+                        // Daily rollover has already happened
                         newLastRolloverTimeDelta = currentTime24Hr - wallClockTime24Hr;
                     }
                     else
                     {
+                        // Daily rollover has not happened yet
                         newLastRolloverTimeDelta = currentTime24Hr + (TimeSpan.FromDays(1) - wallClockTime24Hr);
                     }
                 }
                 else
                 {
+                    // Weekly loot
+
+                    // Calculate how many days (if any) have passed since the last rollover
                     int daysDelta = 0;
 
                     if (wallClockTimeDay < currentWeekday)
                     {
+                        // Weekly rollover has already happened on a previous day
                         daysDelta = currentWeekday - wallClockTimeDay;
                     }
                     else if (wallClockTimeDay > currentWeekday)
                     {
-                        daysDelta = 7 + (currentWeekday - wallClockTimeDay);
+                        // Weekly rollover will happen another day after this one
+                        daysDelta = 7 + (currentWeekday - wallClockTimeDay);    // This will be negative, so we are subtracting from 7
                     }
                     else
                     {
+                        // Weekly rollover is today and has not happened yet
+                        // newLastRolloverTimeDelta will be negative, so we will end up with 6 days + leftovers
                         if (currentTime24Hr <= wallClockTime24Hr)
                             daysDelta = 7;
                     }
 
+                    // Calculate 24 hour delta (this will be negative if the rollover has not happened yet)
                     newLastRolloverTimeDelta = currentTime24Hr - wallClockTime24Hr;
 
+                    // Add the days part to the delta
                     if (daysDelta > 0)
                         newLastRolloverTimeDelta += TimeSpan.FromDays(daysDelta);
                 }
 
+                // Update the most recent rollover time delta if needed
                 if (newLastRolloverTimeDelta < lastRolloverTimeDelta)
                     lastRolloverTimeDelta = newLastRolloverTimeDelta;
             }
 
+            // Subtract the delta from the current time to get the time of the most recent rollover
             lastRolloverTime = currentTime - lastRolloverTimeDelta;
             return true;
         }
@@ -1107,6 +1237,8 @@ namespace MHServerEmu.Games.Loot
 
         public static Weekday GetWeekday(TimeSpan unixTime)
         {
+            // System.DayOfWeek is compatible with Gazillion's Weekday enum, so we can just cast it
+            // instead of implementing Gazillion::DateTime::GetGMTimeInfo().
             return (Weekday)Clock.UnixTimeToDateTime(unixTime).DayOfWeek;
         }
 

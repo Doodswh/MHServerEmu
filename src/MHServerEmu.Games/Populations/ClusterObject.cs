@@ -20,26 +20,26 @@ namespace MHServerEmu.Games.Populations
     [Flags]
     public enum ClusterObjectFlag
     {
-        None            = 0,
-        Leader          = 1 << 0,
-        Henchmen        = 1 << 1,
-        HasModifiers    = 1 << 2,
-        Hostile         = 1 << 3,
-        ProjectToFloor  = 1 << 4,
-        SkipFormation   = 1 << 5,
+        None = 0,
+        Leader = 1 << 0,
+        Henchmen = 1 << 1,
+        HasModifiers = 1 << 2,
+        Hostile = 1 << 3,
+        ProjectToFloor = 1 << 4,
+        SkipFormation = 1 << 5,
     }
 
     [Flags]
     public enum SpawnFlags
     {
-        None            = 0,
+        None = 0,
         IgnoreSimulated = 1 << 0,
-        RetryIgnoringBlackout           = 1 << 1,
-        RetryForce           = 1 << 2,
-        flag8           = 1 << 3,
-        IgnoreBlackout  = 1 << 4,
-        IgnoreSpawned   = 1 << 5,
-        Cleanup         = 1 << 6,
+        RetryIgnoringBlackout = 1 << 1,
+        RetryForce = 1 << 2,
+        flag8 = 1 << 3,
+        IgnoreBlackout = 1 << 4,
+        IgnoreSpawned = 1 << 5,
+        Cleanup = 1 << 6,
     }
     #endregion
 
@@ -126,6 +126,8 @@ namespace MHServerEmu.Games.Populations
         public KeyValuePair<PrototypeId, Vector3> BlackOutZone { get; set; }
         public SpawnReservation Reservation { get; set; }
 
+        private static List<PrototypeId> _cachedEnemyBoosts;
+
         public ClusterGroup(Region region, GRandom random, PopulationObjectPrototype populationObject,
             ClusterGroup parent, PropertyCollection properties, SpawnFlags flags)
             : base(region, random, parent)
@@ -169,8 +171,8 @@ namespace MHServerEmu.Games.Populations
                 PathFlags &= obj.PathFlags;
             }
 
-            if (SpawnFlags.HasFlag(SpawnFlags.IgnoreBlackout) == false 
-                && Flags.HasFlag(ClusterObjectFlag.Hostile) 
+            if (SpawnFlags.HasFlag(SpawnFlags.IgnoreBlackout) == false
+                && Flags.HasFlag(ClusterObjectFlag.Hostile)
                 && ObjectProto.IgnoreBlackout)
                 SpawnFlags |= SpawnFlags.IgnoreBlackout;
 
@@ -468,7 +470,7 @@ namespace MHServerEmu.Games.Populations
         }
 
         private void InitializeRankAndMods()
-        {                  
+        {
             var popGlobals = GameDatabase.PopulationGlobalsPrototype;
             if (popGlobals == null) return;
 
@@ -521,7 +523,7 @@ namespace MHServerEmu.Games.Populations
 
                 int maxAffixes = (rankEntryProto != null) ? rankEntryProto.GetMaxAffixes() : 0;
                 slots.Clear();
-                for (int slot = 0; slot < maxAffixes; slot++) slots.Add(PrototypeId.Invalid); 
+                for (int slot = 0; slot < maxAffixes; slot++) slots.Add(PrototypeId.Invalid);
 
                 if (overrides.Count > 0 && rankEntryProto != null)
                     for (int slot = maxAffixes - 1; slot >= 0; slot--)
@@ -584,6 +586,13 @@ namespace MHServerEmu.Games.Populations
                         }
                 }
 
+                // CUSTOM: COSMIC MOB AFFIX LOGIC
+                // If in Cosmic/Superheroic zone, force add random enemy boosts!
+                if (IsCosmicOrSuperheroic(Region))
+                {
+                    AddRandomEnemyBoosts(slots, random, 3); // 3 Extra Random Affixes for chaotic fun!
+                }
+
                 if (exemptOverrides.Count > 0)
                     for (int slot = 0; slot < slots.Count; slot++)
                         if (slots[slot] == PrototypeId.Invalid)
@@ -627,6 +636,74 @@ namespace MHServerEmu.Games.Populations
                 }
         }
 
+        // Helper to check difficulty
+        private bool IsCosmicOrSuperheroic(Region region)
+        {
+            if (region == null || region.DifficultyTierRef == PrototypeId.Invalid) return false;
+
+            string diffName = GameDatabase.GetPrototypeName(region.DifficultyTierRef);
+            return !string.IsNullOrEmpty(diffName) &&
+                   (diffName.Contains("Omega1", StringComparison.OrdinalIgnoreCase) ||
+                    diffName.Contains("Omega", StringComparison.OrdinalIgnoreCase));
+        }
+
+        // Helper to add random boosts
+        private void AddRandomEnemyBoosts(List<PrototypeId> slots, GRandom random, int count)
+        {
+            if (_cachedEnemyBoosts == null)
+            {
+                _cachedEnemyBoosts = new List<PrototypeId>();
+                foreach (var protoId in DataDirectory.Instance.IteratePrototypesInHierarchy<EnemyBoostPrototype>(PrototypeIterateFlags.NoAbstractApprovedOnly))
+                {
+                    string name = GameDatabase.GetPrototypeName(protoId);
+                    if (string.IsNullOrEmpty(name)) continue;
+
+                    string nameLower = name.ToLowerInvariant();
+
+                    // FILTER: Exclude affixes that are not suitable for random mob assignment
+                    if (nameLower.Contains("chest") ||
+                        nameLower.Contains("xdef") ||
+                        nameLower.Contains("mission") ||
+                         nameLower.Contains("emp") ||
+                        nameLower.Contains("level") ||
+                        nameLower.Contains("region") ||
+                        nameLower.Contains("hazard") ||
+                        nameLower.Contains("trap") ||
+                        nameLower.Contains("turret") ||
+                        nameLower.Contains("structure") ||
+                        nameLower.Contains("mystic") ||
+                        nameLower.Contains("mayhem") ||
+                        nameLower.Contains("simulacrum") ||
+                        nameLower.Contains("limbo") ||
+                        nameLower.Contains("inferno") ||
+                        nameLower.Contains("barrier") ||
+                        nameLower.Contains("wall") ||
+                        nameLower.Contains("zone") ||
+                        nameLower.Contains("field"))
+                    {
+                        Logger.Info($"[CosmicAffixFilter] BLOCKED: {name}");
+                        continue;
+                    }
+
+                    _cachedEnemyBoosts.Add(protoId);
+                }
+                Logger.Info($"[CosmicAffixFilter] Pool Initialized with {_cachedEnemyBoosts.Count} affixes.");
+            }
+
+            if (_cachedEnemyBoosts.Count == 0) return;
+
+            for (int i = 0; i < count; i++)
+            {
+                int index = random.Next(_cachedEnemyBoosts.Count);
+                PrototypeId boost = _cachedEnemyBoosts[index];
+
+                if (!slots.Contains(boost))
+                {
+                    slots.Add(boost);
+                }
+            }
+        }
+
         public override void UpgradeToRank(RankPrototype upgradeRank, ref int numUpgrade)
         {
             foreach (var clusterObject in Objects)
@@ -665,7 +742,7 @@ namespace MHServerEmu.Games.Populations
                     group.GetRanks(ranks);
                 else if (obj is ClusterEntity entity && entity.RankProto != null)
                     if (ranks.Contains(entity.RankProto) == false)
-                        ranks.Add(entity.RankProto);                    
+                        ranks.Add(entity.RankProto);
             }
         }
 
@@ -746,7 +823,7 @@ namespace MHServerEmu.Games.Populations
             foreach (var obj in Objects)
                 if (obj.Spawn(group, spawner, spawnHeat, entities) == SpawnGroup.InvalidId)
                 {
-                    if (Parent == null) 
+                    if (Parent == null)
                         manager.RemoveSpawnGroup(group.Id);
                     return 0;
                 }
@@ -937,7 +1014,7 @@ namespace MHServerEmu.Games.Populations
             PathFlags = Locomotor.GetPathFlags(EntityProto.NaviMethod);
 
             RankProto = EntityProto.RankPrototype;
-            
+
             if (Parent != null)
             {
                 PrototypeId rankRef = Parent.Properties[PropertyEnum.Rank];
@@ -977,7 +1054,7 @@ namespace MHServerEmu.Games.Populations
             if (SpawnFlags.HasFlag(SpawnFlags.IgnoreSpawned) == false)
             {
                 Sphere sphere = new(bounds.Center, bounds.Radius);
-                foreach (var entity in Region.IterateEntitiesInVolume(sphere, new(EntityRegionSPContextFlags.UnrestrictedPartitions)))
+                foreach (var entity in Region.IterateEntitiesInVolume(sphere, new()))
                     if (Region.IsBoundsBlockedByEntity(bounds, entity, BlockingCheckFlags.CheckSpawns))
                         return false;
             }
@@ -1048,7 +1125,7 @@ namespace MHServerEmu.Games.Populations
 
             spec.MissionRef = Parent.MissionRef;
             spec.EncounterSpawnPhase = EncounterSpawnPhase;
-            
+
             spec.Spawn();
 
             if (spec.ActiveEntity != null)
@@ -1062,7 +1139,7 @@ namespace MHServerEmu.Games.Populations
             if (Flags.HasFlag(ClusterObjectFlag.SkipFormation)) return false;
 
             bool blocksSpawns = EntityProto != null && EntityProto.Bounds != null && EntityProto.Bounds.BlocksSpawns;
-            bool blocking = Bounds.CollisionType == BoundsCollisionType.Blocking;
+            bool blocking = this.Bounds.CollisionType == BoundsCollisionType.Blocking; // Fixed: using this.Bounds
 
             return blocksSpawns || blocking;
         }

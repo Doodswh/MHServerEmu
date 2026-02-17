@@ -1,5 +1,4 @@
-﻿using Gazillion;
-using MHServerEmu.Core.Collisions;
+﻿using MHServerEmu.Core.Collisions;
 using MHServerEmu.Core.Extensions;
 using MHServerEmu.Core.Helpers;
 using MHServerEmu.Core.Logging;
@@ -12,14 +11,12 @@ using MHServerEmu.Games.Entities.Locomotion;
 using MHServerEmu.Games.Events;
 using MHServerEmu.Games.Events.Templates;
 using MHServerEmu.Games.GameData;
-using MHServerEmu.Games.GameData.LiveTuning;
 using MHServerEmu.Games.GameData.Prototypes;
 using MHServerEmu.Games.Navi;
 using MHServerEmu.Games.Populations;
 using MHServerEmu.Games.Properties;
 using MHServerEmu.Games.Properties.Evals;
 using MHServerEmu.Games.Regions;
-using System.Runtime.ConstrainedExecution;
 
 namespace MHServerEmu.Games.Powers
 {
@@ -40,10 +37,7 @@ namespace MHServerEmu.Games.Powers
         public int MaxSummons;
         public bool KillPrevious;
     }
-    public static class TunableGameplayValues
-    {
-        public static float SummonCountMultiplier { get; set; } = 1.0f;
-    }
+
     public class SummonPower : Power
     {
         public SummonPowerPrototype SummonPowerPrototype => Prototype as SummonPowerPrototype;

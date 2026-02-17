@@ -138,10 +138,11 @@ namespace MHServerEmu.Games.Loot
             _vendorXPSummary = vendorXPSummary;
         }
 
-        public LootResult(in CurrencySpec currencySpec)
+        public LootResult(in CurrencySpec currencySpec, bool isVaporized = false )
         {
             _type = LootType.Currency;
             _currencySpec = currencySpec;
+            _isVaporized = isVaporized;
         }
     }
 }

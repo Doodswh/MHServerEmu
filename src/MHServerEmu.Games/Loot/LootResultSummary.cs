@@ -33,6 +33,7 @@ namespace MHServerEmu.Games.Loot
         public List<PrototypeId> VanityTitles { get; } = new();
         public List<VendorXPSummary> VendorXP { get; } = new();
         public List<CurrencySpec> Currencies { get; } = new();
+        public List<CurrencySpec> VaporizedCurrencies { get; } = new();
 
         public List<ItemSpec> VaporizedItemSpecs { get; } = new();
         public List<int> VaporizedCredits { get; } = new();
@@ -116,7 +117,11 @@ namespace MHServerEmu.Games.Loot
                     break;
 
                 case LootType.Currency:
-                    Currencies.Add(lootResult.CurrencySpec);
+                    if (lootResult.IsVaporized)
+                        VaporizedCurrencies.Add(lootResult.CurrencySpec);
+                    else
+                        Currencies.Add(lootResult.CurrencySpec);
+
                     Types |= LootType.Currency;
                     break;
 
@@ -337,6 +342,7 @@ namespace MHServerEmu.Games.Loot
 
             VaporizedItemSpecs.Clear();
             VaporizedCredits.Clear();
+            VaporizedCurrencies.Clear();
         }
 
         public void Dispose()

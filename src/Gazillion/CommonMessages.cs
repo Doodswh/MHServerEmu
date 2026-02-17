@@ -812,8 +812,8 @@ namespace Gazillion {
     eAETV_XPBuffDisplay = 1,
     eAETV_EternitySplinterPrice = 2,
     eAETV_Enabled = 3,
-        eAETV_CooldownGlobalMult = 4,    
-        eAETV_NumAvatarEntityTuningVars = 5,
+    eAETV_CooldownGlobalMult = 4,    
+    eAETV_NumAvatarEntityTuningVars = 5,
     }
   
   public enum PopObjTuningVar {

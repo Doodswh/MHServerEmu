@@ -1795,7 +1795,7 @@ namespace MHServerEmu.Games.Powers
             if (conditionCollection == null)
                 return true;
 
-            using var conditionCheckListHandle = ListPool<ulong>.Instance.Get(out List<ulong> conditionCheckList);
+            List<ulong> conditionCheckList = ListPool<ulong>.Instance.Get();
 
             foreach (Condition condition in conditionCollection.IterateConditions(true))
             {
@@ -1849,6 +1849,7 @@ namespace MHServerEmu.Games.Powers
                     results.AddConditionToRemove(condition.Id);
             }
 
+            ListPool<ulong>.Instance.Return(conditionCheckList);
             return true;
         }
 
@@ -1979,7 +1980,7 @@ namespace MHServerEmu.Games.Powers
             transferredDamageTotal.Clear();
 
             // Apply damage transfer from conditions
-            using var damageTransferConditionsHandle = ListPool<(ulong, Condition)>.Instance.Get(out List<(ulong, Condition)> damageTransferConditions);
+            List<(ulong, Condition)> damageTransferConditions = ListPool<(ulong, Condition)>.Instance.Get();
             
             // Applying damage transfer can cause a chain reaction that will modify conditions on the target,
             // so put damage transfer conditions into a temporary list for iteration.
@@ -2079,6 +2080,7 @@ namespace MHServerEmu.Games.Powers
                 results.SetDamageForClient(type, damageForClient);
             }
 
+            ListPool<(ulong, Condition)>.Instance.Return(damageTransferConditions);
             return true;
         }
 
@@ -2299,7 +2301,7 @@ namespace MHServerEmu.Games.Powers
 
         private void CalculateResultNegativeStatusRemoval(PowerResults results, WorldEntity target)
         {
-            using var negativeStatusConditionsToRemoveHandle = ListPool<ulong>.Instance.Get(out List<ulong> negativeStatusConditionsToRemove);
+            List<ulong> negativeStatusConditionsToRemove = ListPool<ulong>.Instance.Get();
             ConditionCollection conditionCollection = target.ConditionCollection;
 
             float negStatusClearChancePctAll = Properties[PropertyEnum.PowerClearsNegStatusChancePctAll];
@@ -2336,6 +2338,8 @@ namespace MHServerEmu.Games.Powers
 
             foreach (ulong conditionId in negativeStatusConditionsToRemove)
                 results.AddConditionToRemove(conditionId);
+
+            ListPool<ulong>.Instance.Return(negativeStatusConditionsToRemove);
         }
 
         private bool CalculateResultConditionDuration(PowerResults results, WorldEntity target, WorldEntity owner, bool calculateForTarget,
@@ -2393,7 +2397,7 @@ namespace MHServerEmu.Games.Powers
                 {
                     bool canApply = true;
 
-                    using var negativeStatusListHandle = ListPool<PrototypeId>.Instance.Get(out List<PrototypeId> negativeStatusList);
+                    List<PrototypeId> negativeStatusList = ListPool<PrototypeId>.Instance.Get();
                     if (Condition.IsANegativeStatusEffect(conditionProperties, negativeStatusList))
                     {
                         if (CanApplyConditionToTarget(target, conditionProperties, negativeStatusList) == false)
@@ -2403,6 +2407,7 @@ namespace MHServerEmu.Games.Powers
                         }
                     }
 
+                    ListPool<PrototypeId>.Instance.Return(negativeStatusList);
                     if (canApply == false)
                         return false;
                 }
@@ -2559,7 +2564,7 @@ namespace MHServerEmu.Games.Powers
         private void CalculateResultConditionProcProperties(PowerResults results, WorldEntity target, PropertyCollection conditionProperties)
         {
             // Store properties to set in a temporary dictionary to avoid modifying property collections during iteration
-            using var propertiesToSetHandle = DictionaryPool<PropertyId, PropertyValue>.Instance.Get(out Dictionary<PropertyId, PropertyValue> propertiesToSet);
+            Dictionary<PropertyId, PropertyValue> propertiesToSet = DictionaryPool<PropertyId, PropertyValue>.Instance.Get();
 
             // Triggering refs and ranks
             int rank = conditionProperties[PropertyEnum.PowerRank];
@@ -2593,6 +2598,8 @@ namespace MHServerEmu.Games.Powers
             // Set properties
             foreach (var kvp in propertiesToSet)
                 conditionProperties[kvp.Key] = kvp.Value;
+
+            DictionaryPool<PropertyId, PropertyValue>.Instance.Return(propertiesToSet);
         }
 
         private bool CalculateResultConditionsToRemove(PowerResults results, WorldEntity target)
@@ -3122,19 +3129,19 @@ namespace MHServerEmu.Games.Powers
             PropertyCollection targetProperties = target.Properties;
 
             // Do not resist conditions without negative status effects
-            using var negativeStatusListHandle = ListPool<PrototypeId>.Instance.Get(out List<PrototypeId> negativeStatusList);
+            List<PrototypeId> negativeStatusList = ListPool<PrototypeId>.Instance.Get();
             if (Condition.IsANegativeStatusEffect(conditionProperties, negativeStatusList) == false)
-                return;
+                goto end;
 
             // Do not resist if the condition ignores resists and the target isn't immune to resist ignores
             if (conditionProperties[PropertyEnum.IgnoreNegativeStatusResist] && targetProperties[PropertyEnum.CCAlwaysCheckResist] == false)
-                return;
+                goto end;
 
             // Check for immunities
             if (CanApplyConditionToTarget(target, conditionProperties, negativeStatusList) == false)
             {
                 duration = TimeSpan.Zero;
-                return;
+                goto end;
             }
 
             // Calculate and apply CCResistScore (tenacity)
@@ -3164,6 +3171,9 @@ namespace MHServerEmu.Games.Powers
 
             // Apply StatusResistByDuration properties
             ApplyStatusResistByDuration(target, conditionProto, conditionProperties, ref duration);
+
+            end:
+            ListPool<PrototypeId>.Instance.Return(negativeStatusList);
         }
 
         /// <summary>
@@ -3313,8 +3323,8 @@ namespace MHServerEmu.Games.Powers
 
             if (stackId.PrototypeRef == PrototypeId.Invalid) return Logger.WarnReturn(0, "CalculateConditionNumStacksToApply(): stackId.PrototypeRef == PrototypeId.Invalid");
 
-            using var refreshListHandle = ListPool<ulong>.Instance.Get(out List<ulong> refreshList);
-            using var removeListHandle = ListPool<ulong>.Instance.Get(out List<ulong> removeList);
+            List<ulong> refreshList = ListPool<ulong>.Instance.Get();
+            List<ulong> removeList = ListPool<ulong>.Instance.Get();
 
             int numStacksToApply = conditionCollection.GetStackApplicationData(stackId, stackingBehaviorProto,
                 Properties[PropertyEnum.PowerRank], out TimeSpan longestTimeRemaining, removeList, refreshList);
@@ -3363,6 +3373,8 @@ namespace MHServerEmu.Games.Powers
             if (applicationStyle == StackingApplicationStyleType.MultiStackAddDuration)
                 duration += longestTimeRemaining;
 
+            ListPool<ulong>.Instance.Return(refreshList);
+            ListPool<ulong>.Instance.Return(removeList);
             return numStacksToApply;
         }
 

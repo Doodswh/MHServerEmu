@@ -60,6 +60,8 @@ namespace MHServerEmu.Games.GameData.Prototypes
         public bool CanBeInterrupted { get; protected set; }
         public int ChannelStartTimeMS { get; protected set; }
         public int ChannelEndTimeMS { get; protected set; }
+        public long UpdateIntervalMS { get; protected set; }
+        public long DurationMS { get; protected set; }
         public bool ForceNonExclusive { get; protected set; }
         public WhenOutOfRangeType WhenOutOfRange { get; protected set; }
         public int NoInterruptPreWindowMS { get; protected set; }
