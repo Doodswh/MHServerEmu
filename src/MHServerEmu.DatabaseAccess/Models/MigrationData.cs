@@ -7,7 +7,7 @@ namespace MHServerEmu.DatabaseAccess.Models
         // Store everything here as ulong, PropertyCollection will sort it out game-side
         private readonly Dictionary<ulong, List<(ulong, ulong)>> _properties = new(32);
 
-        public bool DisablePersistence { get; set; }
+        public bool IsInErrorState { get; set; }
         public bool SkipNextUpdate { get; set; }
 
         public bool IsFirstLoad { get; set; } = true;
@@ -36,7 +36,7 @@ namespace MHServerEmu.DatabaseAccess.Models
 
         public void Reset()
         {
-            DisablePersistence = false;
+            IsInErrorState = false;
             SkipNextUpdate = false;
 
             IsFirstLoad = true;

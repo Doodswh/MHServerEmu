@@ -277,8 +277,7 @@ namespace MHServerEmu.Games.Network
 
             if (PersistenceUtility.StoreInventoryEntities(Player, _dbAccount) == false)
             {
-                // turn persistence off to avoid data loss
-                _dbAccount.MigrationData.DisablePersistence = true;
+                _dbAccount.MigrationData.IsInErrorState = true;
                 _frontendClient.Disconnect();
                 return false;
             }
