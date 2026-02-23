@@ -193,6 +193,9 @@ namespace MHServerEmu.PlayerManagement.Players
 
             DBAccount account = Account;
 
+            if (account.MigrationData.DisablePersistence)
+                return true;
+
             using var lockScope = account.Lock();
             if (lockScope.LockTaken == false)
                 return Logger.ErrorReturn(false, $"SavePlayerData(): Timed out acquiring lock for [{account}]");

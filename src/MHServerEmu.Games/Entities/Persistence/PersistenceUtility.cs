@@ -13,30 +13,40 @@ namespace MHServerEmu.Games.Entities.Persistence
     {
         private static readonly Logger Logger = LogManager.CreateLogger();
 
-        public static void StoreInventoryEntities(Player player, DBAccount dbAccount)
+        public static bool StoreInventoryEntities(Player player, DBAccount dbAccount)
         {
             using DBAccount.EntityUpdateScope entityUpdateScope = dbAccount.BeginEntityUpdate();
 
-            StoreContainer(player, dbAccount, true);
-
-            foreach (Avatar avatar in new AvatarIterator(player))
+            try
             {
-                StoreContainer(avatar, dbAccount, true);
-            }
+                StoreContainer(player, dbAccount, true);
 
-            EntityManager entityManager = player.Game.EntityManager;
-
-            foreach (var entry in player.GetInventory(InventoryConvenienceLabel.TeamUpLibrary))
-            {
-                Agent teamUp = entityManager.GetEntity<Agent>(entry.Id);
-                if (teamUp == null)
+                foreach (Avatar avatar in new AvatarIterator(player))
                 {
-                    Logger.Warn("StoreInventoryEntities(): teamUp == null");
-                    continue;
+                    StoreContainer(avatar, dbAccount, true);
                 }
 
-                // Team-ups shouldn't have transferrable summons, but disabling it explicitly just in case.
-                StoreContainer(teamUp, dbAccount, false);
+                EntityManager entityManager = player.Game.EntityManager;
+
+                foreach (var entry in player.GetInventory(InventoryConvenienceLabel.TeamUpLibrary))
+                {
+                    Agent teamUp = entityManager.GetEntity<Agent>(entry.Id);
+                    if (teamUp == null)
+                    {
+                        Logger.Warn("StoreInventoryEntities(): teamUp == null");
+                        continue;
+                    }
+
+                    // Team-ups shouldn't have transferrable summons, but disabling it explicitly just in case.
+                    StoreContainer(teamUp, dbAccount, false);
+                }
+
+                return true;
+            }
+            catch (Exception e)
+            {
+                Logger.ErrorException(e, $"StoreInventoryEntities(): Failed to store entities for player [{player}]");
+                return false;
             }
         }
 

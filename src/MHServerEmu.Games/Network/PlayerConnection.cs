@@ -275,7 +275,13 @@ namespace MHServerEmu.Games.Network
 
             _dbAccount.Player.AOIVolume = (int)AOI.AOIVolume;
 
-            PersistenceUtility.StoreInventoryEntities(Player, _dbAccount);
+            if (PersistenceUtility.StoreInventoryEntities(Player, _dbAccount) == false)
+            {
+                // turn persistence off to avoid data loss
+                _dbAccount.MigrationData.DisablePersistence = true;
+                _frontendClient.Disconnect();
+                return false;
+            }
 
             // Update migration data unless requested not to
             MigrationData migrationData = _dbAccount.MigrationData;
