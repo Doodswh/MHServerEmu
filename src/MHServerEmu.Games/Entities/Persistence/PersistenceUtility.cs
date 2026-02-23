@@ -72,6 +72,8 @@ namespace MHServerEmu.Games.Entities.Persistence
 
         private static bool StoreContainer(Entity container, DBAccount dbAccount, bool allowReplicateForTransfer)
         {
+            if (container == null) return Logger.WarnReturn(false, "StoreContainer(): container == null");
+
             foreach (Inventory inventory in new InventoryIterator(container))
             {
                 if (inventory.Prototype.PersistedToDatabase == false)
@@ -80,13 +82,13 @@ namespace MHServerEmu.Games.Entities.Persistence
                         continue;
                 }
 
-                StoreInventory(inventory, dbAccount);
+                StoreInventory(container, inventory, dbAccount);
             }
 
             return true;
         }
 
-        private static bool StoreInventory(Inventory inventory, DBAccount dbAccount)
+        private static bool StoreInventory(Entity container, Inventory inventory, DBAccount dbAccount)
         {
             if (inventory == null) return Logger.WarnReturn(false, "StoreInventory(): inventory == null");
 
@@ -114,7 +116,7 @@ namespace MHServerEmu.Games.Entities.Persistence
             }
 
             // Common data for everything stored in this inventory.
-            long containerDbGuid = (long)inventory.Owner.DatabaseUniqueId;
+            long containerDbGuid = (long)container.DatabaseUniqueId;
             long inventoryProtoGuid = (long)GameDatabase.GetPrototypeGuid(inventory.PrototypeDataRef);
 
             EntityManager entityManager = inventory.Game.EntityManager;
