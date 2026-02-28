@@ -284,7 +284,7 @@ namespace MHServerEmu.Games.Network
 
             // Update migration data unless requested not to
             MigrationData migrationData = _dbAccount.MigrationData;
-                
+
             if (migrationData.SkipNextUpdate == false)
             {
                 if (saveMigrationData)
@@ -818,7 +818,7 @@ namespace MHServerEmu.Games.Network
                 avatar.Locomotor.SetSyncState(ref newSyncState, position, orientation);
             }
 
-            const float PositionDesyncDistanceSqThreshold = 512f * 512f;
+            const float PositionDesyncDistanceSqThreshold = 900f * 900f;
             if (desyncDistanceSq > PositionDesyncDistanceSqThreshold)
                 Logger.Warn($"OnUpdateAvatarState(): Position desync for player [{Player}] - offset={MathHelper.SquareRoot(desyncDistanceSq)}, moveSpeed={avatar.Locomotor.LastSyncState.BaseMoveSpeed}, power={avatar.ActivePowerRef.GetName()}");
 

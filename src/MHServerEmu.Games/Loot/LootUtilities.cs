@@ -261,7 +261,7 @@ namespace MHServerEmu.Games.Loot
 
             string diffName = GameDatabase.GetPrototypeName(settings.DifficultyTier);
             bool isCosmicDifficulty = !string.IsNullOrEmpty(diffName) &&
-                                      (diffName.Contains("Omega1", StringComparison.OrdinalIgnoreCase) ||
+                                      (diffName.Contains("SuperHeroic", StringComparison.OrdinalIgnoreCase) ||
                                        diffName.Contains("Omega", StringComparison.OrdinalIgnoreCase));
 
             if (!isCosmicDifficulty) return false;

@@ -1,0 +1,304 @@
+[
+ {
+      "Prototype": "Entity/Characters/Avatars/Shipping/Magneto.prototype", 
+      "Setting": "eAETV_CooldownGlobalMult",
+      "Value": 0.5
+    },
+	{
+      "Prototype": "Entity/Characters/Avatars/Shipping/angela.prototype", 
+      "Setting": "eAETV_CooldownGlobalMult",
+      "Value": 0.5
+    },
+	{
+      "Prototype": "Entity/Characters/Avatars/Shipping/antman.prototype", 
+      "Setting": "eAETV_CooldownGlobalMult",
+      "Value": 0.5
+    },
+	{
+      "Prototype": "Entity/Characters/Avatars/Shipping/beast.prototype", 
+      "Setting": "eAETV_CooldownGlobalMult",
+      "Value": 0.5
+    },
+	{
+      "Prototype": "Entity/Characters/Avatars/Shipping/blackbolt.prototype", 
+      "Setting": "eAETV_CooldownGlobalMult",
+      "Value": 0.5
+    },
+	{
+      "Prototype": "Entity/Characters/Avatars/Shipping/blackpanther.prototype", 
+      "Setting": "eAETV_CooldownGlobalMult",
+      "Value": 0.5
+    },
+	{
+      "Prototype": "Entity/Characters/Avatars/Shipping/blackwidow.prototype", 
+      "Setting": "eAETV_CooldownGlobalMult",
+      "Value": 0.5
+    },
+	{
+      "Prototype": "Entity/Characters/Avatars/Shipping/blade.prototype", 
+      "Setting": "eAETV_CooldownGlobalMult",
+      "Value": 0.5
+    },
+	{
+      "Prototype": "Entity/Characters/Avatars/Shipping/cable.prototype", 
+      "Setting": "eAETV_CooldownGlobalMult",
+      "Value": 0.5
+    },
+	{
+      "Prototype": "Entity/Characters/Avatars/Shipping/captainamerica.prototype", 
+      "Setting": "eAETV_CooldownGlobalMult",
+      "Value": 0.5
+    },
+	{
+      "Prototype": "Entity/Characters/Avatars/Shipping/carnage.prototype", 
+      "Setting": "eAETV_CooldownGlobalMult",
+      "Value": 0.5
+    },
+	{
+      "Prototype": "Entity/Characters/Avatars/Shipping/colossus.prototype", 
+      "Setting": "eAETV_CooldownGlobalMult",
+      "Value": 0.5
+    },
+	{
+      "Prototype": "Entity/Characters/Avatars/Shipping/cyclops.prototype", 
+      "Setting": "eAETV_CooldownGlobalMult",
+      "Value": 0.5
+    },
+	{
+      "Prototype": "Entity/Characters/Avatars/Shipping/daredevil.prototype", 
+      "Setting": "eAETV_CooldownGlobalMult",
+      "Value": 0.5
+    },
+	{
+      "Prototype": "Entity/Characters/Avatars/Shipping/deadpool.prototype", 
+      "Setting": "eAETV_CooldownGlobalMult",
+      "Value": 0.5
+    },
+	{
+      "Prototype": "Entity/Characters/Avatars/Shipping/doctorstrange.prototype", 
+      "Setting": "eAETV_CooldownGlobalMult",
+      "Value": 0.5
+    },
+	{
+      "Prototype": "Entity/Characters/Avatars/Shipping/drdoom.prototype", 
+      "Setting": "eAETV_CooldownGlobalMult",
+      "Value": 0.5
+    },
+	{
+      "Prototype": "Entity/Characters/Avatars/Shipping/elektra.prototype", 
+      "Setting": "eAETV_CooldownGlobalMult",
+      "Value": 0.5
+    },
+	{
+      "Prototype": "Entity/Characters/Avatars/Shipping/emmafrost.prototype", 
+      "Setting": "eAETV_CooldownGlobalMult",
+      "Value": 0.5
+    },
+	{
+      "Prototype": "Entity/Characters/Avatars/Shipping/gambit.prototype", 
+      "Setting": "eAETV_CooldownGlobalMult",
+      "Value": 0.5
+    },
+	{
+      "Prototype": "Entity/Characters/Avatars/Shipping/ghostrider.prototype", 
+      "Setting": "eAETV_CooldownGlobalMult",
+      "Value": 0.5
+    },
+	{
+      "Prototype": "Entity/Characters/Avatars/Shipping/greengoblin.prototype", 
+      "Setting": "eAETV_CooldownGlobalMult",
+      "Value": 0.5
+    },
+	{
+      "Prototype": "Entity/Characters/Avatars/Shipping/hawkeye.prototype", 
+      "Setting": "eAETV_CooldownGlobalMult",
+      "Value": 0.5
+    },
+
+	{
+      "Prototype": "Entity/Characters/Avatars/Shipping/humantorch.prototype", 
+      "Setting": "eAETV_CooldownGlobalMult",
+      "Value": 0.5
+    },
+	{
+      "Prototype": "Entity/Characters/Avatars/Shipping/iceman.prototype", 
+      "Setting": "eAETV_CooldownGlobalMult",
+      "Value": 0.5
+    },
+	{
+      "Prototype": "Entity/Characters/Avatars/Shipping/invisiblewoman.prototype", 
+      "Setting": "eAETV_CooldownGlobalMult",
+      "Value": 0.5
+    },
+	{
+      "Prototype": "Entity/Characters/Avatars/Shipping/ironfist.prototype", 
+      "Setting": "eAETV_CooldownGlobalMult",
+      "Value": 0.5
+    },
+	{
+      "Prototype": "Entity/Characters/Avatars/Shipping/ironman.prototype", 
+      "Setting": "eAETV_CooldownGlobalMult",
+      "Value": 0.5
+    },
+	{
+      "Prototype": "Entity/Characters/Avatars/Shipping/jeangrey.prototype", 
+      "Setting": "eAETV_CooldownGlobalMult",
+      "Value": 0.5
+    },
+	{
+      "Prototype": "Entity/Characters/Avatars/Shipping/juggernaut.prototype", 
+      "Setting": "eAETV_CooldownGlobalMult",
+      "Value": 0.5
+    },
+	{
+      "Prototype": "Entity/Characters/Avatars/Shipping/kittypryde.prototype", 
+      "Setting": "eAETV_CooldownGlobalMult",
+      "Value": 0.5
+    },
+	{
+      "Prototype": "Entity/Characters/Avatars/Shipping/loki.prototype", 
+      "Setting": "eAETV_CooldownGlobalMult",
+      "Value": 0.5
+    },
+	{
+      "Prototype": "Entity/Characters/Avatars/Shipping/lukecage.prototype", 
+      "Setting": "eAETV_CooldownGlobalMult",
+      "Value": 0.5
+    },
+	{
+      "Prototype": "Entity/Characters/Avatars/Shipping/Magik.prototype", 
+      "Setting": "eAETV_CooldownGlobalMult",
+      "Value": 0.5
+    },
+	{
+      "Prototype": "Entity/Characters/Avatars/Shipping/Moonknight.prototype", 
+      "Setting": "eAETV_CooldownGlobalMult",
+      "Value": 0.5
+    },
+	{
+      "Prototype": "Entity/Characters/Avatars/Shipping/Mrfantastic.prototype", 
+      "Setting": "eAETV_CooldownGlobalMult",
+      "Value": 0.5
+    },
+	{
+      "Prototype": "Entity/Characters/Avatars/Shipping/Msmarvel.prototype", 
+      "Setting": "eAETV_CooldownGlobalMult",
+      "Value": 0.5
+    },
+	{
+      "Prototype": "Entity/Characters/Avatars/Shipping/nickfury.prototype", 
+      "Setting": "eAETV_CooldownGlobalMult",
+      "Value": 0.5
+    },
+	{
+      "Prototype": "Entity/Characters/Avatars/Shipping/nightcrawler.prototype", 
+      "Setting": "eAETV_CooldownGlobalMult",
+      "Value": 0.5
+    },
+	{
+      "Prototype": "Entity/Characters/Avatars/Shipping/nova.prototype", 
+      "Setting": "eAETV_CooldownGlobalMult",
+      "Value": 0.5
+    },
+	{
+      "Prototype": "Entity/Characters/Avatars/Shipping/psylocke.prototype", 
+      "Setting": "eAETV_CooldownGlobalMult",
+      "Value": 0.5
+    },
+	{
+      "Prototype": "Entity/Characters/Avatars/Shipping/punisher.prototype", 
+      "Setting": "eAETV_CooldownGlobalMult",
+      "Value": 0.5
+    },
+	{
+      "Prototype": "Entity/Characters/Avatars/Shipping/rocketracoon.prototype", 
+      "Setting": "eAETV_CooldownGlobalMult",
+      "Value": 0.5
+    },
+	{
+      "Prototype": "Entity/Characters/Avatars/Shipping/rogue.prototype", 
+      "Setting": "eAETV_CooldownGlobalMult",
+      "Value": 0.5
+    },
+	{
+      "Prototype": "Entity/Characters/Avatars/Shipping/scarletwitch.prototype", 
+      "Setting": "eAETV_CooldownGlobalMult",
+      "Value": 0.5
+    },
+	{
+      "Prototype": "Entity/Characters/Avatars/Shipping/shehulk.prototype", 
+      "Setting": "eAETV_CooldownGlobalMult",
+      "Value": 0.5
+    },
+	{
+      "Prototype": "Entity/Characters/Avatars/Shipping/silversurfer.prototype", 
+      "Setting": "eAETV_CooldownGlobalMult",
+      "Value": 0.5
+    },
+	{
+      "Prototype": "Entity/Characters/Avatars/Shipping/spiderman.prototype", 
+      "Setting": "eAETV_CooldownGlobalMult",
+      "Value": 0.5
+    },
+	{
+      "Prototype": "Entity/Characters/Avatars/Shipping/squirrelgirl.prototype", 
+      "Setting": "eAETV_CooldownGlobalMult",
+      "Value": 0.5
+    },
+	{
+      "Prototype": "Entity/Characters/Avatars/Shipping/starlord.prototype", 
+      "Setting": "eAETV_CooldownGlobalMult",
+      "Value": 0.5
+    },
+	{
+      "Prototype": "Entity/Characters/Avatars/Shipping/storm.prototype", 
+      "Setting": "eAETV_CooldownGlobalMult",
+      "Value": 0.5
+    },
+	{
+      "Prototype": "Entity/Characters/Avatars/Shipping/taskmaster.prototype", 
+      "Setting": "eAETV_CooldownGlobalMult",
+      "Value": 0.5
+    },
+	{
+      "Prototype": "Entity/Characters/Avatars/Shipping/thing.prototype", 
+      "Setting": "eAETV_CooldownGlobalMult",
+      "Value": 0.5
+    },
+	{
+      "Prototype": "Entity/Characters/Avatars/Shipping/thor.prototype", 
+      "Setting": "eAETV_CooldownGlobalMult",
+      "Value": 0.5
+    },
+	{
+      "Prototype": "Entity/Characters/Avatars/Shipping/ultron.prototype", 
+      "Setting": "eAETV_CooldownGlobalMult",
+      "Value": 0.5
+    },
+	{
+      "Prototype": "Entity/Characters/Avatars/Shipping/venom.prototype", 
+      "Setting": "eAETV_CooldownGlobalMult",
+      "Value": 0.5
+    },
+	{
+      "Prototype": "Entity/Characters/Avatars/Shipping/vision.prototype", 
+      "Setting": "eAETV_CooldownGlobalMult",
+      "Value": 0.5
+    },
+	{
+      "Prototype": "Entity/Characters/Avatars/Shipping/wintersoldier.prototype", 
+      "Setting": "eAETV_CooldownGlobalMult",
+      "Value": 0.5
+    },
+	{
+      "Prototype": "Entity/Characters/Avatars/Shipping/wolverine.prototype", 
+      "Setting": "eAETV_CooldownGlobalMult",
+      "Value": 0.5
+    },
+	{
+      "Prototype": "Entity/Characters/Avatars/Shipping/x23.prototype", 
+      "Setting": "eAETV_CooldownGlobalMult",
+      "Value": 0.5
+    }
+	
+]
