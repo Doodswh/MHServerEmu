@@ -140,12 +140,9 @@ namespace MHServerEmu.Games.Entities.Avatars
             base.Initialize(settings);
 
             // NOTE: We need to set owner player dbid asap for it to be restored in persistent conditions
-            if (settings.InventoryLocation.IsValid)
-            {
-                Player player = Game.EntityManager.GetEntity<Player>(settings.InventoryLocation.ContainerId);
-                if (player != null)
-                    _ownerPlayerDbId = player.DatabaseUniqueId;
-            }
+            Player player = Game.EntityManager.GetEntity<Player>(settings.InventoryLocation.ContainerId);
+            if (player != null)
+                _ownerPlayerDbId = player.DatabaseUniqueId;
 
             return true;
         }
@@ -155,9 +152,7 @@ namespace MHServerEmu.Games.Entities.Avatars
             if (base.ApplyInitialReplicationState(ref settings) == false)
                 return false;
 
-            Player player = null;
-            if (settings.InventoryLocation.IsValid)
-                player = Game.EntityManager.GetEntity<Player>(settings.InventoryLocation.ContainerId);
+            Player player = Game.EntityManager.GetEntity<Player>(settings.InventoryLocation.ContainerId);
 
             if (player != null)
             {
