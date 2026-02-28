@@ -83,7 +83,7 @@ namespace MHServerEmu.Games.Entities.Avatars
 
         private ulong _ultimatePrestigeLevel = 0;
 
-        public uint AvatarWorldInstanceId { get; } = 1;
+        public uint AvatarWorldInstanceId { get; private set; } = 0;
         public string PlayerName { get => _playerName.Get(); }
         public ulong OwnerPlayerDbId { get => _ownerPlayerDbId; }
         public Agent CurrentTeamUpAgent { get => GetTeamUpAgent(Properties[PropertyEnum.AvatarTeamUpAgent]); }
@@ -140,7 +140,7 @@ namespace MHServerEmu.Games.Entities.Avatars
             base.Initialize(settings);
 
             // NOTE: We need to set owner player dbid asap for it to be restored in persistent conditions
-            if (settings.InventoryLocation != null)
+            if (settings.InventoryLocation.IsValid)
             {
                 Player player = Game.EntityManager.GetEntity<Player>(settings.InventoryLocation.ContainerId);
                 if (player != null)
@@ -156,7 +156,7 @@ namespace MHServerEmu.Games.Entities.Avatars
                 return false;
 
             Player player = null;
-            if (settings.InventoryLocation != null)
+            if (settings.InventoryLocation.IsValid)
                 player = Game.EntityManager.GetEntity<Player>(settings.InventoryLocation.ContainerId);
 
             if (player != null)
@@ -389,7 +389,13 @@ namespace MHServerEmu.Games.Entities.Avatars
                 // Do a normal position change and update AOI if the position is loaded
                 result = base.ChangeRegionPosition(position, orientation, flags);
                 if (result == ChangePositionResult.PositionChanged)
+                {
+                    // Increment AvatarWorldInstanceId before updating AOI to make sure it reaches clients.
+                    if (flags.HasFlag(ChangePositionFlags.EnterWorld))
+                        AvatarWorldInstanceId++;
+
                     player.AOI.Update(RegionLocation.Position);
+                }
 
                 if (flags.HasFlag(ChangePositionFlags.Teleport))
                     RespawnPersistentAgents();
@@ -410,7 +416,7 @@ namespace MHServerEmu.Games.Entities.Avatars
 
             if (result == ChangePositionResult.PositionChanged)
             {
-                player.RevealDiscoveryMap(position.Value);
+                player.DiscoverMapPosition(position.Value);
                 player.UpdateSpawnMap(position.Value);
             }
 
@@ -729,11 +735,11 @@ namespace MHServerEmu.Games.Entities.Avatars
             BlockingCheckFlags blockFlags = BlockingCheckFlags.CheckGroundMovementPowers | BlockingCheckFlags.CheckLanding | BlockingCheckFlags.CheckSpawns;
 
             // Do not modify the position if it's valid as is.
-            if (region.IsLocationClear(bounds, Navi.PathFlags.Walk, posFlags, blockFlags))
+            if (region.IsLocationClear(ref bounds, Navi.PathFlags.Walk, posFlags, blockFlags))
                 return true;
 
             // Try to pick a replacement position.
-            if (region.ChooseRandomPositionNearPoint(bounds, Navi.PathFlags.Walk, posFlags, blockFlags & ~BlockingCheckFlags.CheckSpawns, 0f, 64f, out Vector3 newPosition, null, null, 50) == false)
+            if (region.ChooseRandomPositionNearPoint(ref bounds, Navi.PathFlags.Walk, posFlags, blockFlags & ~BlockingCheckFlags.CheckSpawns, 0f, 64f, out Vector3 newPosition, null, null, 50) == false)
                 return false;
 
             position = newPosition;
@@ -898,6 +904,12 @@ namespace MHServerEmu.Games.Entities.Avatars
                     .SetAvatarIndex(0).Build());
 
             return true;
+        }
+
+        public override bool IsMelee()
+        {
+            Power primarySlotPower = GetPowerInSlot(AbilitySlot.PrimaryAction);
+            return primarySlotPower != null && primarySlotPower.IsMelee();
         }
 
         public override bool OnPowerAssigned(Power power)
@@ -4338,7 +4350,7 @@ namespace MHServerEmu.Games.Entities.Avatars
                 velocity *= gamepadGlobals.GamepadInteractRange + Bounds.Radius;
                 float timeOfIntersection = 1.0f;
                 Vector3? resultNormal = null;
-                return capsuleBound.Sweep(interactee.Bounds, Vector3.Zero, velocity, ref timeOfIntersection, ref resultNormal);
+                return capsuleBound.Sweep(ref interactee.Bounds, Vector3.Zero, velocity, ref timeOfIntersection, ref resultNormal);
             }
 
             return false;
@@ -4379,12 +4391,12 @@ namespace MHServerEmu.Games.Entities.Avatars
         /// <remarks>
         /// In practice this validates only artifacts equipment.
         /// </remarks>
-        public static InventoryResult ValidateEquipmentChange(Game game, Item itemToBeMoved, InventoryLocation fromInvLoc, InventoryLocation toInvLoc, out Item resultItem)
+        public static InventoryResult ValidateEquipmentChange(Game game, Item itemToBeMoved, ref InventoryLocation fromInvLoc, ref InventoryLocation toInvLoc, out Item resultItem)
         {
             resultItem = null;
 
-            if (itemToBeMoved.InventoryLocation.Equals(fromInvLoc) == false)
-                return Logger.WarnReturn(InventoryResult.Invalid, "ValidateEquipmentChange(): itemToBeMoved.InventoryLocation.Equals(fromInvLoc) == false");
+            if (itemToBeMoved.InventoryLocation != fromInvLoc)
+                return Logger.WarnReturn(InventoryResult.Invalid, "ValidateEquipmentChange(): itemToBeMoved.InventoryLocation != fromInvLoc");
             
             // Validate only items that are being moved to avatar inventories (i.e. being equipped)
             Avatar containerAvatar = game.EntityManager.GetEntity<Avatar>(toInvLoc.ContainerId);
@@ -4450,9 +4462,9 @@ namespace MHServerEmu.Games.Entities.Avatars
             return InventoryResult.Success;
         }
 
-        public override void OnOtherEntityAddedToMyInventory(Entity entity, InventoryLocation invLoc, bool unpackedArchivedEntity)
+        public override void OnOtherEntityAddedToMyInventory(Entity entity, ref InventoryLocation invLoc, bool unpackedArchivedEntity)
         {
-            base.OnOtherEntityAddedToMyInventory(entity, invLoc, unpackedArchivedEntity);
+            base.OnOtherEntityAddedToMyInventory(entity, ref invLoc, unpackedArchivedEntity);
 
             if (entity is not Item item)
                 return;
@@ -4491,9 +4503,9 @@ namespace MHServerEmu.Games.Entities.Avatars
             OnChangeInventory(item);
         }
 
-        public override void OnOtherEntityRemovedFromMyInventory(Entity entity, InventoryLocation invLoc)
+        public override void OnOtherEntityRemovedFromMyInventory(Entity entity, ref InventoryLocation invLoc)
         {
-            base.OnOtherEntityRemovedFromMyInventory(entity, invLoc);
+            base.OnOtherEntityRemovedFromMyInventory(entity, ref invLoc);
 
             if (entity is not Item item)
                 return;
@@ -5581,7 +5593,7 @@ namespace MHServerEmu.Games.Entities.Avatars
             var result = controlled.ChangeInventoryLocation(controlledInventory);
             if (result == InventoryResult.Success)
             {
-                var invLocation = controlled.InventoryLocation;
+                ref InventoryLocation invLocation = ref controlled.InventoryLocation;
                 var message = NetMessageInventoryMove.CreateBuilder()
                             .SetEntityId(controlled.Id)
                             .SetInvLocContainerEntityId(invLocation.ContainerId)
@@ -7188,10 +7200,12 @@ namespace MHServerEmu.Games.Entities.Avatars
                 summon.RemoveSummonerCondition(Id);
         }
 
-        public override void OnLocomotionStateChanged(LocomotionState oldState, LocomotionState newState)
+        /* TODO: flying handling to mirror the client.
+        public override void OnLocomotionStateChanged(ref LocomotionState oldState, ref LocomotionState newState)
         {
-            base.OnLocomotionStateChanged(oldState, newState);
+            base.OnLocomotionStateChanged(ref oldState, ref newState);
         }
+        */
 
         #endregion
 

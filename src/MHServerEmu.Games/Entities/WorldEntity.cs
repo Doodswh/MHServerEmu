@@ -90,6 +90,8 @@ namespace MHServerEmu.Games.Entities
         private RegionLocation _regionLocation;
         private RegionLocationSafe _exitWorldRegionLocation;
 
+        private Bounds _bounds = new();
+
         private Transform3 _transform = Transform3.Identity();
 
         // We keep track of the last interest update position to avoid updating interest too often when moving around.
@@ -129,14 +131,14 @@ namespace MHServerEmu.Games.Entities
         public AlliancePrototype Alliance { get => GetAlliance(); }
         public EntityRegionSpatialPartitionLocation SpatialPartitionLocation { get; }
         public Aabb RegionBounds { get; set; }
-        public Bounds Bounds { get; set; } = new();
+        public ref Bounds Bounds { get => ref _bounds; }
         public WorldEntityPrototype WorldEntityPrototype { get => Prototype as WorldEntityPrototype; }
         public bool ShouldSnapToFloorOnSpawn { get; private set; }
         public EntityActionComponent EntityActionComponent { get; protected set; }
         public SpawnSpec SpawnSpec { get; private set; }
         public SpawnGroup SpawnGroup { get => SpawnSpec?.Group; }
         public Locomotor Locomotor { get; protected set; }
-        public virtual Bounds EntityCollideBounds { get => Bounds; set { } }
+        public virtual ref Bounds EntityCollideBounds { get => ref _bounds; }
         public virtual bool IsTeamUpAgent { get => false; }
         public bool IsAliveInWorld { get => IsInWorld && IsDead == false; }
         public bool IsInPvPMatch { get => Region?.ContainsPvPMatch() == true; }
@@ -212,16 +214,16 @@ namespace MHServerEmu.Games.Entities
 
             if (worldEntityProto.Bounds != null)
             {
-                Bounds.InitializeFromPrototype(worldEntityProto.Bounds);
+                _bounds.InitializeFromPrototype(worldEntityProto.Bounds);
                 if (settings.BoundsScaleOverride != 1f)
-                    Bounds.Scale(settings.BoundsScaleOverride);
+                    _bounds.Scale(settings.BoundsScaleOverride);
             }
 
             Physics.Initialize(this);
 
             _trackingContextMap = new();
             _conditionCollection = new(this);
-            _powerCollection = new(this);
+            // PowerCollection is allocated on demand when the first power is assigned.
 
             if (Properties.HasProperty(PropertyEnum.Rank) == false && worldEntityProto.Rank != PrototypeId.Invalid)
                 Properties[PropertyEnum.Rank] = worldEntityProto.Rank;
@@ -264,7 +266,7 @@ namespace MHServerEmu.Games.Entities
                 }
                 else
                 {
-                    if (_powerCollection == null) _powerCollection = new(this);
+                    GetPowerCollectionAllocateIfNull();
                     success &= PowerCollection.SerializeFrom(archive, _powerCollection, numRecords);
                 }
             }
@@ -417,14 +419,14 @@ namespace MHServerEmu.Games.Entities
         public override void OnSelfAddedToOtherInventory()
         {
             base.OnSelfAddedToOtherInventory();
-            var invLoc = InventoryLocation;
+            ref var invLoc = ref InventoryLocation;
             if (invLoc.IsValid && invLoc.InventoryConvenienceLabel == InventoryConvenienceLabel.Summoned)
                 AddSummonerCondition(invLoc.ContainerId);
         }
 
-        public override void OnSelfRemovedFromOtherInventory(InventoryLocation prevInvLoc)
+        public override void OnSelfRemovedFromOtherInventory(ref InventoryLocation prevInvLoc)
         {
-            base.OnSelfRemovedFromOtherInventory(prevInvLoc);
+            base.OnSelfRemovedFromOtherInventory(ref prevInvLoc);
             if (prevInvLoc.IsValid && prevInvLoc.InventoryConvenienceLabel == InventoryConvenienceLabel.Summoned)
                 RemoveSummonerCondition(prevInvLoc.ContainerId);
         }
@@ -798,8 +800,8 @@ namespace MHServerEmu.Games.Entities
                         this, result, _regionLocation.ToString(), position));
                 }
 
-                if (Bounds.Geometry != GeometryType.None)
-                    Bounds.Center = position.Value;
+                if (_bounds.Geometry != GeometryType.None)
+                    _bounds.Center = position.Value;
 
                 if (flags.HasFlag(ChangePositionFlags.PhysicsResolve) == false)
                     RegisterForPendingPhysicsResolve();
@@ -811,8 +813,8 @@ namespace MHServerEmu.Games.Entities
             {
                 _regionLocation.SetOrientation(orientation.Value);
 
-                if (Bounds.Geometry != GeometryType.None)
-                    Bounds.Orientation = orientation.Value;
+                if (_bounds.Geometry != GeometryType.None)
+                    _bounds.Orientation = orientation.Value;
                 if (Physics.HasAttachedEntities())
                     RegisterForPendingPhysicsResolve();
                 orientationChanged = true;
@@ -958,13 +960,13 @@ namespace MHServerEmu.Games.Entities
         public Vector3 FloorToCenter(Vector3 position)
         {
             Vector3 resultPosition = position;
-            if (Bounds.Geometry != GeometryType.None)
-                resultPosition.Z += Bounds.HalfHeight;
+            if (_bounds.Geometry != GeometryType.None)
+                resultPosition.Z += _bounds.HalfHeight;
             // TODO Locomotor.GetCurrentFlyingHeight
             return resultPosition;
         }
 
-        public bool ShouldUseSpatialPartitioning() => Bounds.Geometry != GeometryType.None;
+        public bool ShouldUseSpatialPartitioning() => _bounds.Geometry != GeometryType.None;
 
         public EntityRegionSPContext GetEntityRegionSPContext()
         {
@@ -989,9 +991,14 @@ namespace MHServerEmu.Games.Entities
 
         public void UpdateRegionBounds()
         {
-            RegionBounds = Bounds.ToAabb();
+            RegionBounds = _bounds.ToAabb();
             if (ShouldUseSpatialPartitioning())
                 Region.UpdateEntityInSpatialPartition(this);
+        }
+
+        public virtual void SetEntityCollideBounds(ref Bounds bounds)
+        {
+            // Only Missile entities have separate collide bounds. Everything else uses normal bounds, and overriding is not possible.
         }
 
         public float GetDistanceTo(WorldEntity other, bool calcRadius)
@@ -1006,7 +1013,7 @@ namespace MHServerEmu.Games.Entities
         public Vector3 GetPositionNearAvatar(Avatar avatar)
         {
             Region region = avatar.Region;
-            region.ChooseRandomPositionNearPoint(avatar.Bounds, Region.GetPathFlagsForEntity(WorldEntityPrototype), PositionCheckFlags.PreferNoEntity,
+            region.ChooseRandomPositionNearPoint(ref avatar.Bounds, Region.GetPathFlagsForEntity(WorldEntityPrototype), PositionCheckFlags.PreferNoEntity,
                     BlockingCheckFlags.CheckSpawns, 50, 200, out Vector3 position);
             return position;
         }
@@ -1094,7 +1101,7 @@ namespace MHServerEmu.Games.Entities
 
         public bool CanBeBlockedBy(WorldEntity other)
         {
-            if (other == null || CanCollideWith(other) == false || Bounds.CanBeBlockedBy(other.Bounds) == false) return false;
+            if (other == null || CanCollideWith(other) == false || Bounds.CanBeBlockedBy(ref other.Bounds) == false) return false;
 
             if (NoCollide || other.NoCollide)
             {
@@ -1279,7 +1286,7 @@ namespace MHServerEmu.Games.Entities
                 hasNaviInfluence = HasNavigationInfluence;
             }
 
-            var result = NaviPath.CheckCanPathTo(region.NaviMesh, _regionLocation.Position, toPosition, Bounds.Radius, pathFlags);
+            var result = NaviPath.CheckCanPathTo(region.NaviMesh, _regionLocation.Position, toPosition, _bounds.Radius, pathFlags);
             if (hasNaviInfluence) EnableNavigationInfluence();
 
             return result;
@@ -1314,7 +1321,7 @@ namespace MHServerEmu.Games.Entities
         private Vector3 GetEyesPosition()
         {
             Vector3 retPos = _regionLocation.Position;
-            Bounds bounds = Bounds;
+            ref Bounds bounds = ref Bounds;
             retPos.Z += bounds.EyeHeight;
             return retPos;
         }
@@ -1323,10 +1330,31 @@ namespace MHServerEmu.Games.Entities
 
         #region Powers
 
-        public Power GetPower(PrototypeId powerProtoRef) => _powerCollection?.GetPower(powerProtoRef);
-        public Power GetThrowablePower() => _powerCollection?.ThrowablePower;
-        public Power GetThrowableCancelPower() => _powerCollection?.ThrowableCancelPower;
-        public virtual bool IsMelee() => false;
+        public PowerCollection GetPowerCollectionAllocateIfNull()
+        {
+            _powerCollection ??= new(this);
+            return _powerCollection;
+        }
+
+        public Power GetPower(PrototypeId powerProtoRef)
+        {
+            return _powerCollection?.GetPower(powerProtoRef);
+        }
+
+        public Power GetThrowablePower()
+        {
+            return _powerCollection?.ThrowablePower;
+        }
+
+        public Power GetThrowableCancelPower()
+        {
+            return _powerCollection?.ThrowableCancelPower;
+        }
+        
+        public virtual bool IsMelee()
+        {
+            return false;
+        }
 
         public bool HasPowerInPowerCollection(PrototypeId powerProtoRef)
         {
@@ -1336,9 +1364,12 @@ namespace MHServerEmu.Games.Entities
 
         public Power AssignPower(PrototypeId powerProtoRef, in PowerIndexProperties indexProps, bool sendPowerAssignmentToClients = true, PrototypeId triggeringPowerRef = PrototypeId.Invalid)
         {
-            if (_powerCollection == null) return Logger.WarnReturn<Power>(null, "AssignPower(): _powerCollection == null");
-            Power assignedPower = _powerCollection.AssignPower(powerProtoRef, indexProps, triggeringPowerRef, sendPowerAssignmentToClients);
+            PowerCollection powerCollection = GetPowerCollectionAllocateIfNull();
+            if (powerCollection == null) return Logger.WarnReturn<Power>(null, "AssignPower(): powerCollection == null");
+            
+            Power assignedPower = powerCollection.AssignPower(powerProtoRef, indexProps, triggeringPowerRef, sendPowerAssignmentToClients);
             if (assignedPower == null) return Logger.WarnReturn(assignedPower, "AssignPower(): assignedPower == null");
+            
             return assignedPower;
         }
 
@@ -2471,19 +2502,19 @@ namespace MHServerEmu.Games.Entities
             if (Segment.IsNearZero(boundsScaleChange))
                 return true;
 
-            Bounds bounds = new(Bounds);
+            Bounds bounds = Bounds;         // copy
             float oldRadius = bounds.Radius;
             if (oldRadius == 0f) return Logger.WarnReturn(false, "ApplyBoundsScaleChange(): oldRadius == 0f");  // guard against div by 0
             float newRadius = oldRadius + boundsScaleChange;
             bounds.Scale(newRadius / oldRadius);
             Bounds = bounds;
 
-            bounds = new(EntityCollideBounds);
+            bounds = EntityCollideBounds;   // copy
             oldRadius = bounds.Radius;
             if (oldRadius == 0f) return Logger.WarnReturn(false, "ApplyBoundsScaleChange(): oldRadius == 0f");  // guard against div by 0
             newRadius = oldRadius + boundsScaleChange;
             bounds.Scale(newRadius / oldRadius);
-            EntityCollideBounds = bounds;
+            SetEntityCollideBounds(ref bounds);
 
             RegisterForPendingPhysicsResolve();
             return true;
@@ -3769,15 +3800,17 @@ namespace MHServerEmu.Games.Entities
             Properties[PropertyEnum.MapRegionId] = newRegion != null ? newRegion.Id : 0;
         }
 
-        public virtual void OnLocomotionStateChanged(LocomotionState oldLocomotionState, LocomotionState newLocomotionState)
+        public virtual void OnLocomotionStateChanged(ref LocomotionState oldLocomotionState, ref LocomotionState newLocomotionState)
         {
-            if (IsInWorld == false) return;
+            if (IsInWorld == false)
+                return;
 
             // Check if locomotion state requires updating
-            LocomotionState.CompareLocomotionStatesForSync(oldLocomotionState, newLocomotionState,
+            LocomotionState.CompareLocomotionStatesForSync(ref oldLocomotionState, ref newLocomotionState,
                 out bool syncRequired, out bool pathNodeSyncRequired, newLocomotionState.FollowEntityId != InvalidId);
 
-            if (syncRequired == false && pathNodeSyncRequired == false) return;
+            if (syncRequired == false && pathNodeSyncRequired == false)
+                return;
 
             // Send locomotion update to interested clients
             // NOTE: Avatars are locomoted on their local client independently, so they are excluded from locomotion updates.
@@ -3786,7 +3819,7 @@ namespace MHServerEmu.Games.Entities
             if (networkManager.GetInterestedClients(interestedClientList, this, AOINetworkPolicyValues.AOIChannelProximity, IsMovementAuthoritative == false))
             {
                 NetMessageLocomotionStateUpdate locomotionStateUpdateMessage = ArchiveMessageBuilder.BuildLocomotionStateUpdateMessage(
-                    this, oldLocomotionState, newLocomotionState, pathNodeSyncRequired);
+                    this, ref oldLocomotionState, ref newLocomotionState, pathNodeSyncRequired);
 
                 networkManager.SendMessageToMultiple(interestedClientList, locomotionStateUpdateMessage);
             }

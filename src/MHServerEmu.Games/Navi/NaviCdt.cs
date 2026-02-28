@@ -218,7 +218,7 @@ namespace MHServerEmu.Games.Navi
             if (collinearEdges.Count > 0)
             {
                 collinearEdges.Add(edge);
-                outEdge = new NaviEdge (points[0], points[1], NaviEdgeFlags.Constraint, edge.PathingFlags);
+                outEdge = new NaviEdge (points[0], points[1], NaviEdgeFlags.Constraint, ref edge.PathingFlags);
                 return true;
             }
             else
@@ -377,10 +377,10 @@ namespace MHServerEmu.Games.Navi
             triangleEdges[1] = triangle.Edges[1];
             triangleEdges[2] = triangle.Edges[2];
 
-            NaviTriangleState triangleState = new (triangle);
+            NaviTriangleState triangleState = new(triangle);
             RemoveTriangle(triangle);
 
-            void PushStateTriangle(NaviTriangleState state, NaviEdge e0, NaviEdge e1, NaviEdge e2)
+            void PushStateTriangle(in NaviTriangleState state, NaviEdge e0, NaviEdge e1, NaviEdge e2)
             {
                 NaviTriangle tri = new(e0, e1, e2);
                 state.RestoreState(tri);
@@ -418,7 +418,7 @@ namespace MHServerEmu.Games.Navi
                         var de2 = degTriangle.EdgeMod(edgeIndex + 2);
                         var dep = new NaviEdge(point, degTriangle.OpposedVertex(edge), NaviEdgeFlags.None);
 
-                        NaviTriangleState triangleStateDeg = new (degTriangle);
+                        NaviTriangleState triangleStateDeg = new(degTriangle);
                         RemoveTriangle(degTriangle);
 
                         PushStateTriangle(triangleStateDeg, pe0, de1, dep);
@@ -495,8 +495,8 @@ namespace MHServerEmu.Games.Navi
             var t1e1 = t1.EdgeMod(edgeIndex1 + 1);
             var t1e2 = t1.EdgeMod(edgeIndex1 + 2);
 
-            NaviTriangleState state0 = new (t0);
-            NaviTriangleState state1 = new (t1);
+            NaviTriangleState state0 = new(t0);
+            NaviTriangleState state1 = new(t1);
 
             RemoveTriangle(t0);
             RemoveTriangle(t1);
@@ -549,7 +549,7 @@ namespace MHServerEmu.Games.Navi
                 {
                     NaviEdge maskEdge = nextTriangle.FindEdge(p0, p1);
                     bool flip = (maskEdge.Points[0] != edge.Points[0]);
-                    maskEdge.PathingFlags.Merge(edge.PathingFlags, flip);
+                    maskEdge.PathingFlags.Merge(ref edge.PathingFlags, flip);
                     maskEdge.SetFlag(edge.EdgeFlags & NaviEdgeFlags.Mask);
                     return;
                 }
@@ -584,8 +584,8 @@ namespace MHServerEmu.Games.Navi
             if (splitEdge != null)
             {
                 splitPoint = splitEdge.OpposedPoint(p0);
-                edges.PushBack(new(p0, splitPoint, edge.EdgeFlags, edge.PathingFlags));
-                edges.PushBack(new(splitPoint, p1, edge.EdgeFlags, edge.PathingFlags));
+                edges.PushBack(new(p0, splitPoint, edge.EdgeFlags, ref edge.PathingFlags));
+                edges.PushBack(new(splitPoint, p1, edge.EdgeFlags, ref edge.PathingFlags));
                 return;
             }
 
@@ -601,7 +601,7 @@ namespace MHServerEmu.Games.Navi
             NaviPoint sidePoint0, sidePoint1;
             NaviPoint point = p0;
 
-            NaviTriangleState triangleState = new (triangle);
+            NaviTriangleState triangleState = new(triangle);
 
             splitEdge = triangle.OpposedEdge(p0);
 
@@ -650,8 +650,8 @@ namespace MHServerEmu.Games.Navi
 
                 if (Segment.SegmentPointDistanceSq2D(p0.Pos, p1.Pos, splitPoint.Pos) < SplitEpsilonSq)
                 {
-                    edges.PushBack(new(p0, splitPoint, edge.EdgeFlags, edge.PathingFlags));
-                    edges.PushBack(new(splitPoint, p1, edge.EdgeFlags, edge.PathingFlags));
+                    edges.PushBack(new(p0, splitPoint, edge.EdgeFlags, ref edge.PathingFlags));
+                    edges.PushBack(new(splitPoint, p1, edge.EdgeFlags, ref edge.PathingFlags));
                     return;
                 }
 
@@ -682,7 +682,7 @@ namespace MHServerEmu.Games.Navi
             TriangulatepseudopolygonDelaunay(pseudoList1, p1, p0, edge, triangleState);
         }
 
-        private NaviEdge TriangulatepseudopolygonDelaunay(List<NaviEdge> pseudoList, NaviPoint p0, NaviPoint p1, NaviEdge edge, NaviTriangleState triangleState)
+        private NaviEdge TriangulatepseudopolygonDelaunay(List<NaviEdge> pseudoList, NaviPoint p0, NaviPoint p1, NaviEdge edge, in NaviTriangleState triangleState)
         {
             NaviEdge edge0 = null;
             NaviEdge edge1 = null;
@@ -769,13 +769,13 @@ namespace MHServerEmu.Games.Navi
             }
             else if (splitEdge.Contains(splitPoint) == false)
             {
-                edges.PushBack(new(splitEdge.Points[0], splitPoint, splitEdge.EdgeFlags, splitEdge.PathingFlags));
-                edges.PushBack(new(splitPoint, splitEdge.Points[1], splitEdge.EdgeFlags, splitEdge.PathingFlags));
+                edges.PushBack(new(splitEdge.Points[0], splitPoint, splitEdge.EdgeFlags, ref splitEdge.PathingFlags));
+                edges.PushBack(new(splitPoint, splitEdge.Points[1], splitEdge.EdgeFlags, ref splitEdge.PathingFlags));
                 RemoveEdge(splitEdge, false);
             }
 
-            if (p0 != splitPoint) edges.PushBack(new(p0, splitPoint, edge.EdgeFlags, edge.PathingFlags));
-            if (splitPoint != p1) edges.PushBack(new(splitPoint, p1, edge.EdgeFlags, edge.PathingFlags));
+            if (p0 != splitPoint) edges.PushBack(new(p0, splitPoint, edge.EdgeFlags, ref edge.PathingFlags));
+            if (splitPoint != p1) edges.PushBack(new(splitPoint, p1, edge.EdgeFlags, ref edge.PathingFlags));
         }
 
         public void RemoveEdge(NaviEdge edge, bool check = true)
@@ -851,7 +851,7 @@ namespace MHServerEmu.Games.Navi
 
         public void RemovePoint(NaviPoint point, NaviTriangle triangle)
         {
-            NaviTriangleState triangleState = new (triangle);
+            NaviTriangleState triangleState = new(triangle);
 
             using var listEarHandle = ListPool<NaviEar>.Instance.Get(out List<NaviEar> listEar);
 

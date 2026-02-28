@@ -2,12 +2,17 @@
 using MHServerEmu.Core.Collections;
 using MHServerEmu.Core.Collisions;
 using MHServerEmu.Core.Logging;
+using MHServerEmu.Core.Memory;
+
+// Use an alias here to keep this readable while also allowing pooling with the regular ListPool.
+using NaviPathChannel = System.Collections.Generic.List<MHServerEmu.Games.Navi.NaviChannelEdge>;
 
 namespace MHServerEmu.Games.Navi
 {
-    public class NaviPathGenerator
+    public struct NaviPathGenerator : IDisposable
     {
         private static readonly Logger Logger = LogManager.CreateLogger();
+
         private NaviMesh _naviMesh;
         private float _radius;
         private float _width;
@@ -19,13 +24,21 @@ namespace MHServerEmu.Games.Navi
         private NaviTriangle _startTriangle;
         private NaviTriangle _goalTriangle;
         private NaviPoint _goalPoint;
-        private readonly FixedPriorityQueue<NaviPathSearchState> _searchStateQueue;
+        private List<NaviPathSearchState> _searchStateQueueList;
+        private FixedPriorityQueue<NaviPathSearchState> _searchStateQueue;
 
         public NaviPathGenerator(NaviMesh naviMesh)
         {
             // _navi = naviMesh.NaviSystem; // not used
             _naviMesh = naviMesh;
-            _searchStateQueue = new(128);
+
+            _searchStateQueueList = ListPool<NaviPathSearchState>.Instance.Get(128);
+            _searchStateQueue = new(_searchStateQueueList);
+        }
+
+        public void Dispose()
+        {
+            ListPool<NaviPathSearchState>.Instance.Return(_searchStateQueueList);
         }
 
         public static void GenerateDirectMove(Vector3 startPosition, Vector3 goalPosition, List<NaviPathNode> pathNodes)
@@ -92,7 +105,6 @@ namespace MHServerEmu.Games.Navi
 
             bool pathFound = false;
             bool incompletePath = false;
-            List<NaviPathNode> tempPath;
             bool startTriangleIsGoal = (_startTriangle == _goalTriangle) || (_goalPoint != null && _startTriangle.Contains(_goalPoint));
             if (startTriangleIsGoal == false || CanCrossTriangle(_startTriangle, _startPosition, _goalPosition, _width) == false)
             {
@@ -120,7 +132,7 @@ namespace MHServerEmu.Games.Navi
                         if (skipGen) break;
                         if (shortestPathDistance < 0.0f)
                         {
-                            NaviPathChannel shortestPathChannel = new (256);
+                            using var shortestPathChannelHandle = ListPool<NaviChannelEdge>.Instance.Get(256, out NaviPathChannel shortestPathChannel);
                             CopySearchStateToPathChannel(genPathState, shortestPathChannel);
                             AddPathNodeBack(outPathNodes, _startPosition, NaviSide.Point, _radius, 0.0f);
                             if (FunnelStep(shortestPathChannel, outPathNodes) == false)
@@ -130,9 +142,9 @@ namespace MHServerEmu.Games.Navi
                         }
                         else
                         {
-                            NaviPathChannel tempPathChannel = new (256);
+                            using var tempPathChannelHandle = ListPool<NaviChannelEdge>.Instance.Get(256, out NaviPathChannel tempPathChannel);
                             CopySearchStateToPathChannel(genPathState, tempPathChannel);
-                            tempPath = new(256);
+                            using var tempPathHandle = ListPool<NaviPathNode>.Instance.Get(256, out List<NaviPathNode> tempPath);
                             AddPathNodeBack(tempPath, _startPosition, NaviSide.Point, _radius, 0.0f);
                             if (FunnelStep(tempPathChannel, tempPath) == false)
                                 throw new InvalidOperationException("FunnelStep failed.");
@@ -175,7 +187,7 @@ namespace MHServerEmu.Games.Navi
 
                 if (_pathGenerationFlags.HasFlag(PathGenerationFlags.IncompletedPath) && !pathFound && closestPathState != null)
                 {
-                    NaviPathChannel tempPathChannel = new(256);
+                    using var tempPathChannelHandle = ListPool<NaviChannelEdge>.Instance.Get(256, out NaviPathChannel tempPathChannel);
                     if (closestPathState.ParentState != null)
                         CopySearchStateToPathChannel(closestPathState, tempPathChannel);
                     AddPathNodeBack(outPathNodes, _startPosition, NaviSide.Point, _radius, 0.0f);
@@ -613,11 +625,6 @@ namespace MHServerEmu.Games.Navi
             }
             return NaviPathResult.Success;
         }
-    }
-
-    public class NaviPathChannel : List<NaviChannelEdge>
-    {
-        public NaviPathChannel(int capacity) : base(capacity) { }
     }
 
     public struct NaviChannelEdge
