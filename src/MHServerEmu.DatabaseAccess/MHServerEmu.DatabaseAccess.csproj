@@ -32,7 +32,9 @@
     <EmbeddedResource Include="SQLite\Scripts\Migrations\2.sql" />
     <EmbeddedResource Include="SQLite\Scripts\Migrations\3.sql" />
     <EmbeddedResource Include="SQLite\Scripts\Migrations\4.sql" />
-	<EmbeddedResource Include="SQLite\Scripts\Migrations\5.sql" />
+	<EmbeddedResource Include="SQLite\Scripts\Migrations\5.sql">
+	  <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+	</EmbeddedResource>
   </ItemGroup>
   
   <ItemGroup>
