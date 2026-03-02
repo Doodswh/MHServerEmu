@@ -1,4 +1,4 @@
-name: Nightly Release (Windows x64)
+name: Nightly Release COA (Windows x64)
 
 on:
   schedule:
