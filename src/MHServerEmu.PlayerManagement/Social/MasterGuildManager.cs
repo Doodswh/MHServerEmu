@@ -5,6 +5,7 @@ using MHServerEmu.Core.System.Time;
 using MHServerEmu.DatabaseAccess;
 using MHServerEmu.DatabaseAccess.Models;
 using MHServerEmu.PlayerManagement.Players;
+using static MHServerEmu.Core.Network.ServiceMessage;
 
 namespace MHServerEmu.PlayerManagement.Social
 {
@@ -334,7 +335,20 @@ namespace MHServerEmu.PlayerManagement.Social
             ServiceMessage.GuildMessageToClient message = new(sourcePlayer.CurrentGame.Id, sourcePlayer.PlayerDbId, clientMessage);
             ServerManager.Instance.SendMessageToService(GameServiceType.GameInstance, message);
         }
+        public void OnGuildAddKills(in GuildAddKillsToServer message)
+        {
+            Logger.Info($"[GuildKills] PlayerManager received OnGuildAddKills message! GuildId: {message.GuildId}, Kills: {message.Kills}");
 
+            MasterGuild guild = GetGuild(message.GuildId);
+            if (guild != null)
+            {
+                guild.AddKills(message.Kills);
+            }
+            else
+            {
+                Logger.Warn($"[GuildKills] ERROR: GuildId {message.GuildId} was not found in MasterGuildManager!");
+            }
+        }
         private void OnGuildChangeMotd(GuildChangeMotd guildChangeMotd)
         {
             PlayerHandle player = _playerManager.ClientManager.GetPlayer(guildChangeMotd.PlayerId);

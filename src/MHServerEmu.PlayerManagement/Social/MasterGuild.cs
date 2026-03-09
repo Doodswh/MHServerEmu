@@ -29,6 +29,11 @@ namespace MHServerEmu.PlayerManagement.Social
         private MemberEntry? _leader;
 
         private GuildMessageSetToServer _guildCompleteInfoCache;
+        public long TotalKills
+        {
+            get => _data.TotalKills;
+            set => _data.TotalKills = value;
+        }
 
         public ulong Id { get => (ulong)_data.Id; }
         public string Name { get => _data.Name; }
@@ -62,7 +67,52 @@ namespace MHServerEmu.PlayerManagement.Social
                     member.SaveToDatabase();
             }
         }
+        public int Level
+        {
+            get
+            {
+                // Kills required per Guild level (adjust as needed for up to Level 10)
+                if (TotalKills >= 250000) return 10;
+                if (TotalKills >= 100000) return 9;
+                if (TotalKills >= 65000) return 8;
+                if (TotalKills >= 30000) return 7;
+                if (TotalKills >= 10000) return 6;
+                if (TotalKills >= 5000) return 5;
+                if (TotalKills >= 2000) return 4;
+                if (TotalKills >= 800) return 3;
+                if (TotalKills >= 300) return 2;
+                return 1;
+            }
+        }
+        public long NextLevelKills
+        {
+            get
+            {
+                if (TotalKills >= 250000) return 250000; // Max Level cap
+                if (TotalKills >= 100000) return 250000;
+                if (TotalKills >= 65000) return 100000;
+                if (TotalKills >= 30000) return 65000;
+                if (TotalKills >= 10000) return 30000;
+                if (TotalKills >= 5000) return 10000;
+                if (TotalKills >= 2000) return 5000;
+                if (TotalKills >= 800) return 2000;
+                if (TotalKills >= 300) return 800;
+                return 300;
+            }
+        }
+        public string MotdWithLevel
+        {
+            get
+            {
+                // If they are level 10, display "Max Level" instead of the fraction
+                string progress = Level >= 10 ? "Max Level" : $"{TotalKills}/{NextLevelKills}";
+                string prefix = $"[Guild Level {Level} - {progress}]";
 
+                return string.IsNullOrWhiteSpace(Motd)
+                    ? prefix
+                    : $"{prefix} {Motd}";
+            }
+        }
         public override string ToString()
         {
             return _data.ToString();
@@ -128,7 +178,7 @@ namespace MHServerEmu.PlayerManagement.Social
             var serverMessage = GuildMessageSetToServer.CreateBuilder()
                 .SetGuildMotdChanged(GuildMotdChanged.CreateBuilder()
                     .SetGuildId(Id)
-                    .SetNewGuildMotd(Motd)
+                    .SetNewGuildMotd(MotdWithLevel)
                     .SetChangedByPlayerName(player.PlayerName))
                 .Build();
 
@@ -381,7 +431,33 @@ namespace MHServerEmu.PlayerManagement.Social
 
             RemoveOnlineMember(player);
         }
+        public void AddKills(int kills)
+        {
+            int oldLevel = Level;
+            TotalKills += kills;
 
+            // 1. Always invalidate the cache so teleports get the exact current number
+            InvalidateGuildCompleteInfoCache();
+
+            
+            var guildMotdChanged = GuildMotdChanged.CreateBuilder()
+                .SetGuildId(Id)
+                .SetNewGuildMotd(MotdWithLevel)
+                .SetChangedByPlayerName("System")
+                .Build();
+
+            var serverMessage = GuildMessageSetToServer.CreateBuilder()
+                .SetGuildMotdChanged(guildMotdChanged)
+                .Build();
+
+            SendMessageToAllGames(serverMessage);
+
+            
+            if (Level > oldLevel)
+            {
+                Logger.Info($"[GuildKills] Guild {Name} Leveled Up to Level {Level}!");
+            }
+        }
         public void OnMemberRegionChanged(PlayerHandle player, RegionHandle newRegion, RegionHandle prevRegion)
         {
             if (player == null)
@@ -602,8 +678,8 @@ namespace MHServerEmu.PlayerManagement.Social
                 foreach (MemberEntry member in _members.Values)
                     guildCompleteInfo.AddMembers(member.ToGuildMemberInfo());
 
-                if (string.IsNullOrWhiteSpace(Motd) == false)
-                    guildCompleteInfo.SetGuildMotd(Motd);
+               
+                guildCompleteInfo.SetGuildMotd(MotdWithLevel);
 
                 _guildCompleteInfoCache = GuildMessageSetToServer.CreateBuilder()
                     .SetGuildCompleteInfo(guildCompleteInfo)

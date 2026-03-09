@@ -7,6 +7,7 @@
         public string Motd { get; set; }
         public long CreatorDbGuid { get; set; }
         public long CreationTime { get; set; }
+        public long TotalKills { get; set; } = 0;
 
         // CreatorDbGuid and CreationTime are just additional metadata for tracking/moderation.
 

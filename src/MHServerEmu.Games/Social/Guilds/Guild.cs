@@ -2,10 +2,12 @@
 using Google.ProtocolBuffers;
 using MHServerEmu.Core.Logging;
 using MHServerEmu.Core.Memory;
+using MHServerEmu.Core.Network;
 using MHServerEmu.Games.Entities;
 using MHServerEmu.Games.Events;
 using MHServerEmu.Games.Events.Templates;
 using MHServerEmu.Games.Network;
+using static MHServerEmu.Core.Network.ServiceMessage;
 
 namespace MHServerEmu.Games.Social.Guilds
 {
@@ -33,7 +35,8 @@ namespace MHServerEmu.Games.Social.Guilds
         public ulong Id { get; }
         public string Name { get; private set; }
         public string Motd { get; private set; }
-
+        private int _unreportedKills = 0;
+        private readonly object _killLock = new object();
         public ulong LeaderDbId { get; private set; }
 
         public int MemberCount { get => _members.Count; }
@@ -105,7 +108,22 @@ namespace MHServerEmu.Games.Social.Guilds
             CacheGuildCompleteInfo(guildCompleteInfo);
             ReplicateToOnlineMembers();
         }
+        public void RecordKill()
+        {
+            lock (_killLock)
+            {
+                _unreportedKills++;
 
+                // Batch every 10 kills to prevent network spam
+                if (_unreportedKills >= 10)
+                {
+                    GuildAddKillsToServer message = new GuildAddKillsToServer(Id, _unreportedKills);
+                    ServerManager.Instance.SendMessageToService(GameServiceType.PlayerManager, message);
+
+                    _unreportedKills = 0;
+                }
+            }
+        }
         public void Shutdown()
         {
             while (_members.Count > 0)
@@ -377,7 +395,8 @@ namespace MHServerEmu.Games.Social.Guilds
             // Mirror client-side
             return Game.GuildManager.RemoveGuild(this);
         }
-
+      
+        
         private void CacheGuildCompleteInfo(GuildCompleteInfo guildCompleteInfo = null)
         {
             if (guildCompleteInfo == null)

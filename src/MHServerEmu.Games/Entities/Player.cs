@@ -3987,6 +3987,14 @@ namespace MHServerEmu.Games.Entities
         {
             AchievementManager.OnScoringEvent(scoringEvent, entityId);
             LeaderboardManager.OnScoringEvent(scoringEvent, entityId);
+            if (scoringEvent.Type == ScoringEventType.EntityDeath)
+            {
+                Logger.Info($"[GuildKills] EntityDeath detected for player {GetName()}. IsInGuild: {IsInGuild}");
+                if (IsInGuild)
+                {
+                    GetGuild()?.RecordKill();
+                }
+            }
         }
 
         public void UpdateScoringEventContext()

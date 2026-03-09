@@ -194,7 +194,6 @@ namespace MHServerEmu.Games.Regions
             RegionPrototype destinationRegionProto = regionProtoRef.As<RegionPrototype>();
             if (destinationRegionProto == null) return Logger.WarnReturn(false, "TeleportToTarget(): destinationRegionProto == null");
 
-            // Fix endless data if needed
             if (destinationRegionProto.HasEndlessTheme() && EndlessLevel <= 0)
             {
                 if (region.PrototypeDataRef == destinationRegionProto.DataRef)
@@ -203,9 +202,19 @@ namespace MHServerEmu.Games.Regions
                     EndlessLevel = 1;
             }
 
-            // Keep difficulty consistent for teleports that are expected to be local (e.g. resurrect, Surtur raid teleport).
-            if (DifficultyTierRef == PrototypeId.Invalid)
+            
+            PrototypeId preferredDiff = Player.Properties[PropertyEnum.DifficultyTierPreference];
+
+           
+            if (preferredDiff != PrototypeId.Invalid)
             {
+                
+                DifficultyTierRef = preferredDiff;
+                Logger.Info($"Teleporter: Forced Global Override to {preferredDiff.GetNameFormatted()} for {Player.GetName()}");
+            }
+            else if (DifficultyTierRef == PrototypeId.Invalid)
+            {
+               
                 switch (Context)
                 {
                     case TeleportContextEnum.TeleportContext_Mission:
@@ -216,17 +225,18 @@ namespace MHServerEmu.Games.Regions
                 }
             }
 
-            if (Player.HasBadge(AvailableBadges.SiteCommands) == false)
+            if (preferredDiff == PrototypeId.Invalid && Player.HasBadge(AvailableBadges.SiteCommands) == false)
             {
                 DifficultyTierRef = Player.GetDifficultyTierForRegion(regionProtoRef, DifficultyTierRef);
             }
+
             if (IsLocalTeleport(region, destinationRegionProto))
             {
                 return TeleportToLocalTarget(areaProtoRef, cellProtoRef, entityProtoRef);
             }
             else
             {
-
+              
                 bool canEnter = Player.CanEnterRegion(regionProtoRef, DifficultyTierRef, false);
 
                 if (canEnter == false)

@@ -1,14 +1,16 @@
-﻿using System.Net;
-using Gazillion;
+﻿using Gazillion;
 using MHServerEmu.Core.Logging;
 using MHServerEmu.Core.Memory;
 using MHServerEmu.Core.Network;
 using MHServerEmu.Core.RateLimiting;
 using MHServerEmu.DatabaseAccess.Models;
 using MHServerEmu.Games.GameData;
+using MHServerEmu.Games.Social.Guilds;
 using MHServerEmu.PlayerManagement.Auth;
 using MHServerEmu.PlayerManagement.Players;
 using MHServerEmu.PlayerManagement.Regions;
+using MHServerEmu.PlayerManagement.Social;
+using System.Net;
 
 namespace MHServerEmu.PlayerManagement.Network
 {
@@ -135,6 +137,9 @@ namespace MHServerEmu.PlayerManagement.Network
 
                 case ServiceMessage.AccountOperationRequest accountOperationRequest:
                     OnAccountOperationRequest(accountOperationRequest);
+                    break;
+                case ServiceMessage.GuildAddKillsToServer guildAddKillsToServer:
+                    PlayerManagerService.Instance.GuildManager.OnGuildAddKills(guildAddKillsToServer);
                     break;
 
                 default:

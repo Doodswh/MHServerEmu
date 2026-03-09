@@ -125,39 +125,27 @@ namespace MHServerEmu.Commands.Implementations
     }
     [CommandGroup("difficulty")]
     [CommandGroupDescription("Sets your account's preferred difficulty tier. Bypasses UI locks.")]
-    [CommandGroupUserLevel(AccountUserLevel.Admin)]
     [CommandGroupFlags(CommandGroupFlags.SingleCommand)]
     public class SetDifficultyCommand : CommandGroup
     {
         [DefaultCommand]
         [CommandInvokerType(CommandInvokerType.Client)]
         [CommandParamCount(1)]
-        public string SetDifficulty(string[] @params, NetClient client)
+        public string SetPreference(string[] @params, NetClient client)
         {
             Player player = ((PlayerConnection)client).Player;
-            if (player.CurrentAvatar == null)
-                return "Avatar not found.";
+            if (player == null) return "Player not found.";
 
             string difficultyName = @params[0].ToLower();
             string prototypeName;
 
             switch (difficultyName)
             {
-                case "normal":
-                    prototypeName = "Difficulty/Tiers/Tier1Normal.prototype";
-                    break;
-                case "heroic":
-                    prototypeName = "Difficulty/Tiers/Tier2Heroic.prototype";
-                    break;
-                case "superheroic":
-                    prototypeName = "Difficulty/Tiers/Tier3Superheroic.prototype";
-                    break;
-                case "cosmic":
-                    prototypeName = "Difficulty/Tiers/Tier4Cosmic.prototype";
-                    break;
-                case "omega":
-                    prototypeName = "Difficulty/Tiers/Tier5Omega1.prototype";
-                    break;
+                case "normal": prototypeName = "Difficulty/Tiers/Tier1Normal.prototype"; break;
+                case "heroic": prototypeName = "Difficulty/Tiers/Tier2Heroic.prototype"; break;
+                case "superheroic": prototypeName = "Difficulty/Tiers/Tier3Superheroic.prototype"; break;
+                case "cosmic": prototypeName = "Difficulty/Tiers/Tier4Cosmic.prototype"; break;
+                case "omega": prototypeName = "Difficulty/Tiers/Tier5Omega1.prototype"; break;
                 default:
                     return "Invalid difficulty. Use: normal, heroic, superheroic, cosmic, or omega.";
             }
@@ -166,11 +154,42 @@ namespace MHServerEmu.Commands.Implementations
             if (difficultyProtoRef == PrototypeId.Invalid)
                 return $"Error: Could not find prototype {prototypeName}";
 
-            // This is the logic that the UI would normally run
-            player.CurrentAvatar.Properties[PropertyEnum.DifficultyTierPreference] = difficultyProtoRef;
+            player.Properties[PropertyEnum.DifficultyTierPreference] = difficultyProtoRef;
+
+            if (player.CurrentAvatar != null)
+            {
+                player.CurrentAvatar.Properties[PropertyEnum.DifficultyTierPreference] = difficultyProtoRef;
+            }
             player.SendDifficultyTierPreferenceToPlayerManager();
 
-            return $"Difficulty preference set to: {difficultyName}";
+            return $"Account difficulty preference permanently set to: {difficultyName} ({difficultyProtoRef})";
+        }
+    }
+    [CommandGroup("resetdiff")]
+    [CommandGroupDescription("Clears the forced difficulty override and returns to normal game behavior.")]
+    [CommandGroupFlags(CommandGroupFlags.SingleCommand)]
+    public class ResetDifficultyCommand : CommandGroup
+    {
+        [DefaultCommand]
+        [CommandInvokerType(CommandInvokerType.Client)]
+        public string ResetDifficulty(string[] @params, NetClient client)
+        {
+            Player player = ((PlayerConnection)client).Player;
+            if (player == null) return "Player not found.";
+
+           
+            player.Properties[PropertyEnum.DifficultyTierPreference] = PrototypeId.Invalid;
+
+   
+            if (player.CurrentAvatar != null)
+            {
+                player.CurrentAvatar.Properties[PropertyEnum.DifficultyTierPreference] = PrototypeId.Invalid;
+            }
+
+            
+            player.SendDifficultyTierPreferenceToPlayerManager();
+
+            return "Difficulty override cleared. Regions will now use standard difficulty scaling.";
         }
     }
 

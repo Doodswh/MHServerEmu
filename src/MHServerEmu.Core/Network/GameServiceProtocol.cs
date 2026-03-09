@@ -72,7 +72,17 @@ namespace MHServerEmu.Core.Network
             public readonly IFrontendClient Client = client;
             public readonly MessageBuffer MessageBuffer = messageBuffer;
         }
+        public struct GuildAddKillsToServer : IGameServiceMessage
+        {
+            public ulong GuildId { get; }
+            public int Kills { get; }
 
+            public GuildAddKillsToServer(ulong guildId, int kills)
+            {
+                GuildId = guildId;
+                Kills = kills;
+            }
+        }
         public readonly struct RouteMessage(IFrontendClient client, Type protocol, MailboxMessage message)
             : IGameServiceMessage
         {
