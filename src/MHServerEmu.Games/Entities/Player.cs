@@ -151,6 +151,7 @@ namespace MHServerEmu.Games.Entities
         public bool IsOnLoadingScreen { get; private set; }
         public bool IsFullscreenObscured { get => IsFullscreenMoviePlaying || IsOnLoadingScreen; }
         public uint FullscreenMovieSyncRequestId { get; set; }
+        public PrototypeId AdminDifficultyOverride { get; set; } = PrototypeId.Invalid;
 
         public bool IsSwitchingAvatar { get; private set; }
         public bool IsVanished { get; set; }
@@ -439,7 +440,14 @@ namespace MHServerEmu.Games.Entities
             success &= Serializer.Transfer(archive, ref hasCommunityData);
             if (hasCommunityData)
                 success &= Serializer.Transfer(archive, ref _community);
-
+            // Pass the memory override to the next region server without saving to DB
+            if (archive.IsMigration || archive.IsTransient)
+            {
+                ulong diffOverrideId = (ulong)AdminDifficultyOverride;
+                success &= Serializer.Transfer(archive, ref diffOverrideId);
+                AdminDifficultyOverride = (PrototypeId)diffOverrideId;
+            }
+            // ----------------------
             // Unused bool, always false
             bool unkBool = false;
             success &= Serializer.Transfer(archive, ref unkBool);
@@ -2632,6 +2640,10 @@ namespace MHServerEmu.Games.Entities
 
         public PrototypeId GetDifficultyTierPreference()
         {
+            // Transient Server-Side Override 
+            if (AdminDifficultyOverride != PrototypeId.Invalid)
+                return AdminDifficultyOverride;
+
             Party party = GetParty();
             if (party != null)
                 return party.DifficultyTierProtoRef;
@@ -2644,13 +2656,24 @@ namespace MHServerEmu.Games.Entities
 
         public PrototypeId GetDifficultyTierForRegion(PrototypeId regionProtoRef, PrototypeId preferenceProtoRef = PrototypeId.Invalid)
         {
+            RegionPrototype regionProto = regionProtoRef.As<RegionPrototype>();
+
+            bool isTown = regionProto != null && regionProto.Behavior == RegionBehavior.Town;
+
+            //  Transient Server-Side Override 
+            if (AdminDifficultyOverride != PrototypeId.Invalid && !isTown)
+                return AdminDifficultyOverride;
+
+            //  Normal Game Pipeline
             if (preferenceProtoRef == PrototypeId.Invalid)
                 preferenceProtoRef = GetDifficultyTierPreference();
+
+            if (Properties[PropertyEnum.DifficultyTierPreference] != PrototypeId.Invalid)
+                return preferenceProtoRef;
 
             PrototypeId difficultyTierProtoRef = RegionPrototype.ConstrainDifficulty(regionProtoRef, preferenceProtoRef);
             if (difficultyTierProtoRef == preferenceProtoRef)
                 return preferenceProtoRef;
-
             if (CanChangeDifficulty(difficultyTierProtoRef))
                 return difficultyTierProtoRef;
 
@@ -2659,9 +2682,7 @@ namespace MHServerEmu.Games.Entities
 
         public void SendDifficultyTierPreferenceToPlayerManager()
         {
-            PrototypeId difficultyTierProtoRef = CurrentAvatar != null
-                ? CurrentAvatar.Properties[PropertyEnum.DifficultyTierPreference]
-                : GameDatabase.GlobalsPrototype.DifficultyTierDefault;
+            PrototypeId difficultyTierProtoRef = GetDifficultyTierPreference();
 
             ServiceMessage.SetDifficultyTierPreference message = new(DatabaseUniqueId, (ulong)difficultyTierProtoRef);
             ServerManager.Instance.SendMessageToService(GameServiceType.PlayerManager, message);

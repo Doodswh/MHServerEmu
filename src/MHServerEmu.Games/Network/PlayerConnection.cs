@@ -1322,6 +1322,13 @@ namespace MHServerEmu.Games.Network
             if (Player.CanChangeDifficulty(difficultyTierProtoRef) == false)
                 return Logger.WarnReturn(false, $"{this} is trying to change difficulty to {difficultyTierProtoRef}, which is not allowed");
 
+           
+            if (Player.AdminDifficultyOverride != PrototypeId.Invalid)
+            {
+                Logger.Trace($"OnChangeDifficulty(): Ignored UI change for {Player.GetName()} because AdminDifficultyOverride is active.");
+                return true;
+            }
+
             Logger.Trace($"OnChangeDifficulty(): Setting preferred difficulty for {Player.CurrentAvatar} to {difficultyTierProtoRef.GetName()}");
             Player.CurrentAvatar.Properties[PropertyEnum.DifficultyTierPreference] = difficultyTierProtoRef;
 

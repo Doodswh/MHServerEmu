@@ -1,5 +1,6 @@
 ﻿using Gazillion;
 using MHServerEmu.Commands.Attributes;
+using MHServerEmu.Core.Logging;
 using MHServerEmu.Core.Memory;
 using MHServerEmu.Core.Network;
 using MHServerEmu.Core.VectorMath;
@@ -11,6 +12,7 @@ using MHServerEmu.Games.Network;
 using MHServerEmu.Games.Powers;
 using MHServerEmu.Games.Properties;
 using MHServerEmu.Games.Regions;
+using MHServerEmu.Games.Social.Parties;
 
 namespace MHServerEmu.Commands.Implementations
 {
@@ -141,55 +143,59 @@ namespace MHServerEmu.Commands.Implementations
 
             switch (difficultyName)
             {
-                case "normal": prototypeName = "Difficulty/Tiers/Tier1Normal.prototype"; break;
-                case "heroic": prototypeName = "Difficulty/Tiers/Tier2Heroic.prototype"; break;
-                case "superheroic": prototypeName = "Difficulty/Tiers/Tier3Superheroic.prototype"; break;
                 case "cosmic": prototypeName = "Difficulty/Tiers/Tier4Cosmic.prototype"; break;
                 case "omega": prototypeName = "Difficulty/Tiers/Tier5Omega1.prototype"; break;
                 default:
-                    return "Invalid difficulty. Use: normal, heroic, superheroic, cosmic, or omega.";
+                    return "Invalid difficulty. Use:  cosmic, or omega.";
+            }
+
+            if (difficultyName == "cosmic" || difficultyName == "omega")
+            {
+                if (player.CurrentAvatar != null)
+                {
+                    if (!player.CurrentAvatar.IsAtMaxPrestigeLevel())
+                    {
+                        return "You must reach maximum prestige to access this difficulty tier.";
+                    }
+                }
             }
 
             PrototypeId difficultyProtoRef = GameDatabase.GetPrototypeRefByName(prototypeName);
             if (difficultyProtoRef == PrototypeId.Invalid)
                 return $"Error: Could not find prototype {prototypeName}";
 
-            player.Properties[PropertyEnum.DifficultyTierPreference] = difficultyProtoRef;
-
-            if (player.CurrentAvatar != null)
-            {
-                player.CurrentAvatar.Properties[PropertyEnum.DifficultyTierPreference] = difficultyProtoRef;
-            }
+            player.AdminDifficultyOverride = difficultyProtoRef;
             player.SendDifficultyTierPreferenceToPlayerManager();
 
-            return $"Account difficulty preference permanently set to: {difficultyName} ({difficultyProtoRef})";
+            MHServerEmu.Core.Logging.LogManager.CreateLogger().Info($"[DIFFICULTY_DEBUG] Difficulty override set in memory to {difficultyName} ({difficultyProtoRef}) for Player [Name: {player.GetName()}, DbId: {player.DatabaseUniqueId}]");
+
+            return $"Account difficulty temporarily set to: {difficultyName}";
         }
     }
-    [CommandGroup("resetdiff")]
-    [CommandGroupDescription("Clears the forced difficulty override and returns to normal game behavior.")]
+
+
+    [CommandGroup("reset_diff")]
+    [CommandGroupDescription("Returns difficulty behavior to normal and refreshes state.")]
     [CommandGroupFlags(CommandGroupFlags.SingleCommand)]
     public class ResetDifficultyCommand : CommandGroup
     {
         [DefaultCommand]
         [CommandInvokerType(CommandInvokerType.Client)]
-        public string ResetDifficulty(string[] @params, NetClient client)
+        public string Reset(string[] @params, NetClient client)
         {
             Player player = ((PlayerConnection)client).Player;
             if (player == null) return "Player not found.";
 
-           
-            player.Properties[PropertyEnum.DifficultyTierPreference] = PrototypeId.Invalid;
+            // Clear the server-side memory override
+            player.AdminDifficultyOverride = PrototypeId.Invalid;
 
-   
-            if (player.CurrentAvatar != null)
-            {
-                player.CurrentAvatar.Properties[PropertyEnum.DifficultyTierPreference] = PrototypeId.Invalid;
-            }
-
-            
+            // Broadcast the revert to the Player Management service
+            // This forces the server to go back to reading the Avatar's actual UI preference.
             player.SendDifficultyTierPreferenceToPlayerManager();
 
-            return "Difficulty override cleared. Regions will now use standard difficulty scaling.";
+            MHServerEmu.Core.Logging.LogManager.CreateLogger().Info($"[DIFFICULTY_DEBUG] Difficulty override cleared for Player [Name: {player.GetName()}, DbId: {player.DatabaseUniqueId}]");
+
+            return "Difficulty override cleared. Normal region behavior resumed.";
         }
     }
 
