@@ -143,22 +143,19 @@ namespace MHServerEmu.Commands.Implementations
 
             switch (difficultyName)
             {
-                case "omega": prototypeName = "Difficulty/Tiers/Tier5Omega1.prototype"; break;
-                default:
+                case "omega":
+                    prototypeName = "Difficulty/Tiers/Tier5Omega1.prototype";
 
-                    return "Invalid difficulty. Use:  omega.";
-            }
-            if (difficultyName == "omega")
-            {
-                if (player.CurrentAvatar != null)
-                {
-                    if (!player.CurrentAvatar.IsAtMaxPrestigeLevel())
+                    if (player.CurrentAvatar != null && !player.CurrentAvatar.IsAtMaxPrestigeLevel())
                     {
                         return "You must reach maximum prestige to access this difficulty tier.";
                     }
-                }
-                return "Invalid difficulty. Use:  omega.";
+                    break;
+
+                default:
+                    return "Invalid difficulty. Use:  omega.";
             }
+
             PrototypeId difficultyProtoRef = GameDatabase.GetPrototypeRefByName(prototypeName);
             if (difficultyProtoRef == PrototypeId.Invalid)
                 return $"Error: Could not find prototype {prototypeName}";
@@ -173,7 +170,6 @@ namespace MHServerEmu.Commands.Implementations
 
     [CommandGroup("reset_diff")]
     [CommandGroupDescription("Returns difficulty behavior to normal and refreshes state.")]
-    [CommandGroupUserLevel(AccountUserLevel.Admin)]
     [CommandGroupFlags(CommandGroupFlags.SingleCommand)]
     public class ResetDifficultyCommand : CommandGroup
     {
