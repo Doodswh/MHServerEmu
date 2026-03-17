@@ -226,8 +226,14 @@ namespace MHServerEmu.Games.Regions
             }
 
             bool isRestrictedPreference = preferredDiff != PrototypeId.Invalid && IsRestrictedTier(preferredDiff);
+            bool isWaypointTeleport = Context == TeleportContextEnum.TeleportContext_Waypoint;
 
-            if (IsRestrictedTier(DifficultyTierRef))
+            if (isWaypointTeleport && playerParty != null && playerParty.DifficultyTierProtoRef != PrototypeId.Invalid)
+            {
+                Logger.Debug($"TeleportToTarget(): [{Player.GetName()}] branch=PartyWaypoint, overriding explicit UI ref [{DifficultyTierRef.GetNameFormatted()}] with Party ref [{playerParty.DifficultyTierProtoRef.GetNameFormatted()}]");
+                DifficultyTierRef = playerParty.DifficultyTierProtoRef;
+            }
+            else if (IsRestrictedTier(DifficultyTierRef))
             {
                 Logger.Debug($"TeleportToTarget(): [{Player.GetName()}] branch=RestrictedTierRef, keeping DifficultyTierRef=[{DifficultyTierRef.GetNameFormatted()}]");
             }
@@ -238,34 +244,26 @@ namespace MHServerEmu.Games.Regions
             }
             else if (DifficultyTierRef == PrototypeId.Invalid)
             {
-                if (playerParty != null)
+                PrototypeId regionDiff = region.DifficultyTierRef;
+                Logger.Debug($"TeleportToTarget(): [{Player.GetName()}] branch=SoloDifficultyResolution, currentRegionDiff=[{regionDiff.GetNameFormatted()}]");
+
+                if (IsRestrictedTier(regionDiff))
                 {
-                    Logger.Debug($"TeleportToTarget(): [{Player.GetName()}] branch=PartyDifficulty, setting DifficultyTierRef=[{playerParty.DifficultyTierProtoRef.GetNameFormatted()}]");
-                    DifficultyTierRef = playerParty.DifficultyTierProtoRef;
+                    Logger.Debug($"TeleportToTarget(): [{Player.GetName()}] currentRegion is restricted tier, defaulting to normal");
+                    DifficultyTierRef = GameDatabase.GlobalsPrototype.DifficultyTierDefault;
                 }
                 else
                 {
-                    PrototypeId regionDiff = region.DifficultyTierRef;
-                    Logger.Debug($"TeleportToTarget(): [{Player.GetName()}] branch=SoloDifficultyResolution, currentRegionDiff=[{regionDiff.GetNameFormatted()}]");
-
-                    if (IsRestrictedTier(regionDiff))
+                    switch (Context)
                     {
-                        Logger.Debug($"TeleportToTarget(): [{Player.GetName()}] currentRegion is restricted tier, defaulting to normal");
-                        DifficultyTierRef = GameDatabase.GlobalsPrototype.DifficultyTierDefault;
-                    }
-                    else
-                    {
-                        switch (Context)
-                        {
-                            case TeleportContextEnum.TeleportContext_Mission:
-                            case TeleportContextEnum.TeleportContext_Power:
-                            case TeleportContextEnum.TeleportContext_Resurrect:
-                                DifficultyTierRef = regionDiff;
-                                break;
-                            default:
-                                DifficultyTierRef = Player.GetDifficultyTierForRegion(regionProtoRef, PrototypeId.Invalid);
-                                break;
-                        }
+                        case TeleportContextEnum.TeleportContext_Mission:
+                        case TeleportContextEnum.TeleportContext_Power:
+                        case TeleportContextEnum.TeleportContext_Resurrect:
+                            DifficultyTierRef = regionDiff;
+                            break;
+                        default:
+                            DifficultyTierRef = Player.GetDifficultyTierForRegion(regionProtoRef, PrototypeId.Invalid);
+                            break;
                     }
                 }
             }
@@ -275,9 +273,9 @@ namespace MHServerEmu.Games.Regions
             }
 
             bool bypass = IsRestrictedTier(DifficultyTierRef) ||
-                          Player.HasBadge(AvailableBadges.SiteCommands) ||
-                          isRestrictedPreference ||
-                          (playerParty != null && DifficultyTierRef == playerParty.DifficultyTierProtoRef);
+                           Player.HasBadge(AvailableBadges.SiteCommands) ||
+                           isRestrictedPreference ||
+                           (playerParty != null && DifficultyTierRef == playerParty.DifficultyTierProtoRef);
 
             Logger.Debug($"TeleportToTarget(): [{Player.GetName()}] bypass=[{bypass}] final DifficultyTierRef=[{DifficultyTierRef.GetNameFormatted()}]");
 
@@ -285,6 +283,20 @@ namespace MHServerEmu.Games.Regions
             {
                 DifficultyTierRef = Player.GetDifficultyTierForRegion(regionProtoRef, DifficultyTierRef);
                 Logger.Debug($"TeleportToTarget(): [{Player.GetName()}] after GetDifficultyTierForRegion=[{DifficultyTierRef.GetNameFormatted()}]");
+            }
+            else
+            {
+
+                PrototypeId constrainedDiff = RegionPrototype.ConstrainDifficulty(regionProtoRef, DifficultyTierRef);
+
+                if (constrainedDiff != DifficultyTierRef && !Player.HasBadge(AvailableBadges.SiteCommands))
+                {
+                    Logger.Warn($"Teleport: {Player.GetName()} blocked. Target map [{regionProtoRef.GetNameFormatted()}] does not support party difficulty [{DifficultyTierRef.GetNameFormatted()}].");
+
+ 
+                    Player.SendBannerMessage(GameDatabase.UIGlobalsPrototype.MessageRegionRestricted); // 
+                    return false;
+                }
             }
 
             if (IsLocalTeleport(region, destinationRegionProto))

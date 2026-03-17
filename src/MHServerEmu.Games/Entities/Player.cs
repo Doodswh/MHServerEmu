@@ -2629,60 +2629,99 @@ namespace MHServerEmu.Games.Entities
         public bool CanChangeDifficulty(PrototypeId difficultyTierProtoRef)
         {
             DifficultyTierPrototype difficultyTierProto = difficultyTierProtoRef.As<DifficultyTierPrototype>();
-            if (difficultyTierProto == null) return Logger.WarnReturn(false, "CanChangeDifficulty(): difficultyTierProto == null");
+            if (difficultyTierProto == null)
+            {
+                Logger.Warn($"[Difficulty] CanChangeDifficulty(): Prototype is null for {difficultyTierProtoRef}");
+                return false;
+            }
 
             // The game assumes all difficulties to be unlocked if there is no current avatar
             if (CurrentAvatar != null && CurrentAvatar.CharacterLevel < difficultyTierProto.UnlockLevel)
+            {
+                Logger.Info($"[Difficulty] {GetName()} denied difficulty change. Level {CurrentAvatar.CharacterLevel} < Required {difficultyTierProto.UnlockLevel}");
                 return false;
+            }
 
             return true;
         }
 
         public PrototypeId GetDifficultyTierPreference()
         {
-            // Transient Server-Side Override 
-            if (AdminDifficultyOverride != PrototypeId.Invalid)
-                return AdminDifficultyOverride;
-
             Party party = GetParty();
             if (party != null)
+            {
+                Logger.Info($"[Difficulty] {GetName()} is in a party. Enforcing Party Difficulty: {party.DifficultyTierProtoRef}");
                 return party.DifficultyTierProtoRef;
+            }
+
+            if (AdminDifficultyOverride != PrototypeId.Invalid)
+            {
+                Logger.Info($"[Difficulty] {GetName()} has Admin Override. Enforcing: {AdminDifficultyOverride}");
+                return AdminDifficultyOverride;
+            }
 
             if (CurrentAvatar != null)
-                return CurrentAvatar.Properties[PropertyEnum.DifficultyTierPreference];
+            {
+                PrototypeId avatarPref = CurrentAvatar.Properties[PropertyEnum.DifficultyTierPreference];
+                Logger.Info($"[Difficulty] {GetName()} returning avatar UI preference: {avatarPref}");
+                return avatarPref;
+            }
 
+            Logger.Info($"[Difficulty] {GetName()} returning default fallback difficulty.");
             return GameDatabase.GlobalsPrototype.DifficultyTierDefault;
         }
 
         public PrototypeId GetDifficultyTierForRegion(PrototypeId regionProtoRef, PrototypeId preferenceProtoRef = PrototypeId.Invalid)
         {
-            RegionPrototype regionProto = regionProtoRef.As<RegionPrototype>();
+            Logger.Info($"[Difficulty] GetDifficultyTierForRegion() initiated for {GetName()} | Dest: {regionProtoRef.GetNameFormatted()} | Client/UI Pref: {preferenceProtoRef}");
 
-            bool isTown = regionProto != null && regionProto.Behavior == RegionBehavior.Town;
-
-            //  Transient Server-Side Override 
-            if (AdminDifficultyOverride != PrototypeId.Invalid && !isTown)
-                return AdminDifficultyOverride;
-
-            //  Normal Game Pipeline
-            if (preferenceProtoRef == PrototypeId.Invalid)
+            Party party = GetParty();
+            if (party != null && party.DifficultyTierProtoRef != PrototypeId.Invalid)
+            {
+                if (preferenceProtoRef != party.DifficultyTierProtoRef)
+                {
+                    Logger.Info($"[Difficulty] OVERRIDE: Client UI requested {preferenceProtoRef}, but Party requires {party.DifficultyTierProtoRef}. Forcing Party Difficulty.");
+                    preferenceProtoRef = party.DifficultyTierProtoRef;
+                }
+            }
+            else if (preferenceProtoRef == PrototypeId.Invalid)
+            {
                 preferenceProtoRef = GetDifficultyTierPreference();
+                Logger.Info($"[Difficulty] No explicit UI preference provided. Pulled internal preference: {preferenceProtoRef}");
+            }
 
             if (Properties[PropertyEnum.DifficultyTierPreference] != PrototypeId.Invalid)
+            {
+                Logger.Info($"[Difficulty] Player persistent property enforcing: {preferenceProtoRef}");
                 return preferenceProtoRef;
+            }
 
-            PrototypeId difficultyTierProtoRef = RegionPrototype.ConstrainDifficulty(regionProtoRef, preferenceProtoRef);
-            if (difficultyTierProtoRef == preferenceProtoRef)
+            PrototypeId constrainedDiff = RegionPrototype.ConstrainDifficulty(regionProtoRef, preferenceProtoRef);
+            Logger.Info($"[Difficulty] Constrained Difficulty Output: {constrainedDiff}");
+
+            if (constrainedDiff == preferenceProtoRef)
+            {
+                Logger.Info($"[Difficulty] Constrained difficulty matches preference. Returning: {preferenceProtoRef}");
                 return preferenceProtoRef;
-            if (CanChangeDifficulty(difficultyTierProtoRef))
-                return difficultyTierProtoRef;
+            }
 
+            if (CanChangeDifficulty(constrainedDiff))
+            {
+                Logger.Info($"[Difficulty] Change permitted to constrained difficulty: {constrainedDiff}");
+                return constrainedDiff;
+            }
+
+            Logger.Warn($"[Difficulty] Change denied for {GetName()} to {constrainedDiff}. Returning Invalid.");
             return PrototypeId.Invalid;
         }
 
         public void SendDifficultyTierPreferenceToPlayerManager()
         {
-            PrototypeId difficultyTierProtoRef = GetDifficultyTierPreference();
+            PrototypeId difficultyTierProtoRef = AdminDifficultyOverride != PrototypeId.Invalid
+                ? AdminDifficultyOverride
+                : GetDifficultyTierPreference();
+
+            Logger.Info($"[Difficulty] Syncing {difficultyTierProtoRef} to PlayerManager for {GetName()}");
 
             ServiceMessage.SetDifficultyTierPreference message = new(DatabaseUniqueId, (ulong)difficultyTierProtoRef);
             ServerManager.Instance.SendMessageToService(GameServiceType.PlayerManager, message);
@@ -2692,11 +2731,18 @@ namespace MHServerEmu.Games.Entities
         {
             Party party = GetParty();
             if (party == null)
+            {
+                Logger.Info($"[Difficulty] UpdatePartyDifficulty() aborted: {GetName()} is not in a party.");
                 return;
+            }
 
-            // Only the leader can update difficulty.
             if (party.IsLeader(this) == false)
+            {
+                Logger.Info($"[Difficulty] UpdatePartyDifficulty() aborted: {GetName()} is not the party leader.");
                 return;
+            }
+
+            Logger.Info($"[Difficulty] Leader {GetName()} is broadcasting party difficulty change to: {difficultyTierProtoRef}");
 
             PartyOperationPayload request = PartyOperationPayload.CreateBuilder()
                 .SetRequestingPlayerDbId(DatabaseUniqueId)

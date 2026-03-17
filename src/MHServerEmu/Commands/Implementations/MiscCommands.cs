@@ -126,7 +126,7 @@ namespace MHServerEmu.Commands.Implementations
         }
     }
     [CommandGroup("difficulty")]
-    [CommandGroupDescription("Sets your account's preferred difficulty tier. Bypasses UI locks.")]
+    [CommandGroupDescription("Sets your account's preferred difficulty tier to omega. Bypasses UI locks.")]
     [CommandGroupFlags(CommandGroupFlags.SingleCommand)]
     public class SetDifficultyCommand : CommandGroup
     {
@@ -143,13 +143,12 @@ namespace MHServerEmu.Commands.Implementations
 
             switch (difficultyName)
             {
-                case "cosmic": prototypeName = "Difficulty/Tiers/Tier4Cosmic.prototype"; break;
                 case "omega": prototypeName = "Difficulty/Tiers/Tier5Omega1.prototype"; break;
                 default:
-                    return "Invalid difficulty. Use:  cosmic, or omega.";
-            }
 
-            if (difficultyName == "cosmic" || difficultyName == "omega")
+                    return "Invalid difficulty. Use:  omega.";
+            }
+            if (difficultyName == "omega")
             {
                 if (player.CurrentAvatar != null)
                 {
@@ -158,24 +157,23 @@ namespace MHServerEmu.Commands.Implementations
                         return "You must reach maximum prestige to access this difficulty tier.";
                     }
                 }
+                return "Invalid difficulty. Use:  omega.";
             }
-
             PrototypeId difficultyProtoRef = GameDatabase.GetPrototypeRefByName(prototypeName);
             if (difficultyProtoRef == PrototypeId.Invalid)
                 return $"Error: Could not find prototype {prototypeName}";
 
             player.AdminDifficultyOverride = difficultyProtoRef;
             player.SendDifficultyTierPreferenceToPlayerManager();
+            player.UpdatePartyDifficulty(difficultyProtoRef);
 
-            MHServerEmu.Core.Logging.LogManager.CreateLogger().Info($"[DIFFICULTY_DEBUG] Difficulty override set in memory to {difficultyName} ({difficultyProtoRef}) for Player [Name: {player.GetName()}, DbId: {player.DatabaseUniqueId}]");
-
-            return $"Account difficulty temporarily set to: {difficultyName}";
+            return $"Account difficulty preference temporarily set to: {difficultyName} ({difficultyProtoRef})";
         }
     }
 
-
     [CommandGroup("reset_diff")]
     [CommandGroupDescription("Returns difficulty behavior to normal and refreshes state.")]
+    [CommandGroupUserLevel(AccountUserLevel.Admin)]
     [CommandGroupFlags(CommandGroupFlags.SingleCommand)]
     public class ResetDifficultyCommand : CommandGroup
     {
@@ -186,14 +184,23 @@ namespace MHServerEmu.Commands.Implementations
             Player player = ((PlayerConnection)client).Player;
             if (player == null) return "Player not found.";
 
-            // Clear the server-side memory override
             player.AdminDifficultyOverride = PrototypeId.Invalid;
 
-            // Broadcast the revert to the Player Management service
-            // This forces the server to go back to reading the Avatar's actual UI preference.
             player.SendDifficultyTierPreferenceToPlayerManager();
 
-            MHServerEmu.Core.Logging.LogManager.CreateLogger().Info($"[DIFFICULTY_DEBUG] Difficulty override cleared for Player [Name: {player.GetName()}, DbId: {player.DatabaseUniqueId}]");
+            Party party = player.GetParty();
+            if (party != null && player.IsPartyLeader())
+            {
+                var partyRequest = PartyOperationPayload.CreateBuilder()
+                    .SetRequestingPlayerDbId(player.DatabaseUniqueId)
+                    .SetRequestingPlayerName(player.GetName())
+                    .SetOperation(GroupingOperationType.eGOP_ChangeDifficulty)
+                    .SetDifficultyTierProtoId((ulong)PrototypeId.Invalid)
+                    .Build();
+
+                ServiceMessage.PartyOperationRequest message = new(partyRequest);
+                ServerManager.Instance.SendMessageToService(GameServiceType.PlayerManager, message);
+            }
 
             return "Difficulty override cleared. Normal region behavior resumed.";
         }
