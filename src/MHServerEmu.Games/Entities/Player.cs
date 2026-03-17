@@ -441,7 +441,7 @@ namespace MHServerEmu.Games.Entities
             if (hasCommunityData)
                 success &= Serializer.Transfer(archive, ref _community);
             // Pass the memory override to the next region server without saving to DB
-            if (archive.IsMigration || archive.IsTransient)
+            if (archive.InvolvesClient == false && (archive.IsMigration || archive.IsTransient))
             {
                 ulong diffOverrideId = (ulong)AdminDifficultyOverride;
                 success &= Serializer.Transfer(archive, ref diffOverrideId);
@@ -451,8 +451,16 @@ namespace MHServerEmu.Games.Entities
             // Unused bool, always false
             bool unkBool = false;
             success &= Serializer.Transfer(archive, ref unkBool);
+        
+
+        
 
             success &= Serializer.Transfer(archive, ref _unlockedInventoryList);
+
+    
+
+            if (archive.IsMigration || (archive.IsReplication && archive.HasReplicationPolicy(AOINetworkPolicyValues.AOIChannelOwner)))
+                success &= Serializer.Transfer(archive, ref _badges);
 
             if (archive.IsMigration || (archive.IsReplication && archive.HasReplicationPolicy(AOINetworkPolicyValues.AOIChannelOwner)))
                 success &= Serializer.Transfer(archive, ref _badges);
@@ -4054,9 +4062,9 @@ namespace MHServerEmu.Games.Entities
         {
             AchievementManager.OnScoringEvent(scoringEvent, entityId);
             LeaderboardManager.OnScoringEvent(scoringEvent, entityId);
-            if (scoringEvent.Type == ScoringEventType.EntityDeath)
+            if (scoringEvent.Type == ScoringEventType.AvatarKill)
             {
-                Logger.Info($"[GuildKills] EntityDeath detected for player {GetName()}. IsInGuild: {IsInGuild}");
+                Logger.Info($"[GuildKills] Kill detected for player {GetName()}. IsInGuild: {IsInGuild}");
                 if (IsInGuild)
                 {
                     GetGuild()?.RecordKill();
