@@ -451,16 +451,8 @@ namespace MHServerEmu.Games.Entities
             // Unused bool, always false
             bool unkBool = false;
             success &= Serializer.Transfer(archive, ref unkBool);
-        
-
-        
 
             success &= Serializer.Transfer(archive, ref _unlockedInventoryList);
-
-    
-
-            if (archive.IsMigration || (archive.IsReplication && archive.HasReplicationPolicy(AOINetworkPolicyValues.AOIChannelOwner)))
-                success &= Serializer.Transfer(archive, ref _badges);
 
             if (archive.IsMigration || (archive.IsReplication && archive.HasReplicationPolicy(AOINetworkPolicyValues.AOIChannelOwner)))
                 success &= Serializer.Transfer(archive, ref _badges);
