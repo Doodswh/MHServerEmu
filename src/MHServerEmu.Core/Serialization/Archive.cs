@@ -33,9 +33,10 @@ namespace MHServerEmu.Core.Serialization
         ImplementedMapDiscoveryDataPersistence = 6,
         AddedRegionProtoRefToMapDiscoveryData = 7,
         AddedUltimatePrestigeLevel = 8,
+        AddedAdminDifficulty = 9,
 
         // Update the current version if you add any    <---------
-        Current = AddedUltimatePrestigeLevel
+        Current = AddedAdminDifficulty
     }
 
     /// <summary>

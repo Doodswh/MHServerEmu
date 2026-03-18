@@ -275,27 +275,28 @@ namespace MHServerEmu.Games.Regions
             bool bypass = IsRestrictedTier(DifficultyTierRef) ||
                            Player.HasBadge(AvailableBadges.SiteCommands) ||
                            isRestrictedPreference ||
-                           (playerParty != null && DifficultyTierRef == playerParty.DifficultyTierProtoRef);
-
-            Logger.Debug($"TeleportToTarget(): [{Player.GetName()}] bypass=[{bypass}] final DifficultyTierRef=[{DifficultyTierRef.GetNameFormatted()}]");
+                           (playerParty != null && DifficultyTierRef == playerParty.DifficultyTierProtoRef) ||
+                           (playerParty == null && Player.AdminDifficultyOverride != PrototypeId.Invalid && DifficultyTierRef == Player.AdminDifficultyOverride);
 
             if (!bypass)
             {
                 DifficultyTierRef = Player.GetDifficultyTierForRegion(regionProtoRef, DifficultyTierRef);
-                Logger.Debug($"TeleportToTarget(): [{Player.GetName()}] after GetDifficultyTierForRegion=[{DifficultyTierRef.GetNameFormatted()}]");
             }
             else
             {
-
-                PrototypeId constrainedDiff = RegionPrototype.ConstrainDifficulty(regionProtoRef, DifficultyTierRef);
-
-                if (constrainedDiff != DifficultyTierRef && !Player.HasBadge(AvailableBadges.SiteCommands))
+              
+                // native Trial/Level requirements for Omega/Cosmic difficulty.
+                if (!Player.HasBadge(AvailableBadges.SiteCommands) && IsRestrictedTier(DifficultyTierRef))
                 {
-                    Logger.Warn($"Teleport: {Player.GetName()} blocked. Target map [{regionProtoRef.GetNameFormatted()}] does not support party difficulty [{DifficultyTierRef.GetNameFormatted()}].");
+                    // CanEnterRegion automatically verifies if they are Level 60 and have passed the trial.
+                    if (!Player.CanEnterRegion(regionProtoRef, DifficultyTierRef, false))
+                    {
+                        Logger.Warn($"Teleport: {Player.GetName()} blocked from Omega. Failed CanEnterRegion check.");
 
- 
-                    Player.SendBannerMessage(GameDatabase.UIGlobalsPrototype.MessageRegionRestricted); // 
-                    return false;
+                        
+                        Player.SendBannerMessage(GameDatabase.UIGlobalsPrototype.MessageRegionRestricted);
+                        return false;
+                    }
                 }
             }
 

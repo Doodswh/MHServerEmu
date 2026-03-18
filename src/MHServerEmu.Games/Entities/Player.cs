@@ -441,7 +441,7 @@ namespace MHServerEmu.Games.Entities
             if (hasCommunityData)
                 success &= Serializer.Transfer(archive, ref _community);
             // Pass the memory override to the next region server without saving to DB
-            if (archive.InvolvesClient == false && (archive.IsMigration || archive.IsTransient))
+            if (archive.InvolvesClient == false && archive.Version >= ArchiveVersion.AddedAdminDifficulty)
             {
                 ulong diffOverrideId = (ulong)AdminDifficultyOverride;
                 success &= Serializer.Transfer(archive, ref diffOverrideId);
