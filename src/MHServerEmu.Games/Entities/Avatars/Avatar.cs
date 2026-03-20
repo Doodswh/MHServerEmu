@@ -224,8 +224,7 @@ namespace MHServerEmu.Games.Entities.Avatars
             // Custom data
             if (archive.IsPersistent)
             {
-                if (archive.Version >= ArchiveVersion.AddedUltimatePrestigeLevel)
-                    success &= Serializer.Transfer(archive, ref _ultimatePrestigeLevel);
+                success &= Serializer.Transfer(archive, ref _ultimatePrestigeLevel);
             }
 
             return success;
@@ -4722,6 +4721,9 @@ namespace MHServerEmu.Games.Entities.Avatars
         {
             if (IsInWorld == false)
                 return 0f;
+
+            if (Game.CustomGameOptions.DisableMissionXPBonuses)
+                return 1f;
 
             TuningPrototype tuningProto = tuningTable.Prototype;
             if (tuningProto == null) return Logger.WarnReturn(0f, "GetMissionXPMultiplier(): tuningProto == null");
