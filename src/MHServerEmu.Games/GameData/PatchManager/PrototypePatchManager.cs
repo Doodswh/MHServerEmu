@@ -1,5 +1,4 @@
-﻿using MHServerEmu.Core.Helpers;
-using MHServerEmu.Core.Logging;
+using MHServerEmu.Core.Helpers;
 using MHServerEmu.Games.GameData.Prototypes;
 using System.ComponentModel;
 using System.Reflection;
@@ -15,7 +14,6 @@ namespace MHServerEmu.Games.GameData.PatchManager
 {
     public class PrototypePatchManager
     {
-        private static readonly Logger Logger = LogManager.CreateLogger();
 
         private readonly Stack<PrototypeId> _protoStack = new();
         private readonly Dictionary<PrototypeId, List<PrototypePatchEntry>> _patchDict = new();
@@ -40,8 +38,7 @@ namespace MHServerEmu.Games.GameData.PatchManager
 
             string patchDirectory = Path.Combine(FileHelper.DataDirectory, "Game", "Patches");
             if (!Directory.Exists(patchDirectory))
-                return Logger.WarnReturn(false, "LoadPatchDataFromDisk(): Game data directory not found");
-
+                return false;
             int count = 0;
             int skippedDisabled = 0;
             int skippedInvalid = 0;
@@ -50,14 +47,12 @@ namespace MHServerEmu.Games.GameData.PatchManager
             foreach (string filePath in FileHelper.GetFilesWithPrefix(patchDirectory, "PatchData", "json"))
             {
                 string fileName = Path.GetFileName(filePath);
-                Logger.Info($"Loading patch file: {fileName}");
 
                 try
                 {
                     PrototypePatchEntry[] updateValues = FileHelper.DeserializeJson<PrototypePatchEntry[]>(filePath, options);
                     if (updateValues == null)
                     {
-                        Logger.Warn($"Failed to deserialize patch file: {fileName}");
                         continue;
                     }
 
@@ -66,7 +61,6 @@ namespace MHServerEmu.Games.GameData.PatchManager
                         if (!value.Enabled)
                         {
                             skippedDisabled++;
-                            Logger.Trace($"Skipped disabled patch: {value.Prototype} -> {value.Path}");
                             continue;
                         }
 
@@ -74,23 +68,19 @@ namespace MHServerEmu.Games.GameData.PatchManager
                         if (prototypeId == PrototypeId.Invalid)
                         {
                             skippedInvalid++;
-                            Logger.Warn($"Invalid prototype reference in patch: '{value.Prototype}' (Path: {value.Path})");
                             continue;
                         }
 
                         AddPatchValue(prototypeId, value);
                         count++;
-                        Logger.Debug($"Loaded patch: {value.Prototype} -> {value.Path} (ValueType: {value.Value.ValueType})");
                     }
                 }
                 catch (Exception ex)
                 {
-                    Logger.ErrorException(ex, $"Error loading patch file {fileName}");
                 }
             }
 
-            Logger.Info($"Patch loading summary: {count} loaded, {skippedDisabled} disabled, {skippedInvalid} invalid");
-            return Logger.InfoReturn(true, $"Loaded {count} patch entries from disk.");
+            return true;
         }
 
         private void AddPatchValue(PrototypeId prototypeId, in PrototypePatchEntry value)
@@ -118,12 +108,10 @@ namespace MHServerEmu.Games.GameData.PatchManager
                         if (prop != null)
                         {
                             entry.Patched = true;
-                            Logger.Debug($"Applied Properties patch: {GameDatabase.GetPrototypeName(protoRef)} -> {entry.Path}");
                             return true;
                         }
                         else
                         {
-                            Logger.Warn($"Properties patch value is null: {GameDatabase.GetPrototypeName(protoRef)} -> {entry.Path}");
                         }
                     }
                 }
@@ -139,7 +127,6 @@ namespace MHServerEmu.Games.GameData.PatchManager
             {
                 if (list.Any(e => !e.Patched))
                 {
-                    Logger.Debug($"[PreCheck] Pushing {protoRef} ({GameDatabase.GetPrototypeName(protoRef)}) to stack. Stack size will be {_protoStack.Count + 1}.");
                     _protoStack.Push(protoRef);
                     return true;
                 }
@@ -149,13 +136,11 @@ namespace MHServerEmu.Games.GameData.PatchManager
 
         public void PostOverride(Prototype prototype)
         {
-            Logger.Trace($"[PostOverride] Entered for prototype {prototype?.DataRef}. Stack size: {_protoStack.Count}.");
             if (_protoStack.Count == 0) return;
 
             string currentPath = string.Empty;
             if (prototype.DataRef == PrototypeId.Invalid && !_pathDict.TryGetValue(prototype, out currentPath))
             {
-                Logger.Trace($"[PostOverride] No path found for nested prototype of type {prototype?.GetType().Name}");
                 return;
             }
 
@@ -164,19 +149,16 @@ namespace MHServerEmu.Games.GameData.PatchManager
             {
                 if (prototype.DataRef != patchProtoRef)
                 {
-                    Logger.Trace($"[PostOverride] Prototype DataRef {prototype.DataRef} doesn't match stack top {patchProtoRef}");
                     return;
                 }
                 if (_patchDict.ContainsKey(prototype.DataRef))
                 {
                     patchProtoRef = _protoStack.Pop();
-                    Logger.Debug($"[PostOverride] Popped {patchProtoRef} from stack. Stack size now: {_protoStack.Count}");
                 }
             }
 
             if (!_patchDict.TryGetValue(patchProtoRef, out var list))
             {
-                Logger.Trace($"[PostOverride] No patches found for {patchProtoRef}");
                 return;
             }
 
@@ -185,62 +167,64 @@ namespace MHServerEmu.Games.GameData.PatchManager
             {
                 if (!entry.Patched)
                 {
-                    Logger.Debug($"[PostOverride] Attempting patch: {entry.Path} on {GameDatabase.GetPrototypeName(patchProtoRef)}");
                     if (CheckAndUpdate(entry, prototype))
                     {
                         appliedCount++;
-                        Logger.Info($"✓ Successfully applied patch: {GameDatabase.GetPrototypeName(patchProtoRef)} -> {entry.Path}");
                     }
                     else
                     {
-                        Logger.Warn($"✗ Failed to apply patch: {GameDatabase.GetPrototypeName(patchProtoRef)} -> {entry.Path}");
                     }
                 }
             }
 
             if (appliedCount > 0)
-                Logger.Debug($"[PostOverride] Applied {appliedCount} patches to {GameDatabase.GetPrototypeName(patchProtoRef)}");
 
             if (_protoStack.Count == 0)
             {
-                Logger.Debug("[PostOverride] Stack is now empty. Clearing Path Dictionary.");
                 _pathDict.Clear();
             }
         }
 
         private bool CheckAndUpdate(PrototypePatchEntry entry, Prototype prototype)
         {
-            Logger.Trace($"[CheckAndUpdate] Entry: Prototype={entry.Prototype}, Path={entry.Path}, ClearPath={entry.СlearPath}, FieldName={entry.FieldName}, ArrayValue={entry.ArrayValue}, ArrayIndex={entry.ArrayIndex}");
 
             // Navigate to the target object using the path
             var targetObject = GetOrCreateObjectFromPath(prototype, entry.СlearPath);
             if (targetObject == null)
             {
-                Logger.Warn($"[CheckAndUpdate] FAILED: Target object could not be resolved or created for path '{entry.СlearPath}'. Full path: '{entry.Path}'");
-                Logger.Warn($"  Available paths from prototype root: {string.Join(", ", GetAvailableProperties(prototype))}");
                 return false;
             }
 
-            Logger.Trace($"[CheckAndUpdate] Found target object of type: {targetObject.GetType().Name}");
 
             // Use the enhanced field lookup from PrototypeClassManager
             var enhancedField = GameDatabase.PrototypeClassManager.GetFieldByName(targetObject.GetType(), entry.FieldName);
             if (!enhancedField.HasValue)
             {
-                Logger.Warn($"[CheckAndUpdate] FAILED: Field '{entry.FieldName}' not found on target type '{targetObject.GetType().Name}'");
-                Logger.Warn($"  Available properties: {string.Join(", ", GameDatabase.PrototypeClassManager.GetAvailablePropertyNames(targetObject.GetType()))}");
                 return false;
             }
 
             var fieldInfo = enhancedField.Value;
-            Logger.Trace($"[CheckAndUpdate] Found field '{entry.FieldName}' of type: {fieldInfo.PropertyInfo.PropertyType.Name}");
-            Logger.Trace($"[CheckAndUpdate] Field is writable: {fieldInfo.CanWrite}, Is array: {fieldInfo.IsArray}");
-            Logger.Trace($"[CheckAndUpdate] Value to apply: {entry.Value.GetValue()} (ValueType: {entry.Value.ValueType})");
+            if (entry.Value.ValueType == ValueType.Properties && fieldInfo.PropertyInfo.PropertyType == typeof(PropertyCollection))
+            {
+                var targetPropCollection = (PropertyCollection)fieldInfo.PropertyInfo.GetValue(targetObject);
+                var patchPropCollection = (PropertyCollection)entry.Value.GetValue();
+
+                if (targetPropCollection != null && patchPropCollection != null)
+                {
+                    // Merge the patched properties into the existing collection
+                    foreach (var kvp in patchPropCollection)
+                    {
+                        // SetProperty natively overwrites the existing value for this specific PropertyId
+                        targetPropCollection.SetProperty(kvp.Value, kvp.Key);
+                    }
+                    entry.Patched = true;
+                    return true;
+                }
+            }
 
             // Validate field writability
             if (!fieldInfo.CanWrite)
             {
-                Logger.Warn($"[CheckAndUpdate] FAILED: Field '{entry.FieldName}' is read-only and has no backing field");
                 return false;
             }
 
@@ -261,55 +245,41 @@ namespace MHServerEmu.Games.GameData.PatchManager
             {
                 if (entry.ArrayValue)
                 {
-                    Logger.Debug($"[UpdateValue] Array operation: ArrayIndex={entry.ArrayIndex}");
                     if (entry.ArrayIndex != -1)
                     {
-                        Logger.Debug($"[UpdateValue] Setting array index {entry.ArrayIndex}");
                         SetIndexValue(targetObject, fieldInfo, entry.ArrayIndex, entry.Value);
                     }
                     else
                     {
-                        Logger.Debug($"[UpdateValue] Inserting value into array");
                         InsertValue(targetObject, fieldInfo, entry.Value);
                     }
                 }
                 else
                 {
                     object rawValue = entry.Value.GetValue();
-                    Logger.Debug($"[UpdateValue] Converting value. Raw type: {rawValue?.GetType().Name ?? "null"}, Target type: {fieldInfo.PropertyInfo.PropertyType.Name}");
 
                     object convertedValue = ConvertValue(rawValue, fieldInfo.PropertyInfo.PropertyType);
 
                     // Special handling for Eval and ComplexObject - they're already parsed
                     if (entry.Value.ValueType == ValueType.Eval || entry.Value.ValueType == ValueType.ComplexObject)
                     {
-                        Logger.Debug($"[UpdateValue] Setting pre-parsed {entry.Value.ValueType} value");
                     }
                     else
                     {
-                        Logger.Debug($"[UpdateValue] Setting converted value of type: {convertedValue?.GetType().Name ?? "null"}");
                     }
 
                     // Use the centralized property setting method
                     if (!GameDatabase.PrototypeClassManager.TrySetPropertyValue(targetObject, fieldInfo.PropertyInfo, convertedValue))
                     {
-                        Logger.Error($"[UpdateValue] FAILED: Could not set property '{fieldInfo.PropertyInfo.Name}'");
                         return false;
                     }
                 }
 
                 entry.Patched = true;
-                Logger.Debug($"[UpdateValue] SUCCESS: Marked entry as patched");
                 return true;
             }
             catch (Exception ex)
             {
-                Logger.ErrorException(ex, $"[UpdateValue] FAILED: [{entry.Prototype}] [{entry.Path}]");
-                Logger.Error($"  Target object type: {targetObject.GetType().Name}");
-                Logger.Error($"  Field name: {fieldInfo.PropertyInfo.Name}");
-                Logger.Error($"  Field type: {fieldInfo.PropertyInfo.PropertyType.Name}");
-                Logger.Error($"  Value type: {entry.Value.ValueType}");
-                Logger.Error($"  Raw value: {entry.Value.GetValue()}");
                 return false;
             }
         }
@@ -325,7 +295,6 @@ namespace MHServerEmu.Games.GameData.PatchManager
             }
             string newPath = string.IsNullOrEmpty(parentPath) ? fieldName : $"{parentPath}.{fieldName}";
             _pathDict[child] = newPath;
-            Logger.Trace($"[SetPath] Registered path: {newPath} for child type {child.GetType().Name}");
         }
 
         public void SetPathIndex(Prototype parent, Prototype child, string fieldName, int index)
@@ -338,7 +307,6 @@ namespace MHServerEmu.Games.GameData.PatchManager
             }
             string newPath = string.IsNullOrEmpty(parentPath) ? $"{fieldName}[{index}]" : $"{parentPath}.{fieldName}[{index}]";
             _pathDict[child] = newPath;
-            Logger.Trace($"[SetPathIndex] Registered indexed path: {newPath} for child type {child.GetType().Name}");
         }
 
         private static void SetIndexValue(object target, PrototypeClassManager.EnhancedFieldInfo fieldInfo, int index, ValueBase value)
@@ -347,13 +315,11 @@ namespace MHServerEmu.Games.GameData.PatchManager
 
             if (propertyInfo.GetValue(target) is not Array array)
             {
-                Logger.Warn($"[SetIndexValue] Field '{propertyInfo.Name}' is not an array");
                 return;
             }
 
             if (index < 0 || index >= array.Length)
             {
-                Logger.Warn($"[SetIndexValue] Index {index} out of bounds for array of length {array.Length}");
                 return;
             }
 
@@ -363,51 +329,42 @@ namespace MHServerEmu.Games.GameData.PatchManager
             object valueEntry = value.GetValue();
             object finalValue;
 
-            Logger.Debug($"[SetIndexValue] Setting index {index} in array of type {elementType.Name}");
 
             if (typeof(Prototype).IsAssignableFrom(elementType) && (valueEntry is PrototypeId || valueEntry is ulong || value.ValueType == ValueType.PrototypeDataRef))
             {
                 var dataRef = (PrototypeId)Convert.ChangeType(valueEntry, typeof(ulong));
-                Logger.Debug($"[SetIndexValue] Resolving PrototypeId: {dataRef}");
                 finalValue = GameDatabase.GetPrototype<Prototype>(dataRef);
 
                 if (finalValue == null)
                 {
-                    Logger.Error($"[SetIndexValue] FAILED: DataRef {dataRef} could not be resolved to a Prototype");
                     throw new InvalidOperationException($"DataRef {dataRef} is not a valid Prototype or could not be found.");
                 }
             }
             else if (typeof(EvalPrototype).IsAssignableFrom(elementType) && valueEntry is EvalPrototype)
             {
-                Logger.Debug($"[SetIndexValue] Using pre-parsed EvalPrototype");
                 finalValue = valueEntry;
             }
             else if (typeof(Prototype).IsAssignableFrom(elementType) && valueEntry is Prototype)
             {
-                Logger.Debug($"[SetIndexValue] Using pre-parsed Prototype");
                 finalValue = valueEntry;
             }
             else
             {
-                Logger.Debug($"[SetIndexValue] Converting value to {elementType.Name}");
                 finalValue = ConvertValue(valueEntry, elementType);
             }
 
             if (!elementType.IsAssignableFrom(finalValue.GetType()))
             {
-                Logger.Error($"[SetIndexValue] Type mismatch: Cannot assign {finalValue.GetType().Name} to {elementType.Name}");
                 throw new InvalidOperationException($"The resolved value of type {finalValue.GetType().Name} cannot be assigned to an array element of type {elementType.Name}.");
             }
 
             array.SetValue(finalValue, index);
-            Logger.Debug($"[SetIndexValue] Successfully set array index {index}");
         }
 
         private static void InsertValue(object target, PrototypeClassManager.EnhancedFieldInfo fieldInfo, ValueBase value)
         {
             var propertyInfo = fieldInfo.PropertyInfo;
 
-            Logger.Debug($"[InsertValue] Inserting into field '{propertyInfo.Name}'");
 
             if (!fieldInfo.IsArray)
                 throw new InvalidOperationException($"Field {propertyInfo.Name} is not an array.");
@@ -419,11 +376,9 @@ namespace MHServerEmu.Games.GameData.PatchManager
             var currentArray = (Array)propertyInfo.GetValue(target);
             var valuesToAdd = valueEntry as Array;
 
-            Logger.Debug($"[InsertValue] Current array length: {currentArray?.Length ?? 0}, Element type: {elementType.Name}");
 
             if (valuesToAdd != null)
             {
-                Logger.Debug($"[InsertValue] Inserting {valuesToAdd.Length} elements");
                 var newArray = Array.CreateInstance(elementType, (currentArray?.Length ?? 0) + valuesToAdd.Length);
                 if (currentArray != null)
                     Array.Copy(currentArray, newArray, currentArray.Length);
@@ -432,14 +387,11 @@ namespace MHServerEmu.Games.GameData.PatchManager
                 {
                     object element = GetElementValue(valuesToAdd.GetValue(i), elementType);
                     newArray.SetValue(element, (currentArray?.Length ?? 0) + i);
-                    Logger.Trace($"[InsertValue] Added element {i}: {element?.GetType().Name ?? "null"}");
                 }
                 propertyInfo.SetValue(target, newArray);
-                Logger.Debug($"[InsertValue] Successfully inserted array of {valuesToAdd.Length} elements");
             }
             else
             {
-                Logger.Debug($"[InsertValue] Inserting single element");
                 var newArray = Array.CreateInstance(elementType, (currentArray?.Length ?? 0) + 1);
                 if (currentArray != null)
                     Array.Copy(currentArray, newArray, currentArray.Length);
@@ -447,7 +399,6 @@ namespace MHServerEmu.Games.GameData.PatchManager
                 object element = GetElementValue(valueEntry, elementType);
                 newArray.SetValue(element, newArray.Length - 1);
                 propertyInfo.SetValue(target, newArray);
-                Logger.Debug($"[InsertValue] Successfully inserted single element of type {element?.GetType().Name ?? "null"}");
             }
         }
 
@@ -463,16 +414,15 @@ namespace MHServerEmu.Games.GameData.PatchManager
                 string part = pathParts[i];
                 if (current == null) return null;
 
-            
                 if (part.Contains("[\"") || part.Contains("['"))
                 {
                     int bracketStart = part.IndexOf('[');
-                    string propertyName = part.Substring(0, bracketStart);
+                    string memberName = part.Substring(0, bracketStart);
 
-                    var propInfo = current.GetType().GetProperty(propertyName);
-                    if (propInfo == null) return null;
+                    object memberValue = GetMemberValue(current, memberName, out Type memberType);
+                    if (memberValue == null && memberType == null) return null;
 
-                    var dictObj = propInfo.GetValue(current) as System.Collections.IDictionary;
+                    var dictObj = memberValue as IDictionary;
                     if (dictObj == null) return null;
 
                     var keyMatch = System.Text.RegularExpressions.Regex.Match(part, @"\[[""'](.+?)[""']\]");
@@ -482,7 +432,6 @@ namespace MHServerEmu.Games.GameData.PatchManager
                         if (dictObj.Contains(key))
                         {
                             current = dictObj[key];
-                            
                             if (current is PrototypeId pidDict && pidDict != PrototypeId.Invalid)
                             {
                                 var resolved = GameDatabase.GetPrototype<Prototype>(pidDict);
@@ -492,29 +441,24 @@ namespace MHServerEmu.Games.GameData.PatchManager
                         }
                         else
                         {
-                            Logger.Warn($"Key '{key}' not found in dictionary '{propertyName}'");
                             return null;
                         }
                     }
                 }
 
-
                 if (part.Contains("["))
                 {
                     int bracketStart = part.IndexOf('[');
-                    string propertyName = part.Substring(0, bracketStart);
+                    string memberName = part.Substring(0, bracketStart);
 
-                    var propInfo = current.GetType().GetProperty(propertyName);
-                    if (propInfo == null)
-                    {
-                        Logger.Warn($"Property '{propertyName}' not found on {current.GetType().Name}");
-                        return null;
-                    }
+                    object listObj = GetMemberValue(current, memberName, out Type memberType);
 
-                    var listObj = propInfo.GetValue(current);
                     if (listObj == null)
                     {
-                        Logger.Warn($"Array property '{propertyName}' is null");
+                        if (memberType == null)
+                        {
+                            return null;
+                        }
                         return null;
                     }
 
@@ -529,48 +473,35 @@ namespace MHServerEmu.Games.GameData.PatchManager
                         if (current is IList list && index < list.Count)
                         {
                             current = list[index];
-
-                           
                             if (current is PrototypeId pidList && pidList != PrototypeId.Invalid)
                             {
                                 var resolved = GameDatabase.GetPrototype<Prototype>(pidList);
-                                if (resolved != null)
-                                {
-                                    current = resolved;
-                                    Logger.Trace($"Resolved PrototypeId to {resolved.GetType().Name}");
-                                }
+                                if (resolved != null) current = resolved;
                             }
                         }
                         else if (current is Array array && index < array.Length)
                         {
-                            
                             current = array.GetValue(index);
-
                             if (current is PrototypeId pidArr && pidArr != PrototypeId.Invalid)
                             {
                                 var resolved = GameDatabase.GetPrototype<Prototype>(pidArr);
-                                if (resolved != null)
-                                {
-                                    current = resolved;
-                                    Logger.Trace($"Resolved PrototypeId from array to {resolved.GetType().Name}");
-                                }
+                                if (resolved != null) current = resolved;
                             }
                         }
                         else
                         {
-                            Logger.Warn($"Index {index} out of bounds or current object is not a list/array");
                             return null;
                         }
                     }
-                    continue; 
+                    continue;
                 }
 
-                var standardProp = current.GetType().GetProperty(part);
-                if (standardProp == null) return null;
+                object nextObj = GetMemberValue(current, part, out Type nextMemberType);
+                if (nextObj == null && nextMemberType == null)
+                {
+                    return null;
+                }
 
-                object nextObj = standardProp.GetValue(current);
-
-    
                 if (nextObj is PrototypeId pid && pid != PrototypeId.Invalid)
                 {
                     var resolvedProto = GameDatabase.GetPrototype<Prototype>(pid);
@@ -579,14 +510,13 @@ namespace MHServerEmu.Games.GameData.PatchManager
                         nextObj = resolvedProto;
                     }
                 }
-          
-                if (nextObj == null)
+
+                if (nextObj == null && nextMemberType != null)
                 {
                     try
                     {
-                        nextObj = Activator.CreateInstance(standardProp.PropertyType);
-                        if (!GameDatabase.PrototypeClassManager.TrySetPropertyValue(current, standardProp, nextObj))
-                            return null;
+                        nextObj = Activator.CreateInstance(nextMemberType);
+                        SetMemberValue(current, part, nextObj);
                     }
                     catch { return null; }
                 }
@@ -596,30 +526,72 @@ namespace MHServerEmu.Games.GameData.PatchManager
             return current;
         }
 
+        // --- NEW HELPER METHODS ---
+
+        private object GetMemberValue(object obj, string memberName, out Type memberType)
+        {
+            memberType = null;
+            if (obj == null) return null;
+
+            var type = obj.GetType();
+
+            // 1. Try Property
+            var propInfo = type.GetProperty(memberName, BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+            if (propInfo != null)
+            {
+                memberType = propInfo.PropertyType;
+                return propInfo.GetValue(obj);
+            }
+
+            // 2. Try Field (This fixes your Mixin issue)
+            var fieldInfo = type.GetField(memberName, BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+            if (fieldInfo != null)
+            {
+                memberType = fieldInfo.FieldType;
+                return fieldInfo.GetValue(obj);
+            }
+
+            return null;
+        }
+
+        private void SetMemberValue(object obj, string memberName, object value)
+        {
+            if (obj == null) return;
+            var type = obj.GetType();
+
+            var propInfo = type.GetProperty(memberName, BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+            if (propInfo != null && propInfo.CanWrite)
+            {
+                propInfo.SetValue(obj, value);
+                return;
+            }
+
+            var fieldInfo = type.GetField(memberName, BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+            if (fieldInfo != null)
+            {
+                fieldInfo.SetValue(obj, value);
+            }
+        }
+
         private static object GetElementValue(object valueEntry, Type elementType)
         {
-            Logger.Trace($"[GetElementValue] Converting {valueEntry?.GetType().Name ?? "null"} to {elementType.Name}");
 
             // Handle already-parsed prototypes
             if (typeof(EvalPrototype).IsAssignableFrom(elementType) && valueEntry is EvalPrototype)
             {
-                Logger.Trace($"[GetElementValue] Using pre-parsed EvalPrototype");
                 return valueEntry;
             }
 
             if (typeof(Prototype).IsAssignableFrom(elementType) && valueEntry is Prototype)
             {
-                Logger.Trace($"[GetElementValue] Using pre-parsed Prototype");
                 return valueEntry;
             }
 
             if (typeof(Prototype).IsAssignableFrom(elementType) && valueEntry is PrototypeId dataRef)
             {
-                Logger.Debug($"[GetElementValue] Resolving PrototypeId {dataRef} to Prototype");
                 var result = GameDatabase.GetPrototype<Prototype>(dataRef);
                 if (result == null)
                 {
-                    Logger.Error($"[GetElementValue] FAILED: Could not resolve PrototypeId {dataRef}");
                     throw new InvalidOperationException($"DataRef {dataRef} is not a valid Prototype.");
                 }
                 return result;
@@ -630,31 +602,26 @@ namespace MHServerEmu.Games.GameData.PatchManager
 
         public static object ConvertValue(object rawValue, Type targetType)
         {
-            Logger.Trace($"[ConvertValue] Converting {rawValue?.GetType().Name ?? "null"} to {targetType.Name}");
 
             if (rawValue == null || (rawValue is JsonElement jsonValCheck && jsonValCheck.ValueKind == JsonValueKind.Null))
             {
-                Logger.Trace($"[ConvertValue] Raw value is null, returning null");
                 return null;
             }
 
             if (targetType.IsInstanceOfType(rawValue))
             {
-                Logger.Trace($"[ConvertValue] Value is already correct type, returning as-is");
                 return rawValue;
             }
 
             // Handle already-parsed EvalPrototype
             if (typeof(EvalPrototype).IsAssignableFrom(targetType) && rawValue is EvalPrototype evalProto)
             {
-                Logger.Trace($"[ConvertValue] Using pre-parsed EvalPrototype");
                 return evalProto;
             }
 
             // Handle already-parsed Prototype (ComplexObject)
             if (typeof(Prototype).IsAssignableFrom(targetType) && rawValue is Prototype proto)
             {
-                Logger.Trace($"[ConvertValue] Using pre-parsed Prototype");
                 return proto;
             }
 
@@ -675,13 +642,11 @@ namespace MHServerEmu.Games.GameData.PatchManager
                             }
                         }
 
-                        Logger.Debug($"[ConvertValue] Parsed PropertyId: {propertyEnum}");
                         return new PropertyId(propertyEnum, parameters[0], parameters[1], parameters[2], parameters[3]);
                     }
                 }
                 catch (Exception ex)
                 {
-                    Logger.WarnException(ex, $"[ConvertValue] Failed to parse PropertyId from JSON");
                     return null;
                 }
             }
@@ -693,7 +658,6 @@ namespace MHServerEmu.Games.GameData.PatchManager
                 {
                     Type elementType = targetType.GetElementType();
                     var jsonArray = jsonVal.EnumerateArray().ToArray();
-                    Logger.Debug($"[ConvertValue] Converting JSON array of {jsonArray.Length} elements to {elementType.Name}[]");
 
                     Array newArray = Array.CreateInstance(elementType, jsonArray.Length);
                     for (int i = 0; i < jsonArray.Length; i++)
@@ -708,7 +672,6 @@ namespace MHServerEmu.Games.GameData.PatchManager
                 {
                     if (jsonVal.TryGetProperty("ParentDataRef", out _))
                     {
-                        Logger.Debug($"[ConvertValue] Parsing EvalPrototype from JSON");
                         return PatchEntryConverter.ParseJsonEval(jsonVal);
                     }
                 }
@@ -718,7 +681,6 @@ namespace MHServerEmu.Games.GameData.PatchManager
                 {
                     if (jsonVal.TryGetProperty("ParentDataRef", out _))
                     {
-                        Logger.Debug($"[ConvertValue] Parsing Prototype from JSON");
                         return PatchEntryConverter.ParseJsonPrototype(jsonVal);
                     }
                 }
@@ -741,13 +703,11 @@ namespace MHServerEmu.Games.GameData.PatchManager
                                 }
                             }
 
-                            Logger.Debug($"[ConvertValue] Parsed PropertyId: {propertyEnum}");
                             return new PropertyId(propertyEnum, parameters[0], parameters[1], parameters[2], parameters[3]);
                         }
                     }
                     catch (Exception ex)
                     {
-                        Logger.WarnException(ex, $"[ConvertValue] Failed to parse PropertyId from JSON");
                         return null;
                     }
                 }
@@ -773,7 +733,6 @@ namespace MHServerEmu.Games.GameData.PatchManager
                 }
                 catch (Exception ex)
                 {
-                    Logger.WarnException(ex, $"[ConvertValue] Failed to convert JsonElement to {targetType.Name}");
                 }
             }
 
@@ -801,27 +760,23 @@ namespace MHServerEmu.Games.GameData.PatchManager
 
                     if (string.IsNullOrEmpty(assetName) || string.IsNullOrEmpty(assetTypeName))
                     {
-                        Logger.Warn($"Invalid AssetId format: empty name or type in '{assetString}'");
                         return AssetId.Invalid;
                     }
 
                     var assetType = GameDatabase.DataDirectory.AssetDirectory.GetAssetType(assetTypeName);
                     if (assetType == null)
                     {
-                        Logger.Warn($"Asset type '{assetTypeName}' not found for asset '{assetName}'");
                         return AssetId.Invalid;
                     }
 
                     var assetId = assetType.FindAssetByName(assetName, DataFileSearchFlags.CaseInsensitive);
                     if (assetId == AssetId.Invalid)
                     {
-                        Logger.Warn($"Asset '{assetName}' of type '{assetTypeName}' not found");
                     }
                     return assetId;
                 }
                 else
                 {
-                    Logger.Warn($"AssetId string '{assetString}' does not match expected format 'AssetName (AssetType)'");
                     return AssetId.Invalid;
                 }
             }

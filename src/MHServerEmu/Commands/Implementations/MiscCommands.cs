@@ -126,6 +126,7 @@ namespace MHServerEmu.Commands.Implementations
         }
     }
     [CommandGroup("difficulty")]
+    [CommandGroupUserLevel(AccountUserLevel.Admin)]
     [CommandGroupDescription("Sets your account's preferred difficulty tier to omega. Bypasses UI locks.")]
     [CommandGroupFlags(CommandGroupFlags.SingleCommand)]
     public class SetDifficultyCommand : CommandGroup
@@ -169,6 +170,7 @@ namespace MHServerEmu.Commands.Implementations
     }
 
     [CommandGroup("reset_diff")]
+    [CommandGroupUserLevel(AccountUserLevel.Admin)]
     [CommandGroupDescription("Returns difficulty behavior to normal and refreshes state.")]
     [CommandGroupFlags(CommandGroupFlags.SingleCommand)]
     public class ResetDifficultyCommand : CommandGroup

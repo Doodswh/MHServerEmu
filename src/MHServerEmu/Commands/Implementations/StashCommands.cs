@@ -20,6 +20,7 @@ using System.Text;
 namespace MHServerEmu.Commands.Implementations
 {
     [CommandGroup("stash")]
+    [CommandGroupUserLevel(AccountUserLevel.Admin)]
     public class StashCommands : CommandGroup
     {
         private static readonly Logger Logger = LogManager.CreateLogger();
@@ -34,7 +35,7 @@ namespace MHServerEmu.Commands.Implementations
             { "InvisiWoman.prototype", new List<string> { "invisiblewoman", "invisiwoman" } },
         };
 
-        [Command("sort")]
+        [Command("Moveitems")]
         [CommandInvokerType(CommandInvokerType.Client)]
         public string Sort(string[] @params, NetClient client)
         {
@@ -42,21 +43,34 @@ namespace MHServerEmu.Commands.Implementations
             if (playerConnection?.Player == null) return "Invalid player connection";
             Player player = playerConnection.Player;
 
-            Logger.Info($"[STASH-SORT] Starting automatic sort operation for player {player.Id}");
+            Logger.Info($"[ItemMove] Starting automatic Move operation for player {player.Id}");
 
-            List<PrototypeId> allStashRefs = ListPool<PrototypeId>.Instance.Get();
-            if (!player.GetStashInventoryProtoRefs(allStashRefs, false, true))
+            Dictionary<string, List<PrototypeId>> categoryStashMap = new();
+
+            try
             {
+                List<PrototypeId> allStashRefs = ListPool<PrototypeId>.Instance.Get();
+                if (!player.GetStashInventoryProtoRefs(allStashRefs, false, true))
+                {
+                    ListPool<PrototypeId>.Instance.Return(allStashRefs);
+                    return "No stash tabs available";
+                }
+
+                // Pass the local map into your sort logic
+                int itemsMoved = SortItems(player, allStashRefs, categoryStashMap);
+
                 ListPool<PrototypeId>.Instance.Return(allStashRefs);
-                return "No stash tabs available";
+                return $"Sorted {itemsMoved} items across all stash tabs.";
             }
-
-            ClearCategoryStashMap();
-            int itemsMoved = SortItems(player, allStashRefs);
-
-            ListPool<PrototypeId>.Instance.Return(allStashRefs);
-
-            return $"Sorted {itemsMoved} items across all stash tabs.";
+            finally
+            {
+                // Local cleanup of pooled lists
+                foreach (var list in categoryStashMap.Values)
+                {
+                    ListPool<PrototypeId>.Instance.Return(list);
+                }
+                categoryStashMap.Clear();
+            }
         }
 
         [Command("repair")]
@@ -75,7 +89,7 @@ namespace MHServerEmu.Commands.Implementations
             return RepairStash(playerConnection.Player, targetStashName);
         }
 
-        [Command("internal")]
+        [Command("playersort")]
         [CommandInvokerType(CommandInvokerType.Client)]
         public string Internal(string[] @params, NetClient client)
         {
@@ -152,26 +166,20 @@ namespace MHServerEmu.Commands.Implementations
                 Item item = entityManager.GetEntity<Item>(itemId);
                 if (item != null)
                 {
-                    uint freeSlot = generalInventory.GetFreeSlot(item, true, true);
-                    if (freeSlot != Inventory.InvalidSlot)
-                    {
-                        bool needsBindingSkip = item.IsBoundToCharacter;
-                        if (needsBindingSkip)
-                            item.SetStatus(EntityStatus.SkipItemBindingCheck, true);
+                    ulong? stackEntityId = null;
+                    // Use the standard pipeline to handle movement, stacking, and AOI updates
+                    InventoryResult result = Inventory.ChangeEntityInventoryLocation(
+                        item,
+                        generalInventory,
+                        Inventory.InvalidSlot,
+                        ref stackEntityId,
+                        true
+                    );
 
-                        try
-                        {
-                            if (player.TryInventoryMove(item.Id, generalInventory.OwnerId, generalInventory.PrototypeDataRef, freeSlot))
-                            {
-                                itemsRepaired++;
-                                Logger.Info($"[STASH-REPAIR] Moved {GameDatabase.GetPrototypeName(item.PrototypeDataRef)} back to general inventory");
-                            }
-                        }
-                        finally
-                        {
-                            if (needsBindingSkip)
-                                item.SetStatus(EntityStatus.SkipItemBindingCheck, false);
-                        }
+                    if (result == InventoryResult.Success)
+                    {
+                        itemsRepaired++;
+                        Logger.Info($"[STASH-REPAIR] Moved {GameDatabase.GetPrototypeName(item.PrototypeDataRef)} back to general inventory");
                     }
                 }
             }
@@ -179,7 +187,7 @@ namespace MHServerEmu.Commands.Implementations
             return $"Repaired {itemsRepaired} items from stash '{stashName}' back to general inventory";
         }
 
-        private int SortItems(Player player, List<PrototypeId> stashRefs)
+        private int SortItems(Player player, List<PrototypeId> stashRefs, Dictionary<string, List<PrototypeId>> categoryStashMap)
         {
             Inventory generalInventory = player.GetInventory(InventoryConvenienceLabel.General);
             if (generalInventory == null) return 0;
@@ -260,7 +268,7 @@ namespace MHServerEmu.Commands.Implementations
 
                         if (!string.IsNullOrEmpty(avatarName) && IsItemSuitableForAvatar(item, avatarName))
                         {
-                            if (TryMoveItemToStash(player, item, avatarStashRef, item.IsBoundToCharacter))
+                            if (TryMoveItemToStash(player, item, avatarStashRef))
                             {
                                 moved = true;
                                 break;
@@ -275,14 +283,14 @@ namespace MHServerEmu.Commands.Implementations
                     {
                         foreach (var craftingStashRef in craftingStashes)
                         {
-                            if (TryMoveItemToStash(player, item, craftingStashRef, false))
+                            if (TryMoveItemToStash(player, item, craftingStashRef))
                             {
                                 moved = true;
                                 break;
                             }
                         }
                     }
-                    if (!moved && TryMoveToCategoryStash(player, item, stashRefs))
+                    if (!moved && TryMoveToCategoryStash(player, item, stashRefs, categoryStashMap))
                     {
                         moved = true;
                     }
@@ -314,6 +322,7 @@ namespace MHServerEmu.Commands.Implementations
             List<Item> itemsToSort = ListPool<Item>.Instance.Get();
             int itemsCompacted = 0;
 
+            // Collect all non-equipped items from the general inventory
             foreach (var entry in generalInventory)
             {
                 Item item = entityManager.GetEntity<Item>(entry.Id);
@@ -323,6 +332,7 @@ namespace MHServerEmu.Commands.Implementations
                 }
             }
 
+            // Sort items by category and prototype name to prepare for a clean layout
             itemsToSort.Sort((a, b) =>
             {
                 int categoryComparison = string.Compare(GetItemCategory(a), GetItemCategory(b), StringComparison.Ordinal);
@@ -333,28 +343,31 @@ namespace MHServerEmu.Commands.Implementations
             uint nextSlot = 0;
             foreach (Item item in itemsToSort)
             {
-                bool needsBindingSkip = item.IsBoundToCharacter;
-
-                if (needsBindingSkip)
-                    item.SetStatus(EntityStatus.SkipItemBindingCheck, true);
-
-                try
+                // Only attempt a move if the item isn't already in the target slot
+                if (item.InventoryLocation.Slot != nextSlot)
                 {
-                    // We directly move to the next available slot, not caring about the item's original position
-                    if (item.InventoryLocation.Slot != nextSlot)
+                    ulong? stackEntityId = null;
+
+                    // Route through the central pipeline to handle validation and AOI updates
+                    // We set allowStacking to false here to maintain the sorted order
+                    InventoryResult result = Inventory.ChangeEntityInventoryLocation(
+                        item,
+                        generalInventory,
+                        nextSlot,
+                        ref stackEntityId,
+                        false
+                    );
+
+                    if (result == InventoryResult.Success)
                     {
-                        if (player.TryInventoryMove(item.Id, generalInventory.OwnerId, generalInventory.PrototypeDataRef, nextSlot))
-                        {
-                            itemsCompacted++;
-                        }
+                        itemsCompacted++;
                     }
-                    nextSlot++;
+                    else
+                    {
+                        Logger.Warn($"[STASH-COMPACT] Failed to move {item.Id} to slot {nextSlot}: {result}");
+                    }
                 }
-                finally
-                {
-                    if (needsBindingSkip)
-                        item.SetStatus(EntityStatus.SkipItemBindingCheck, false);
-                }
+                nextSlot++;
             }
 
             ListPool<Item>.Instance.Return(itemsToSort);
@@ -398,7 +411,7 @@ namespace MHServerEmu.Commands.Implementations
             return false;
         }
 
-        private bool TryMoveToCategoryStash(Player player, Item item, List<PrototypeId> stashRefs)
+        private bool TryMoveToCategoryStash(Player player, Item item, List<PrototypeId> stashRefs, Dictionary<string, List<PrototypeId>> categoryStashMap)
         {
             string category = GetItemCategory(item);
 
@@ -408,16 +421,17 @@ namespace MHServerEmu.Commands.Implementations
                 return inventoryProto?.Category != InventoryCategory.PlayerStashAvatarSpecific;
             }).ToList();
 
-            if (!_categoryStashMap.TryGetValue(category, out List<PrototypeId> categoryStashes))
+            if (!categoryStashMap.TryGetValue(category, out List<PrototypeId> categoryStashes))
             {
                 categoryStashes = ListPool<PrototypeId>.Instance.Get();
-                _categoryStashMap[category] = categoryStashes;
+                categoryStashMap[category] = categoryStashes;
             }
 
             foreach (PrototypeId stashRef in categoryStashes)
             {
                 Inventory stash = player.GetInventoryByRef(stashRef);
-                if (GetInventoryFreeSlots(stash) > 0 && TryMoveItemToStash(player, item, stashRef, item.IsBoundToCharacter))
+                // Using built-in CapacityRemaining property
+                if (stash != null && stash.CapacityRemaining > 0 && TryMoveItemToStash(player, item, stashRef))
                 {
                     return true;
                 }
@@ -431,12 +445,12 @@ namespace MHServerEmu.Commands.Implementations
                 Inventory stash = player.GetInventoryByRef(stashRef);
                 if (stash == null) continue;
 
-                int freeSlots = GetInventoryFreeSlots(stash);
+                int freeSlots = stash.CapacityRemaining; // Using built-in property
                 if (freeSlots == 0) continue;
 
                 if (IsStashEmpty(stash))
                 {
-                    if (TryMoveItemToStash(player, item, stashRef, item.IsBoundToCharacter))
+                    if (TryMoveItemToStash(player, item, stashRef))
                     {
                         categoryStashes.Add(stashRef);
                         ListPool<(PrototypeId, int)>.Instance.Return(availableStashes);
@@ -455,7 +469,7 @@ namespace MHServerEmu.Commands.Implementations
 
                 foreach (var (stashRef, _) in availableStashes)
                 {
-                    if (TryMoveItemToStash(player, item, stashRef, item.IsBoundToCharacter))
+                    if (TryMoveItemToStash(player, item, stashRef))
                     {
                         if (!categoryStashes.Contains(stashRef))
                             categoryStashes.Add(stashRef);
@@ -469,27 +483,30 @@ namespace MHServerEmu.Commands.Implementations
             return false;
         }
 
-        private bool TryMoveItemToStash(Player player, Item item, PrototypeId stashRef, bool skipBindingCheck)
+        private bool TryMoveItemToStash(Player player, Item item, PrototypeId stashRef)
         {
             Inventory stash = player.GetInventoryByRef(stashRef);
-            if (stash == null || GetInventoryFreeSlots(stash) == 0) return false;
+            if (stash == null || stash.CapacityRemaining == 0) return false;
 
-            uint targetSlot = stash.GetFreeSlot(item, true, true);
-            if (targetSlot == Inventory.InvalidSlot) return false;
+            // Use a nullable ulong to capture the new entity ID if stacking occurs
+            ulong? stackEntityId = null;
 
-            bool needsBindingSkip = skipBindingCheck && item.IsBoundToCharacter;
-            if (needsBindingSkip)
-                item.SetStatus(EntityStatus.SkipItemBindingCheck, true);
+            // Route through the standard pipeline for validation and AOI updates
+            InventoryResult result = Inventory.ChangeEntityInventoryLocation(
+                item,
+                stash,
+                Inventory.InvalidSlot, // Automatically find a free slot or stack target
+                ref stackEntityId,
+                true // Allow stacking
+            );
 
-            try
+            if (result == InventoryResult.Success)
             {
-                return player.TryInventoryMove(item.Id, stash.OwnerId, stash.PrototypeDataRef, targetSlot);
+                Logger.Info($"[STASH] Moved {item.Id} to stash {stashRef}");
+                return true;
             }
-            finally
-            {
-                if (needsBindingSkip)
-                    item.SetStatus(EntityStatus.SkipItemBindingCheck, false);
-            }
+
+            return false;
         }
 
         #region Helper Methods

@@ -21,7 +21,6 @@
     <None Remove="SQLite\Scripts\Migrations\2.sql" />
     <None Remove="SQLite\Scripts\Migrations\3.sql" />
     <None Remove="SQLite\Scripts\Migrations\4.sql" />
-    <None Remove="SQLite\Scripts\Migrations\5.sql" />
   </ItemGroup>
 
   <ItemGroup>
@@ -32,7 +31,6 @@
     <EmbeddedResource Include="SQLite\Scripts\Migrations\2.sql" />
     <EmbeddedResource Include="SQLite\Scripts\Migrations\3.sql" />
     <EmbeddedResource Include="SQLite\Scripts\Migrations\4.sql" />
-    <EmbeddedResource Include="SQLite\Scripts\Migrations\5.sql" />
   </ItemGroup>
   
   <ItemGroup>
@@ -60,6 +58,12 @@
       <CopyToOutputDirectory>Always</CopyToOutputDirectory>
       <TargetPath>SQLite.Interop.dll</TargetPath>
     </Content>
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Update="SQLite\Scripts\Migrations\5.sql">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
   </ItemGroup>
 
 </Project>

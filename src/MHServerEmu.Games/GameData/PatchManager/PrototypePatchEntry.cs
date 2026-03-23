@@ -1,4 +1,3 @@
-﻿using MHServerEmu.Core.Logging;
 using MHServerEmu.Core.VectorMath;
 using MHServerEmu.Games.GameData.Calligraphy;
 using MHServerEmu.Games.GameData.Prototypes;
@@ -74,7 +73,6 @@ namespace MHServerEmu.Games.GameData.PatchManager
 
     public class PatchEntryConverter : JsonConverter<PrototypePatchEntry>
     {
-        private static readonly Logger Logger = LogManager.CreateLogger();
 
         public override PrototypePatchEntry Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
         {
@@ -226,7 +224,6 @@ namespace MHServerEmu.Games.GameData.PatchManager
 
             if (classType == null)
             {
-                Logger.Warn($"Could not determine class type for ComplexObject. Ensure ParentDataRef or ClassName is provided.");
                 return null;
             }
 
@@ -246,7 +243,6 @@ namespace MHServerEmu.Games.GameData.PatchManager
                 var fieldInfo = prototype.GetType().GetProperty(property.Name);
                 if (fieldInfo == null)
                 {
-                    Logger.Warn($"Property '{property.Name}' not found on prototype type '{prototype.GetType().Name}'. Skipping.");
                     continue;
                 }
 
@@ -257,7 +253,6 @@ namespace MHServerEmu.Games.GameData.PatchManager
                 }
                 catch (Exception ex)
                 {
-                    Logger.ErrorException(ex, $"Failed to parse or convert property '{property.Name}' for ComplexObject '{prototype.GetType().Name}'.");
                 }
             }
 
@@ -277,13 +272,11 @@ namespace MHServerEmu.Games.GameData.PatchManager
 
             if (classType == null)
             {
-                Logger.Warn($"Could not find class type for Eval prototype ID '{referenceType}'.");
                 return null;
             }
 
             if (!typeof(EvalPrototype).IsAssignableFrom(classType))
             {
-                Logger.Warn($"Class type '{classType.Name}' for prototype '{referenceType}' is not an EvalPrototype.");
                 return null;
             }
 
@@ -299,7 +292,6 @@ namespace MHServerEmu.Games.GameData.PatchManager
                 var fieldInfo = evalPrototype.GetType().GetProperty(property.Name);
                 if (fieldInfo == null)
                 {
-                    Logger.Warn($"Property '{property.Name}' not found on Eval type '{evalPrototype.GetType().Name}'. Skipping.");
                     continue;
                 }
 
@@ -310,7 +302,6 @@ namespace MHServerEmu.Games.GameData.PatchManager
                 }
                 catch (Exception ex)
                 {
-                    Logger.ErrorException(ex, $"Failed to parse or convert property '{property.Name}' for Eval '{evalPrototype.GetType().Name}'.");
                 }
             }
 
@@ -330,7 +321,6 @@ namespace MHServerEmu.Games.GameData.PatchManager
 
             if (classType == null)
             {
-                Logger.Warn($"Could not find class type for prototype ID '{referenceType}'.");
                 return null;
             }
 
@@ -346,7 +336,6 @@ namespace MHServerEmu.Games.GameData.PatchManager
                 var fieldInfo = prototype.GetType().GetProperty(property.Name);
                 if (fieldInfo == null)
                 {
-                    Logger.Warn($"Property '{property.Name}' not found on prototype type '{prototype.GetType().Name}'. Skipping.");
                     continue;
                 }
 
@@ -357,7 +346,6 @@ namespace MHServerEmu.Games.GameData.PatchManager
                 }
                 catch (Exception ex)
                 {
-                    Logger.ErrorException(ex, $"Failed to parse or convert property '{property.Name}' for prototype '{prototype.GetType().Name}'.");
                 }
             }
 
@@ -379,7 +367,6 @@ namespace MHServerEmu.Games.GameData.PatchManager
                     {
                         return GameDatabase.GetPrototype<Prototype>(protoId);
                     }
-                    Logger.Warn($"Prototype reference '{stringValue}' not found");
                     return null;
                 }
 
@@ -403,7 +390,6 @@ namespace MHServerEmu.Games.GameData.PatchManager
                     }
                     else
                     {
-                        Logger.Warn($"Could not find a valid PropertyEnum for PrototypeId '{propId}'.");
                         return null;
                     }
                 }
@@ -484,7 +470,6 @@ namespace MHServerEmu.Games.GameData.PatchManager
                 }
                 catch (Exception ex)
                 {
-                    Logger.WarnException(ex, $"Failed to parse property '{property.Name}': {ex.Message}");
                 }
             }
 
@@ -513,7 +498,6 @@ namespace MHServerEmu.Games.GameData.PatchManager
                 int numericValue = jsonElement.GetInt32();
                 if (!Enum.IsDefined(enumType, numericValue))
                 {
-                    Logger.Warn($"Numeric enum value {numericValue} is not defined in '{enumType.Name}'. Using it anyway.");
                 }
                 enumValue = Enum.ToObject(enumType, numericValue);
             }
@@ -543,17 +527,39 @@ namespace MHServerEmu.Games.GameData.PatchManager
                 switch (propInfo.GetParamType(i))
                 {
                     case PropertyParamType.Asset:
-                        paramValues[i] = Property.ToParam((AssetId)ParseJsonElement(paramValue, typeof(AssetId)));
+                        AssetId assetId = AssetId.Invalid;
+                        if (paramValue.ValueKind == JsonValueKind.String)
+                        {
+                            // Redirect strings through the ConvertValue helper
+                            object converted = PrototypePatchManager.ConvertValue(paramValue.GetString(), typeof(AssetId));
+                            if (converted is AssetId cId) assetId = cId;
+                        }
+                        else
+                        {
+                            assetId = (AssetId)paramValue.GetUInt64();
+                        }
+                        paramValues[i] = Property.ToParam(assetId);
                         break;
+
                     case PropertyParamType.Prototype:
-                        paramValues[i] = Property.ToParam(propEnum, i, (PrototypeId)ParseJsonElement(paramValue, typeof(PrototypeId)));
+                        PrototypeId protoId = PrototypeId.Invalid;
+                        if (paramValue.ValueKind == JsonValueKind.String)
+                        {
+                            protoId = GameDatabase.GetPrototypeRefByName(paramValue.GetString());
+                        }
+                        else
+                        {
+                            protoId = (PrototypeId)paramValue.GetUInt64();
+                        }
+                        paramValues[i] = Property.ToParam(propEnum, i, protoId);
                         break;
+
                     case PropertyParamType.Integer:
                         if (paramValue.TryGetInt32(out int intValue))
                             paramValues[i] = (PropertyParam)intValue;
                         break;
+
                     default:
-                        Logger.Warn($"Unsupported PropertyParamType: {propInfo.GetParamType(i)} for property {propEnum}");
                         break;
                 }
             }

@@ -178,7 +178,7 @@ namespace MHServerEmu.PlayerManagement.Social
             var serverMessage = GuildMessageSetToServer.CreateBuilder()
                 .SetGuildMotdChanged(GuildMotdChanged.CreateBuilder()
                     .SetGuildId(Id)
-                    .SetNewGuildMotd(MotdWithLevel)
+                    .SetNewGuildMotd(Motd)  //change to motdwithlevel later
                     .SetChangedByPlayerName(player.PlayerName))
                 .Build();
 
@@ -442,7 +442,7 @@ namespace MHServerEmu.PlayerManagement.Social
             
             var guildMotdChanged = GuildMotdChanged.CreateBuilder()
                 .SetGuildId(Id)
-                .SetNewGuildMotd(MotdWithLevel)
+                .SetNewGuildMotd(Motd)  //change to motdwithlevel later
                 .SetChangedByPlayerName("System")
                 .Build();
 
@@ -679,7 +679,7 @@ namespace MHServerEmu.PlayerManagement.Social
                     guildCompleteInfo.AddMembers(member.ToGuildMemberInfo());
 
                
-                guildCompleteInfo.SetGuildMotd(MotdWithLevel);
+                guildCompleteInfo.SetGuildMotd(Motd); //change to motdwithlevel later
 
                 _guildCompleteInfoCache = GuildMessageSetToServer.CreateBuilder()
                     .SetGuildCompleteInfo(guildCompleteInfo)

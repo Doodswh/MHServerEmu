@@ -194,29 +194,7 @@ namespace MHServerEmu.Games.Regions
             RegionPrototype destinationRegionProto = regionProtoRef.As<RegionPrototype>();
             if (destinationRegionProto == null) return Logger.WarnReturn(false, "TeleportToTarget(): destinationRegionProto == null");
 
-            bool isTown = destinationRegionProto.Behavior == RegionBehavior.Town;
-
-            if (Player.AdminDifficultyOverride != PrototypeId.Invalid && !isTown)
-            {
-                DifficultyTierRef = Player.AdminDifficultyOverride;
-            }
-
-            PrototypeId preferredDiff = Player.AdminDifficultyOverride != PrototypeId.Invalid && !isTown
-                ? Player.AdminDifficultyOverride
-                : (Player.CurrentAvatar != null
-                    ? (PrototypeId)Player.CurrentAvatar.Properties[PropertyEnum.DifficultyTierPreference]
-                    : PrototypeId.Invalid);
-            Party playerParty = Player.GetParty();
-
-            PrototypeId avatarDiffProp = Player.CurrentAvatar != null
-    ? (PrototypeId)Player.CurrentAvatar.Properties[PropertyEnum.DifficultyTierPreference]
-    : PrototypeId.Invalid;
-
-            Logger.Debug($"TeleportToTarget(): player=[{Player.GetName()}] dest=[{regionProtoRef.GetNameFormatted()}] " +
-                         $"DifficultyTierRef=[{DifficultyTierRef.GetNameFormatted()}] " +
-                         $"preferredDiff=[{preferredDiff.GetNameFormatted()}] " +
-                         $"avatarDiffProp=[{avatarDiffProp.GetNameFormatted()}] " +
-                         $"inParty=[{playerParty != null}] context=[{Context}]");
+            // Fix endless data if needed
             if (destinationRegionProto.HasEndlessTheme() && EndlessLevel <= 0)
             {
                 if (region.PrototypeDataRef == destinationRegionProto.DataRef)
@@ -225,80 +203,21 @@ namespace MHServerEmu.Games.Regions
                     EndlessLevel = 1;
             }
 
-            bool isRestrictedPreference = preferredDiff != PrototypeId.Invalid && IsRestrictedTier(preferredDiff);
-            bool isWaypointTeleport = Context == TeleportContextEnum.TeleportContext_Waypoint;
-
-            if (isWaypointTeleport && playerParty != null && playerParty.DifficultyTierProtoRef != PrototypeId.Invalid)
+            // Keep difficulty consistent for teleports that are expected to be local (e.g. resurrect, Surtur raid teleport).
+            if (DifficultyTierRef == PrototypeId.Invalid)
             {
-                Logger.Debug($"TeleportToTarget(): [{Player.GetName()}] branch=PartyWaypoint, overriding explicit UI ref [{DifficultyTierRef.GetNameFormatted()}] with Party ref [{playerParty.DifficultyTierProtoRef.GetNameFormatted()}]");
-                DifficultyTierRef = playerParty.DifficultyTierProtoRef;
-            }
-            else if (IsRestrictedTier(DifficultyTierRef))
-            {
-                Logger.Debug($"TeleportToTarget(): [{Player.GetName()}] branch=RestrictedTierRef, keeping DifficultyTierRef=[{DifficultyTierRef.GetNameFormatted()}]");
-            }
-            else if (isRestrictedPreference)
-            {
-                Logger.Debug($"TeleportToTarget(): [{Player.GetName()}] branch=RestrictedPreference, setting DifficultyTierRef=[{preferredDiff.GetNameFormatted()}]");
-                DifficultyTierRef = preferredDiff;
-            }
-            else if (DifficultyTierRef == PrototypeId.Invalid)
-            {
-                PrototypeId regionDiff = region.DifficultyTierRef;
-                Logger.Debug($"TeleportToTarget(): [{Player.GetName()}] branch=SoloDifficultyResolution, currentRegionDiff=[{regionDiff.GetNameFormatted()}]");
-
-                if (IsRestrictedTier(regionDiff))
+                switch (Context)
                 {
-                    Logger.Debug($"TeleportToTarget(): [{Player.GetName()}] currentRegion is restricted tier, defaulting to normal");
-                    DifficultyTierRef = GameDatabase.GlobalsPrototype.DifficultyTierDefault;
-                }
-                else
-                {
-                    switch (Context)
-                    {
-                        case TeleportContextEnum.TeleportContext_Mission:
-                        case TeleportContextEnum.TeleportContext_Power:
-                        case TeleportContextEnum.TeleportContext_Resurrect:
-                            DifficultyTierRef = regionDiff;
-                            break;
-                        default:
-                            DifficultyTierRef = Player.GetDifficultyTierForRegion(regionProtoRef, PrototypeId.Invalid);
-                            break;
-                    }
+                    case TeleportContextEnum.TeleportContext_Mission:
+                    case TeleportContextEnum.TeleportContext_Power:
+                    case TeleportContextEnum.TeleportContext_Resurrect:
+                        DifficultyTierRef = region.DifficultyTierRef;
+                        break;
                 }
             }
-            else
-            {
-                Logger.Debug($"TeleportToTarget(): [{Player.GetName()}] branch=None (DifficultyTierRef already set and not restricted), DifficultyTierRef=[{DifficultyTierRef.GetNameFormatted()}]");
-            }
 
-            bool bypass = IsRestrictedTier(DifficultyTierRef) ||
-                           Player.HasBadge(AvailableBadges.SiteCommands) ||
-                           isRestrictedPreference ||
-                           (playerParty != null && DifficultyTierRef == playerParty.DifficultyTierProtoRef) ||
-                           (playerParty == null && Player.AdminDifficultyOverride != PrototypeId.Invalid && DifficultyTierRef == Player.AdminDifficultyOverride);
-
-            if (!bypass)
-            {
-                DifficultyTierRef = Player.GetDifficultyTierForRegion(regionProtoRef, DifficultyTierRef);
-            }
-            else
-            {
-              
-                // native Trial/Level requirements for Omega/Cosmic difficulty.
-                if (!Player.HasBadge(AvailableBadges.SiteCommands) && IsRestrictedTier(DifficultyTierRef))
-                {
-                    // CanEnterRegion automatically verifies if they are Level 60 and have passed the trial.
-                    if (!Player.CanEnterRegion(regionProtoRef, DifficultyTierRef, false))
-                    {
-                        Logger.Warn($"Teleport: {Player.GetName()} blocked from Omega. Failed CanEnterRegion check.");
-
-                        
-                        Player.SendBannerMessage(GameDatabase.UIGlobalsPrototype.MessageRegionRestricted);
-                        return false;
-                    }
-                }
-            }
+            // Clamp target region's difficulty to the available range
+            DifficultyTierRef = Player.GetDifficultyTierForRegion(regionProtoRef, DifficultyTierRef);
 
             if (IsLocalTeleport(region, destinationRegionProto))
             {
@@ -306,24 +225,14 @@ namespace MHServerEmu.Games.Regions
             }
             else
             {
-                bool canEnter = Player.CanEnterRegion(regionProtoRef, DifficultyTierRef, false);
-                if (canEnter == false)
-                {
-                    Logger.Warn($"Teleport: {Player.GetName()} failed CanEnterRegion for {regionProtoRef.GetNameFormatted()} (Diff: {DifficultyTierRef.GetNameFormatted()})");
+                if (Player.CanEnterRegion(regionProtoRef, DifficultyTierRef, false) == false)
                     return false;
-                }
 
                 if (destinationRegionProto.IsQueueRegion)
                     return BeginTeleportToQueueTarget(regionProtoRef);
 
                 return TeleportToRemoteTarget(regionProtoRef, areaProtoRef, cellProtoRef, entityProtoRef);
             }
-        }
-
-        public static bool IsRestrictedTier(PrototypeId protoRef)
-        {
-            string name = protoRef.GetName();
-            return name.Contains("Tier4") || name.Contains("Tier5");
         }
 
         public bool TeleportToRegionLocation(ulong regionId, Vector3 position)
