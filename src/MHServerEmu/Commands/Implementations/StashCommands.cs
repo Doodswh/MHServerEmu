@@ -16,7 +16,6 @@ using MHServerEmu.Games.Properties;
 namespace MHServerEmu.Commands.Implementations
 {
     [CommandGroup("stash")]
-    [CommandGroupUserLevel(AccountUserLevel.Admin)]
     public class StashCommands : CommandGroup
     {
         private static readonly Logger Logger = LogManager.CreateLogger();
