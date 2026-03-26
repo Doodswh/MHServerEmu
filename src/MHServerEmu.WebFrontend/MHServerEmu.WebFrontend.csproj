@@ -16,6 +16,8 @@
   <ItemGroup>
     <ProjectReference Include="..\MHServerEmu.Core\MHServerEmu.Core.csproj" />
     <ProjectReference Include="..\MHServerEmu.PlayerManagement\MHServerEmu.PlayerManagement.csproj" />
+    <ProjectReference Include="..\MHServerEmu.DatabaseAccess\MHServerEmu.DatabaseAccess.csproj" />
+    <ProjectReference Include="..\MHServerEmu.Games\MHServerEmu.Games.csproj" />
   </ItemGroup>
 
   <ItemGroup>
@@ -25,6 +27,30 @@
   </ItemGroup>
 
   <ItemGroup>
+    <None Update="Data\Web\AccountDashboard\config.js">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Update="Data\Web\AccountDashboard\index.html">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Update="Data\Web\AccountDashboard\script.js">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Update="Data\Web\AccountDashboard\style.css">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Update="Data\Web\COA-Dashboard\config.js">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Update="Data\Web\COA-Dashboard\index.html">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Update="Data\Web\COA-Dashboard\script.js">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Update="Data\Web\COA-Dashboard\style.css">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
     <None Update="Data\Web\Dashboard\config.js">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>

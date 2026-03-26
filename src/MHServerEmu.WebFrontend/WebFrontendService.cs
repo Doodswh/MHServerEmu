@@ -1,12 +1,15 @@
-﻿using MHServerEmu.Core.Config;
+using MHServerEmu.Core.Config;
 using MHServerEmu.Core.Helpers;
 using MHServerEmu.Core.Logging;
 using MHServerEmu.Core.Network;
 using MHServerEmu.Core.Network.Web;
 using MHServerEmu.WebFrontend.Handlers;
+using MHServerEmu.WebFrontend.Handlers.AccountDashboard;
 using MHServerEmu.WebFrontend.Handlers.MTXStore;
+using MHServerEmu.WebFrontend.Handlers.RemoteConsole;
 using MHServerEmu.WebFrontend.Handlers.WebApi;
 using MHServerEmu.WebFrontend.Network;
+using MHServerEmu.WebFrontend.RemoteConsole;
 
 namespace MHServerEmu.WebFrontend
 {
@@ -21,6 +24,7 @@ namespace MHServerEmu.WebFrontend
 
         private readonly WebService _webService;
         private List<string> _dashboardEndpoints;
+        private RemoteConsoleLogBuffer _remoteConsoleLogBuffer;
 
         public GameServiceState State { get; private set; } = GameServiceState.Created;
 
@@ -55,8 +59,18 @@ namespace MHServerEmu.WebFrontend
                 InitializeWebBackend();
                 WebApiKeyManager.Instance.LoadKeys();
 
+                if (config.EnableRemoteConsole)
+                    InitializeRemoteConsole();
+
                 if (config.EnableDashboard)
-                    InitializeWebDashboard(config.DashboardFileDirectory, config.DashboardUrlPath);
+                {
+                    if (config.EnableRemoteConsole)
+                        InitializeRemoteConsoleDashboard(config.DashboardFileDirectory, config.DashboardUrlPath);
+                    else
+                        InitializeWebDashboard(config.DashboardFileDirectory, config.DashboardUrlPath);
+                }
+
+                InitializeWebDashboard("AccountDashboard", "/AccountDashboard/");
             }
         }
 
@@ -107,8 +121,9 @@ namespace MHServerEmu.WebFrontend
 
             foreach (string localPath in _dashboardEndpoints)
             {
-                StaticFileWebHandler fileHandler = _webService.GetHandler(localPath) as StaticFileWebHandler;
-                fileHandler?.Load();
+                WebHandler handler = _webService.GetHandler(localPath);
+                (handler as StaticFileWebHandler)?.Load();
+                (handler as RemoteConsoleDashboardWebHandler)?.Load();
             }
         }
 
@@ -127,9 +142,29 @@ namespace MHServerEmu.WebFrontend
             _webService.RegisterHandler("/AccountManagement/SetFlag",       new AccountSetFlagWebHandler());
             _webService.RegisterHandler("/AccountManagement/ClearFlag",     new AccountClearFlagWebHandler());
 
+            _webService.RegisterHandler("/AccountDashboard/Login",   new AccountDashboardLoginWebHandler());
+            _webService.RegisterHandler("/AccountDashboard/Session", new AccountDashboardSessionWebHandler());
+            _webService.RegisterHandler("/AccountDashboard/Logout",  new AccountDashboardLogoutWebHandler());
+            _webService.RegisterHandler("/AccountDashboard/Data",    new AccountDashboardDataWebHandler());
+
             _webService.RegisterHandler("/ServerStatus", new ServerStatusWebHandler());
             _webService.RegisterHandler("/RegionReport", new RegionReportWebHandler());
             _webService.RegisterHandler("/Metrics/Performance", new MetricsPerformanceWebHandler());
+        }
+
+        private void InitializeRemoteConsole()
+        {
+            var config = ConfigManager.Instance.GetConfig<WebFrontendConfig>();
+
+            _remoteConsoleLogBuffer = new(config.RemoteConsoleMaxLogEntries);
+            LogManager.AttachTarget(_remoteConsoleLogBuffer);
+
+            _webService.RegisterHandler("/RemoteConsole/Session", new RemoteConsoleSessionWebHandler());
+            _webService.RegisterHandler("/RemoteConsole/Login", new RemoteConsoleLoginWebHandler());
+            _webService.RegisterHandler("/RemoteConsole/AccountSessionLogin", new RemoteConsoleAccountSessionLoginWebHandler());
+            _webService.RegisterHandler("/RemoteConsole/Logout", new RemoteConsoleLogoutWebHandler());
+            _webService.RegisterHandler("/RemoteConsole/Poll", new RemoteConsolePollWebHandler(_remoteConsoleLogBuffer));
+            _webService.RegisterHandler("/RemoteConsole/Command", new RemoteConsoleCommandWebHandler());
         }
 
         private void InitializeWebDashboard(string dashboardDirectoryName, string localPath)
@@ -148,7 +183,7 @@ namespace MHServerEmu.WebFrontend
                 return;
             }
 
-            _dashboardEndpoints = new();
+            _dashboardEndpoints ??= new();
 
             // Make sure local path starts and ends with slashes.
             if (localPath.StartsWith('/') == false)
@@ -183,6 +218,56 @@ namespace MHServerEmu.WebFrontend
             }
 
             Logger.Info($"Initialized web dashboard at {localPath}");
+        }
+
+        private void InitializeRemoteConsoleDashboard(string dashboardDirectoryName, string localPath)
+        {
+            string dashboardDirectory = Path.Combine(FileHelper.DataDirectory, "Web", dashboardDirectoryName);
+            if (Directory.Exists(dashboardDirectory) == false)
+            {
+                Logger.Warn($"InitializeRemoteConsoleDashboard(): Dashboard directory '{dashboardDirectoryName}' does not exist");
+                return;
+            }
+
+            string indexFilePath = Path.Combine(dashboardDirectory, "index.html");
+            if (File.Exists(indexFilePath) == false)
+            {
+                Logger.Warn($"InitializeRemoteConsoleDashboard(): Index file not found at '{indexFilePath}'");
+                return;
+            }
+
+            _dashboardEndpoints ??= new();
+
+            if (localPath.StartsWith('/') == false)
+                localPath = $"/{localPath}";
+
+            if (localPath.EndsWith('/') == false)
+                localPath = $"{localPath}/";
+
+            _webService.RegisterHandler(localPath, new RemoteConsoleDashboardWebHandler(indexFilePath));
+            _dashboardEndpoints.Add(localPath);
+
+            if (localPath.Length > 1)
+            {
+                string localPathRedirect = localPath[..^1];
+                _webService.RegisterHandler(localPathRedirect, new TrailingSlashRedirectWebHandler());
+                _dashboardEndpoints.Add(localPathRedirect);
+            }
+
+            foreach (string filePath in Directory.GetFiles(dashboardDirectory, "*", SearchOption.AllDirectories))
+            {
+                string relativeFilePath = Path.GetRelativePath(dashboardDirectory, filePath);
+
+                if (string.Equals(relativeFilePath, "index.html", StringComparison.InvariantCultureIgnoreCase))
+                    continue;
+
+                string subFilePath = $"{localPath}{relativeFilePath.Replace('\\', '/')}";
+
+                _webService.RegisterHandler(subFilePath, new StaticFileWebHandler(filePath));
+                _dashboardEndpoints.Add(subFilePath);
+            }
+
+            Logger.Info($"Initialized remote console dashboard at {localPath}");
         }
     }
 }

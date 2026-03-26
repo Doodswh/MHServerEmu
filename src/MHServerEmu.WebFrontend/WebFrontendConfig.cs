@@ -13,5 +13,11 @@ namespace MHServerEmu.WebFrontend
         public bool EnableDashboard { get; private set; } = true;
         public string DashboardFileDirectory { get; private set; } = "Dashboard";
         public string DashboardUrlPath { get; private set; } = "/";
+        public bool EnableRemoteConsole { get; private set; } = false;
+        public string RemoteConsoleUsername { get; private set; } = "admin";
+        public string RemoteConsolePassword { get; private set; } = "change-me";
+        public string RemoteConsoleAllowedIPs { get; private set; } = "127.0.0.1,::1";
+        public int RemoteConsoleSessionDurationMinutes { get; private set; } = 480;
+        public int RemoteConsoleMaxLogEntries { get; private set; } = 1000;
     }
 }

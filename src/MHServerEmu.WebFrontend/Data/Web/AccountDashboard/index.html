@@ -1,0 +1,267 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <script>
+        (function () {
+            try {
+                var storedTheme = localStorage.getItem("coa-theme");
+                var resolvedTheme = storedTheme || (window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
+                document.documentElement.setAttribute("data-theme", resolvedTheme);
+                document.documentElement.style.colorScheme = resolvedTheme;
+            } catch (error) {}
+        }());
+    </script>
+    <title>COA Account Portal</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=Sora:wght@500;600;700;800&display=swap" rel="stylesheet">
+    <link href="https://mho.councilofancients.com/static/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <header id="main-header">
+        <nav class="navbar fixed-top navbar-expand-lg navbar-dark">
+            <div class="container">
+                <div class="navbar-brand-group">
+                    <a id="main-logo" class="navbar-brand" href="/">C<span class="navbar-omega">&Omega;</span>A</a>
+                    <div class="navbar-server-status" id="navbar-server-status" aria-live="polite">
+                        <span class="navbar-server-status-dot is-loading" id="navbar-server-status-dot" aria-hidden="true"></span>
+                        <span class="navbar-server-status-text" id="navbar-server-status-text">Checking status</span>
+                    </div>
+                </div>
+
+                <button id="hamburger" class="navbar-toggler" type="button" aria-controls="navbarSupportedContent" aria-expanded="false" aria-label="Toggle navigation">
+                    <span class="icon-bar"></span>
+                    <span class="icon-bar"></span>
+                    <span class="icon-bar"></span>
+                </button>
+
+                <div class="collapse navbar-collapse" id="navbarSupportedContent">
+                    <ul class="navbar-nav ml-auto">
+                        <li class="nav-item">
+                            <a class="nav-link" href="/#about">About</a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link" href="/#features">Get Started</a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link" href="#" id="server-details-trigger" role="button" aria-controls="serverdetails">Server Details</a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link" href="https://mho.councilofancients.com/register">Sign Up</a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link" href="https://mho.councilofancients.com/AccountDashboard/">Account</a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link" href="https://discord.gg/6ujgCA89pB" target="_blank" rel="noopener noreferrer"><i class="fa-brands fa-discord"></i> Discord</a>
+                        </li>
+                        <li class="nav-item">
+                            <button class="theme-toggle" type="button" data-theme-toggle aria-label="Toggle color theme">
+                                <i class="fa-solid fa-circle-half-stroke" aria-hidden="true"></i>
+                                <span data-theme-label>Light</span>
+                            </button>
+                        </li>
+                        <li class="nav-item">
+                            <button id="logout-button" class="theme-toggle hidden" type="button">Sign Out</button>
+                        </li>
+                    </ul>
+                </div>
+            </div> 
+        </nav>
+    </header>
+
+    <div class="page-shell">
+        <main class="layout">
+            <section class="session-summary glass-inset">
+                <p class="eyebrow">Account Portal</p>
+                <strong id="session-state">Checking</strong>
+                <p id="session-detail">Trying to restore your existing dashboard session.</p>
+            </section>
+
+            <section class="auth-stage glass-panel" id="auth-panel">
+                <div class="auth-stage-promo">
+                    <a class="back-home-link" href="/"><span aria-hidden="true">&larr;</span><span>Back Home</span></a>
+                    <div class="auth-stage-copy">
+                        <p class="eyebrow">Council of Ancients</p>
+                        <div class="promo-hero-art" aria-hidden="true">
+                            <img src="deadpool_lay.png" alt="" class="promo-character">
+                        </div>
+                        <h2 class="promo-title">
+                            <span class="promo-title-top">Pick up where your</span>
+                            <span class="promo-title-bottom">roster left off.</span>
+                        </h2>
+                        <p class="promo-copy">Use the same account you play the game with to review your saved account details, playtime stats, and hero-by-hero activity.</p>
+                        <ul class="promo-points">
+                            <li>Authentication uses the same server account database as the live game login.</li>
+                            <li>Check your overall progress without starting the game client.</li>
+                            <li>If you still need an account, open registration and finish setup there first.</li>
+                        </ul>
+                    </div>
+                </div>
+
+                <form id="login-form" class="auth-card" novalidate>
+                    <p class="eyebrow">Sign In</p>
+                    <h2 class="form-title">Open your account dashboard</h2>
+                    <p class="form-copy">Enter the same credentials you use in-game. Once signed in, the portal will load your account overview and time played breakdown.</p>
+
+                    <div class="field-group">
+                        <label for="email">Email Address</label>
+                        <input id="email" name="email" type="email" autocomplete="username" placeholder="you@example.com" required>
+                    </div>
+
+                    <div class="field-group">
+                        <label for="password">Password</label>
+                        <input id="password" name="password" type="password" autocomplete="current-password" placeholder="Enter your password" required>
+                    </div>
+
+                    <div class="button-row">
+                        <button type="submit" id="login-button" class="button button-primary"><span class="btn-label">Sign In</span></button>
+                        <button type="button" id="clear-button" class="button button-secondary">Clear</button>
+                    </div>
+
+                    <div id="login-message" class="message" aria-live="polite"></div>
+
+                    <p class="form-note">Need a new account? <a href="/register">Create one on the registration page</a>.</p>
+                </form>
+            </section>
+
+            <section class="dashboard hidden" id="dashboard">
+                <div class="dashboard-top">
+                    <section class="panel glass-panel">
+                        <div class="section-heading">
+                            <p class="eyebrow">Account</p>
+                            <h2>Overview</h2>
+                            <p>The portal reads your saved account metadata directly from the server database.</p>
+                        </div>
+                        <div id="account-overview" class="card-grid"></div>
+                    </section>
+
+                    <section class="panel stats-panel glass-panel">
+                        <div class="section-heading">
+                            <p class="eyebrow">Progress</p>
+                            <h2>Headline Stats</h2>
+                            <p>A quick snapshot of your time and roster.</p>
+                        </div>
+                        <div id="headline-stats" class="card-grid"></div>
+                        <div class="dashboard-actions">
+                            <a id="coa-dashboard-link" class="button button-secondary full-width hidden" href="/COA-Dashboard/">Server Console</a>
+                        </div>
+                    </section>
+                </div>
+
+                <section class="panel glass-panel">
+                    <div class="section-heading section-row">
+                        <div>
+                            <p class="eyebrow">Characters</p>
+                            <h2>Time Played By Character</h2>
+                            <p>Every saved hero on your account, sorted by the server response.</p>
+                        </div>
+                    </div>
+                    <div class="table-wrap glass-inset">
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>Character</th>
+                                    <th>Prototype</th>
+                                    <th>Level</th>
+                                    <th>Time Played</th>
+                                </tr>
+                            </thead>
+                            <tbody id="character-rows"></tbody>
+                        </table>
+                    </div>
+                </section>
+            </section>
+        </main>
+    </div>
+
+    <div class="modal fade" id="serverdetails" tabindex="-1" role="dialog" aria-labelledby="server-details-title" aria-hidden="true">
+        <div class="modal-dialog modal-xl" role="document">
+            <div class="modal-content server-details-modal">
+                <div class="modal-header">
+                    <div>
+                        <p class="eyebrow modal-eyebrow">Server Details</p>
+                        <h2 class="modal-title" id="server-details-title">Server perks built for a faster, more active return.</h2>
+                    </div>
+                    <button type="button" class="close" data-dismiss="modal" aria-label="Close">
+                        <span aria-hidden="true">&times;</span>
+                    </button>
+                </div>
+                <div class="modal-body">
+                    <p class="server-details-intro">The COA public server keeps the experience moving with tuned cooldowns, boosted progression, custom rewards, and quality-of-life adjustments that make logging back in feel worthwhile.</p>
+                    <div class="server-details-modal-grid">
+                        <article class="glass-inset server-details-modal-card">
+                            <div class="server-details-modal-head">
+                                <div class="server-details-modal-icon">
+                                    <i class="fa-solid fa-server" aria-hidden="true"></i>
+                                </div>
+                                <div>
+                                    <p class="eyebrow modal-eyebrow">Features</p>
+                                    <h3>Server Features</h3>
+                                </div>
+                            </div>
+                            <ul class="server-details-modal-list">
+                                <li><strong>50% Cooldowns:</strong> All hero skills have their cooldowns reduced by 50%, with more tuning planned for individual abilities over time.</li>
+                                <li><strong>Custom Commands:</strong> Access a range of custom and modified commands designed to expand gameplay options.</li>
+                            </ul>
+                        </article>
+                        <article class="glass-inset server-details-modal-card">
+                            <div class="server-details-modal-head">
+                                <div class="server-details-modal-icon">
+                                    <i class="fa-solid fa-coins" aria-hidden="true"></i>
+                                </div>
+                                <div>
+                                    <p class="eyebrow modal-eyebrow">Economy</p>
+                                    <h3>Economy</h3>
+                                </div>
+                            </div>
+                            <ul class="server-details-modal-list">
+                                <li><strong>Eternity Splinter Conversion:</strong> Convert your Eternity Splinters into G's at a 20-to-1 ratio.</li>
+                            </ul>
+                        </article>
+                        <article class="glass-inset server-details-modal-card">
+                            <div class="server-details-modal-head">
+                                <div class="server-details-modal-icon">
+                                    <i class="fa-solid fa-bolt" aria-hidden="true"></i>
+                                </div>
+                                <div>
+                                    <p class="eyebrow modal-eyebrow">Rates</p>
+                                    <h3>Rates</h3>
+                                </div>
+                            </div>
+                            <ul class="server-details-modal-list">
+                                <li><strong>Experience Boost:</strong> Enjoy a 3x experience rate so leveling heroes feels meaningfully faster.</li>
+                                <li><strong>Loot Increase:</strong> Benefit from a 2x loot rate for better rewards across your runs.</li>
+                            </ul>
+                        </article>
+                        <article class="glass-inset server-details-modal-card">
+                            <div class="server-details-modal-head">
+                                <div class="server-details-modal-icon">
+                                    <i class="fa-solid fa-gift" aria-hidden="true"></i>
+                                </div>
+                                <div>
+                                    <p class="eyebrow modal-eyebrow">Rewards</p>
+                                    <h3>Daily Gifts</h3>
+                                </div>
+                            </div>
+                            <ul class="server-details-modal-list">
+                                <li><strong>Custom Daily Gifts:</strong> A unique daily gift system, separate from the standard login rewards, adds a little extra reason to drop in regularly.</li>
+                            </ul>
+                        </article>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="button modal-btn" data-dismiss="modal">Close</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="config.js"></script>
+    <script src="script.js"></script>
+</body>
+</html>

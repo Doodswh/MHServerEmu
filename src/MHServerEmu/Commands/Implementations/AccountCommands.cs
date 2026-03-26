@@ -21,7 +21,7 @@ namespace MHServerEmu.Commands.Implementations
         [CommandDescription("Creates a new account.")]
         [CommandUsage("account create [email] [playerName] [password]")]
         [CommandUserLevel(AccountUserLevel.Admin)]
-        [CommandInvokerType(CommandInvokerType.Client)]
+        [CommandInvokerType(CommandInvokerType.ServerConsole)]
         [CommandParamCount(3)]
         public string Create(string[] @params, NetClient client)
         {
@@ -91,7 +91,7 @@ namespace MHServerEmu.Commands.Implementations
         [CommandDescription("Changes user level for the specified account.")]
         [CommandUsage("account userlevel [email] [0|1|2]")]
         [CommandUserLevel(AccountUserLevel.Admin)]
-        [CommandInvokerType(CommandInvokerType.Client)]
+        [CommandInvokerType(CommandInvokerType.ServerConsole)]
         [CommandParamCount(2)]
         public string UserLevel(string[] @params, NetClient client)
         {
