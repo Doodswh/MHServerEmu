@@ -2,6 +2,7 @@ using MHServerEmu.Commands.Attributes;
 using MHServerEmu.Core.Logging;
 using MHServerEmu.Core.Memory;
 using MHServerEmu.Core.Network;
+using MHServerEmu.Core.RateLimiting;
 using MHServerEmu.DatabaseAccess.Models;
 using MHServerEmu.Games.Entities;
 using MHServerEmu.Games.Entities.Inventories;
@@ -25,6 +26,8 @@ namespace MHServerEmu.Commands.Implementations
     {
         private static readonly Logger Logger = LogManager.CreateLogger();
         private readonly Dictionary<string, List<PrototypeId>> _categoryStashMap = new();
+        private static readonly SemaphoreSlim _moveItemsConcurrencyLimit = new(initialCount: 20, maxCount: 20);
+
 
         private static readonly Dictionary<string, List<string>> AvatarNameVariations = new(StringComparer.OrdinalIgnoreCase)
         {
@@ -37,39 +40,37 @@ namespace MHServerEmu.Commands.Implementations
 
         [Command("Moveitems")]
         [CommandInvokerType(CommandInvokerType.Client)]
-        public string Sort(string[] @params, NetClient client)
+        public string MoveItems(string[] @params, NetClient client)
         {
             PlayerConnection playerConnection = (PlayerConnection)client;
             if (playerConnection?.Player == null) return "Invalid player connection";
-            Player player = playerConnection.Player;
 
+            if (!_moveItemsConcurrencyLimit.Wait(0))
+                return "Too many players are sorting stashes right now. Please try again in a moment.";
+
+            Player player = playerConnection.Player;
             Logger.Info($"[ItemMove] Starting automatic Move operation for player {player.Id}");
 
             Dictionary<string, List<PrototypeId>> categoryStashMap = new();
+            List<PrototypeId> allStashRefs = ListPool<PrototypeId>.Instance.Get();
 
             try
             {
-                List<PrototypeId> allStashRefs = ListPool<PrototypeId>.Instance.Get();
                 if (!player.GetStashInventoryProtoRefs(allStashRefs, false, true))
-                {
-                    ListPool<PrototypeId>.Instance.Return(allStashRefs);
                     return "No stash tabs available";
-                }
 
-                // Pass the local map into your sort logic
                 int itemsMoved = SortItems(player, allStashRefs, categoryStashMap);
-
-                ListPool<PrototypeId>.Instance.Return(allStashRefs);
-                return $"Sorted {itemsMoved} items across all stash tabs.";
+                return $"Moved {itemsMoved} items across all stash tabs.";
             }
             finally
             {
-                // Local cleanup of pooled lists
+                _moveItemsConcurrencyLimit.Release();
+
                 foreach (var list in categoryStashMap.Values)
-                {
                     ListPool<PrototypeId>.Instance.Return(list);
-                }
                 categoryStashMap.Clear();
+
+                ListPool<PrototypeId>.Instance.Return(allStashRefs);
             }
         }
 
@@ -167,7 +168,6 @@ namespace MHServerEmu.Commands.Implementations
                 if (item != null)
                 {
                     ulong? stackEntityId = null;
-                    // Use the standard pipeline to handle movement, stacking, and AOI updates
                     InventoryResult result = Inventory.ChangeEntityInventoryLocation(
                         item,
                         generalInventory,
@@ -193,122 +193,41 @@ namespace MHServerEmu.Commands.Implementations
             if (generalInventory == null) return 0;
 
             var entityManager = player.Game.EntityManager;
-            List<ulong> allItemIds = ListPool<ulong>.Instance.Get();
+            using var allItemIdsHandle = ListPool<ulong>.Instance.Get(out List<ulong> allItemIds);
+
             foreach (var entry in generalInventory)
             {
                 allItemIds.Add(entry.Id);
             }
 
-            HashSet<ulong> processedItemIds = HashSetPool<ulong>.Instance.Get();
             int itemsMoved = 0;
 
-            // First Pass: Stackable Items
             foreach (ulong itemId in allItemIds)
             {
                 Item item = entityManager.GetEntity<Item>(itemId);
-                if (item == null || !item.CanStack() || item.IsEquipped) continue;
+                if (item == null || item.IsEquipped) continue;
 
-                if (TryMoveToMatchingStack(player, item, stashRefs))
-                {
-                    itemsMoved++;
-                    processedItemIds.Add(itemId);
-                }
-            }
-
-            // Item Collection & Sorting
-            List<Item> itemsToSort = ListPool<Item>.Instance.Get();
-            foreach (ulong itemId in allItemIds)
-            {
-                if (processedItemIds.Contains(itemId)) continue;
-
-                Item item = entityManager.GetEntity<Item>(itemId);
-                if (item != null && !item.IsEquipped)
-                {
-                    itemsToSort.Add(item);
-                }
-            }
-
-            itemsToSort.Sort((a, b) =>
-            {
-                int categoryComparison = string.Compare(GetItemCategory(a), GetItemCategory(b), StringComparison.Ordinal);
-                if (categoryComparison != 0) return categoryComparison;
-                return string.Compare(GameDatabase.GetPrototypeName(a.PrototypeDataRef), GameDatabase.GetPrototypeName(b.PrototypeDataRef), StringComparison.Ordinal);
-            });
-
-            // Stash Categorization
-            List<PrototypeId> avatarStashes = ListPool<PrototypeId>.Instance.Get();
-            List<PrototypeId> craftingStashes = ListPool<PrototypeId>.Instance.Get();
-            foreach (var stashRef in stashRefs)
-            {
-                var inventoryProto = GameDatabase.GetPrototype<InventoryPrototype>(stashRef);
-                if (inventoryProto == null) continue;
-
-                if (inventoryProto.Category == InventoryCategory.PlayerStashAvatarSpecific)
-                    avatarStashes.Add(stashRef);
-                else if (inventoryProto.Category == InventoryCategory.PlayerCraftingRecipes)
-                    craftingStashes.Add(stashRef);
-            }
-
-            // Second Pass: Sorted Item Placement
-            foreach (Item item in itemsToSort)
-            {
-                if (processedItemIds.Contains(item.Id)) continue;
                 bool moved = false;
 
-                // Try avatar stashes first
-                if (avatarStashes.Count > 0)
+
+                if (TryMoveToCategoryStash(player, item, stashRefs, categoryStashMap))
                 {
-                    foreach (var avatarStashRef in avatarStashes)
+                    moved = true;
+                }
+                else
+                {
+                    foreach (var stashRef in stashRefs)
                     {
-                        Inventory stash = player.GetInventoryByRef(avatarStashRef);
-                        if (stash == null || GetInventoryFreeSlots(stash) == 0) continue;
-
-                        string stashProtoName = GameDatabase.GetPrototypeName(stash.PrototypeDataRef);
-                        string avatarName = ExtractAvatarNameFromStash(stashProtoName);
-
-                        if (!string.IsNullOrEmpty(avatarName) && IsItemSuitableForAvatar(item, avatarName))
+                        if (TryMoveItemToStash(player, item, stashRef))
                         {
-                            if (TryMoveItemToStash(player, item, avatarStashRef))
-                            {
-                                moved = true;
-                                break;
-                            }
+                            moved = true;
+                            break;
                         }
                     }
                 }
 
-                if (!moved)
-                {
-                    if (GetItemCategory(item) == "Crafting" && craftingStashes.Count > 0)
-                    {
-                        foreach (var craftingStashRef in craftingStashes)
-                        {
-                            if (TryMoveItemToStash(player, item, craftingStashRef))
-                            {
-                                moved = true;
-                                break;
-                            }
-                        }
-                    }
-                    if (!moved && TryMoveToCategoryStash(player, item, stashRefs, categoryStashMap))
-                    {
-                        moved = true;
-                    }
-                }
-
-                if (moved)
-                {
-                    itemsMoved++;
-                    processedItemIds.Add(item.Id);
-                }
+                if (moved) itemsMoved++;
             }
-
-            // Cleanup
-            ListPool<ulong>.Instance.Return(allItemIds);
-            HashSetPool<ulong>.Instance.Return(processedItemIds);
-            ListPool<Item>.Instance.Return(itemsToSort);
-            ListPool<PrototypeId>.Instance.Return(avatarStashes);
-            ListPool<PrototypeId>.Instance.Return(craftingStashes);
 
             return itemsMoved;
         }
@@ -322,7 +241,6 @@ namespace MHServerEmu.Commands.Implementations
             List<Item> itemsToSort = ListPool<Item>.Instance.Get();
             int itemsCompacted = 0;
 
-            // Collect all non-equipped items from the general inventory
             foreach (var entry in generalInventory)
             {
                 Item item = entityManager.GetEntity<Item>(entry.Id);
@@ -332,7 +250,6 @@ namespace MHServerEmu.Commands.Implementations
                 }
             }
 
-            // Sort items by category and prototype name to prepare for a clean layout
             itemsToSort.Sort((a, b) =>
             {
                 int categoryComparison = string.Compare(GetItemCategory(a), GetItemCategory(b), StringComparison.Ordinal);
@@ -343,13 +260,10 @@ namespace MHServerEmu.Commands.Implementations
             uint nextSlot = 0;
             foreach (Item item in itemsToSort)
             {
-                // Only attempt a move if the item isn't already in the target slot
                 if (item.InventoryLocation.Slot != nextSlot)
                 {
                     ulong? stackEntityId = null;
 
-                    // Route through the central pipeline to handle validation and AOI updates
-                    // We set allowStacking to false here to maintain the sorted order
                     InventoryResult result = Inventory.ChangeEntityInventoryLocation(
                         item,
                         generalInventory,
@@ -486,26 +400,35 @@ namespace MHServerEmu.Commands.Implementations
         private bool TryMoveItemToStash(Player player, Item item, PrototypeId stashRef)
         {
             Inventory stash = player.GetInventoryByRef(stashRef);
-            if (stash == null || stash.CapacityRemaining == 0) return false;
 
-            // Use a nullable ulong to capture the new entity ID if stacking occurs
+            if (stash == null || stash.CapacityRemaining <= 0) return false;
+
             ulong? stackEntityId = null;
 
-            // Route through the standard pipeline for validation and AOI updates
+          
             InventoryResult result = Inventory.ChangeEntityInventoryLocation(
                 item,
                 stash,
-                Inventory.InvalidSlot, // Automatically find a free slot or stack target
+                Inventory.InvalidSlot,
                 ref stackEntityId,
                 true // Allow stacking
             );
 
             if (result == InventoryResult.Success)
             {
-                Logger.Info($"[STASH] Moved {item.Id} to stash {stashRef}");
+         
+                item.UpdateInterestPolicies(true);
+
+                if (stackEntityId.HasValue)
+                    Logger.Info($"[STASH-DEBUG] {item.Id} merged into stack {stackEntityId.Value}.");
+                else
+                    Logger.Info($"[STASH-DEBUG] {item.Id} moved to new slot in {stashRef}.");
+
                 return true;
             }
 
+         
+            Logger.Warn($"[STASH-FAIL] Item {item.Id} rejected by {stashRef}. Reason: {result}");
             return false;
         }
 
