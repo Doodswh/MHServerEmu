@@ -12,7 +12,6 @@ using MHServerEmu.Core.Network;
 using MHServerEmu.Core.Serialization;
 using MHServerEmu.Core.System.Time;
 using MHServerEmu.Core.VectorMath;
-using MHServerEmu.DatabaseAccess.Models;												  
 using MHServerEmu.Games.Achievements;
 using MHServerEmu.Games.Common;
 using MHServerEmu.Games.Dialog;
@@ -49,7 +48,7 @@ using MHServerEmu.Games.Social.Parties;
 namespace MHServerEmu.Games.Entities
 {
     // Avatar index for console versions that have local coop, mostly meaningless on PC.
-    public enum PlayerAvatarIndex
+    public enum PlayerAvatarIndex       
     {
         Primary,
         Secondary,
@@ -58,13 +57,13 @@ namespace MHServerEmu.Games.Entities
 
     public enum CanSwitchAvatarResult
     {
-        Success = 0,
+        Success                     = 0,
         NotAllowedInPrivateInstance = 1 << 0,
-        NotAllowedInRegion = 1 << 1,
-        NotAllowedInQueue = 1 << 2,
-        NotAllowedInTransformMode = 1 << 3,
-        NotAllowedGeneric = 1 << 4,
-        NotAllowedUnknown = 1 << 5,
+        NotAllowedInRegion          = 1 << 1,
+        NotAllowedInQueue           = 1 << 2,
+        NotAllowedInTransformMode   = 1 << 3,
+        NotAllowedGeneric           = 1 << 4,
+        NotAllowedUnknown           = 1 << 5,
     }
 
     // NOTE: These badges and their descriptions are taken from an internal build dated June 2015 (most likely version 1.35).
@@ -151,12 +150,9 @@ namespace MHServerEmu.Games.Entities
         public bool IsOnLoadingScreen { get; private set; }
         public bool IsFullscreenObscured { get => IsFullscreenMoviePlaying || IsOnLoadingScreen; }
         public uint FullscreenMovieSyncRequestId { get; set; }
-        public PrototypeId AdminDifficultyOverride { get; set; } = PrototypeId.Invalid;
 
         public bool IsSwitchingAvatar { get; private set; }
-        public bool IsVanished { get; set; }
-        private readonly Dictionary<PrototypeId, int> _extraSlotsByGroup = new();
-        public event Action ExtraSlotsChanged;
+
         public PlayerConnection PlayerConnection { get; private set; }
         public AreaOfInterest AOI { get => PlayerConnection.AOI; }
 
@@ -236,7 +232,7 @@ namespace MHServerEmu.Games.Entities
 
             var popProto = GameDatabase.GlobalsPrototype.PopulationGlobalsPrototype;
             if (popProto == null) return false;
-            _spawnGimbal = new(popProto.SpawnMapGimbalRadius, popProto.SpawnMapHorizon);
+            _spawnGimbal = new (popProto.SpawnMapGimbalRadius, popProto.SpawnMapHorizon);
 
             return true;
         }
@@ -264,7 +260,7 @@ namespace MHServerEmu.Games.Entities
                         if (teamUpAgent != null)
                         {
                             teamUpAgent.SetTeamUpsAtMaxLevel(this);
-                            if (teamUpAgent.IsInWorld)
+                            if (teamUpAgent.IsInWorld) 
                                 teamUpAgent.UpdateTeamUpSynergyCondition();
                         }
                     }
@@ -287,36 +283,36 @@ namespace MHServerEmu.Games.Entities
                     }
 
                 case PropertyEnum.PowerCooldownStartTime:
+                {
+                    Property.FromParam(id, 0, out PrototypeId powerProtoRef);
+                    PowerPrototype powerProto = powerProtoRef.As<PowerPrototype>();
+                    if (powerProto == null)
                     {
-                        Property.FromParam(id, 0, out PrototypeId powerProtoRef);
-                        PowerPrototype powerProto = powerProtoRef.As<PowerPrototype>();
-                        if (powerProto == null)
-                        {
-                            Logger.Warn("OnPropertyChange(): powerProto == null");
-                            break;
-                        }
-
-                        if (Power.IsCooldownPersistent(powerProto))
-                            Properties[PropertyEnum.PowerCooldownStartTimePersistent, powerProtoRef] = newValue;
-
+                        Logger.Warn("OnPropertyChange(): powerProto == null");
                         break;
                     }
+
+                    if (Power.IsCooldownPersistent(powerProto))
+                        Properties[PropertyEnum.PowerCooldownStartTimePersistent, powerProtoRef] = newValue;
+
+                    break;
+                }
 
                 case PropertyEnum.RunestonesAmount:
+                {
+                    var region = GetRegion();
+                    if (region == null || region.MetaGames.Count == 0) break;
+                    var manager = Game.EntityManager;
+
+                    foreach (var metagameId in region.MetaGames)
                     {
-                        var region = GetRegion();
-                        if (region == null || region.MetaGames.Count == 0) break;
-                        var manager = Game.EntityManager;
-
-                        foreach (var metagameId in region.MetaGames)
-                        {
-                            var pvp = manager.GetEntity<PvP>(metagameId);
-                            if (pvp == null) continue;
-                            pvp.UpdateRunestonesScore(this, newValue);
-                        }
-
-                        break;
+                        var pvp = manager.GetEntity<PvP>(metagameId);
+                        if (pvp == null) continue;
+                        pvp.UpdateRunestonesScore(this, newValue);
                     }
+
+                    break;
+                }
             }
         }
 
@@ -440,14 +436,7 @@ namespace MHServerEmu.Games.Entities
             success &= Serializer.Transfer(archive, ref hasCommunityData);
             if (hasCommunityData)
                 success &= Serializer.Transfer(archive, ref _community);
-            // Pass the memory override to the next region server without saving to DB
-            if (archive.InvolvesClient == false && archive.Version >= ArchiveVersion.AddedAdminDifficulty)
-            {
-                ulong diffOverrideId = (ulong)AdminDifficultyOverride;
-                success &= Serializer.Transfer(archive, ref diffOverrideId);
-                AdminDifficultyOverride = (PrototypeId)diffOverrideId;
-            }
-            // ----------------------
+
             // Unused bool, always false
             bool unkBool = false;
             success &= Serializer.Transfer(archive, ref unkBool);
@@ -524,11 +513,6 @@ namespace MHServerEmu.Games.Entities
             base.EnterGame(settings);
 
             InitPermaBuffs();
-            if (IsVanished)
-            {
-                CurrentAvatar.Properties[PropertyEnum.Stealth] = true;
-                CurrentAvatar.Properties[PropertyEnum.StealthDetection] = 10000;
-            }
 
             OnEnterGameInitStashTabOptions();
 
@@ -589,35 +573,13 @@ namespace MHServerEmu.Games.Entities
         /// </summary>
         public string GetName(PlayerAvatarIndex avatarIndex = PlayerAvatarIndex.Primary)
         {
-            string baseName;
             if ((avatarIndex >= PlayerAvatarIndex.Primary && avatarIndex < PlayerAvatarIndex.Count) == false)
-            {
-                // Logger.Warn("GetName(): avatarIndex out of range");
-                baseName = _playerName.Get(); // Fallback to primary player name
-            }
-            else if (avatarIndex == PlayerAvatarIndex.Secondary)
-            {
-                baseName = _secondaryPlayerName.Get();
-            }
-            else // Primary avatar
-            {
-                baseName = _playerName.Get();
-            }
+                Logger.Warn("GetName(): avatarIndex out of range");
 
+            if (avatarIndex == PlayerAvatarIndex.Secondary)
+                return _secondaryPlayerName.Get();
 
-            bool isAdminEquivalent = this.HasBadge(AvailableBadges.SiteCommands); // Use the badge(s) you've determined for admin/mod
-
-
-            if (isAdminEquivalent)
-            {
-
-                return $"{baseName} (Administrator!)";
-
-
-            }
-
-
-            return baseName;
+            return _playerName.Get();
         }
 
         /// <summary>
@@ -1476,7 +1438,7 @@ namespace MHServerEmu.Games.Entities
                 if (currencyProto.MaxAmount > 0 && currentAmount + delta > currencyProto.MaxAmount)
                     continue;
 
-                var propId = new PropertyId(PropertyEnum.Currency, currencyProtoRef);
+                var propId = new PropertyId (PropertyEnum.Currency, currencyProtoRef);
                 Properties.AdjustProperty(delta, propId);
                 GetRegion()?.CurrencyCollectedEvent.Invoke(new(this, currencyProtoRef, Properties[propId]));
                 OnScoringEvent(new(ScoringEventType.CurrencyCollected, currencyProto, delta));
@@ -1531,7 +1493,7 @@ namespace MHServerEmu.Games.Entities
 
             Properties[esPropId] = esBalance - esAmount;
 
-            Logger.Info($"[{PlayerConnection}] converted {esAmount} ES to {gAmount} G", LogCategory.MTXStore);
+            Logger.Info($"[{PlayerConnection}] converted {esAmount} ES to {gAmount} G", LogCategory.MTXStore);            
             return gAmount;
         }
 
@@ -1570,7 +1532,7 @@ namespace MHServerEmu.Games.Entities
         {
             // Only the current avatar is in the world and can have powers, so it's pointless to use AvatarIterator here like the client does
             if (item.GetOwnerOfType<Player>() != this) return Logger.WarnReturn(false, "InitPowerFromCreationItem(): item.GetOwnerOfType<Player>() != this");
-
+            
             CurrentAvatar?.InitPowerFromCreationItem(item);
             return true;
         }
@@ -1600,14 +1562,14 @@ namespace MHServerEmu.Games.Entities
             {
                 case InventoryCategory.PlayerStashAvatarSpecific:
                 case InventoryCategory.PlayerStashGeneral:
-                    {
-                        // PlayerStash inventories are available only when interacting with a stash
-                        WorldEntity dialogTarget = GetDialogTarget();
-                        if (dialogTarget == null || dialogTarget.IsStash == false)
-                            return InventoryResult.InvalidNotInteractingWithStash;
+                {
+                    // PlayerStash inventories are available only when interacting with a stash
+                    WorldEntity dialogTarget = GetDialogTarget();
+                    if (dialogTarget == null || dialogTarget.IsStash == false)
+                        return InventoryResult.InvalidNotInteractingWithStash;
 
-                        return InventoryResult.Success;
-                    }
+                    return InventoryResult.Success;
+                }
 
                 case InventoryCategory.PlayerTrade:
                     // PlayerTrade inventory is available only when trading
@@ -1650,14 +1612,14 @@ namespace MHServerEmu.Games.Entities
 
                 case InventoryCategory.PlayerStashAvatarSpecific:
                 case InventoryCategory.PlayerStashGeneral:
-                    {
-                        // PlayerStash inventories are available only when interacting with a stash
-                        WorldEntity dialogTarget = GetDialogTarget();
-                        if (dialogTarget == null || dialogTarget.IsStash == false)
-                            return InventoryResult.InvalidNotInteractingWithStash;
+                {
+                    // PlayerStash inventories are available only when interacting with a stash
+                    WorldEntity dialogTarget = GetDialogTarget();
+                    if (dialogTarget == null || dialogTarget.IsStash == false)
+                        return InventoryResult.InvalidNotInteractingWithStash;
 
-                        return InventoryResult.Success;
-                    }
+                    return InventoryResult.Success;
+                }
 
                 case InventoryCategory.PlayerTrade:
                     // PlayerTrade inventory is available only when trading
@@ -2446,7 +2408,7 @@ namespace MHServerEmu.Games.Entities
                 if (transformModeProto == null) return Logger.WarnReturn(CanSwitchAvatarResult.NotAllowedUnknown, "CanSwitchAvatars(): transformModeProto == null");
 
                 if (transformModeProto.GetDuration(avatar) != TimeSpan.Zero)
-                    return CanSwitchAvatarResult.NotAllowedInTransformMode;
+                    return CanSwitchAvatarResult.NotAllowedInTransformMode; 
             }
 
             // Property restriction
@@ -2547,7 +2509,7 @@ namespace MHServerEmu.Games.Entities
                 if (numPointsGained > 0)
                 {
                     Properties.AdjustProperty((int)numPointsGained, new(PropertyEnum.InfinityPoints, (PropertyParam)gemCurrent));
-
+                    
                     messageBuilder?.AddPointsGained(NetStructInfinityPointGain.CreateBuilder()
                         .SetNumPointsGained(numPointsGained)
                         .SetInfinityGemEnum((int)gemCurrent));
@@ -2640,78 +2602,35 @@ namespace MHServerEmu.Games.Entities
         {
             Party party = GetParty();
             if (party != null)
-            {
-                Logger.Info($"[Difficulty] {GetName()} is in a party. Enforcing Party Difficulty: {party.DifficultyTierProtoRef}");
                 return party.DifficultyTierProtoRef;
-            }
-
-            if (AdminDifficultyOverride != PrototypeId.Invalid)
-            {
-                Logger.Info($"[Difficulty] {GetName()} has Admin Override. Enforcing: {AdminDifficultyOverride}");
-                return AdminDifficultyOverride;
-            }
 
             if (CurrentAvatar != null)
-            {
-                PrototypeId avatarPref = CurrentAvatar.Properties[PropertyEnum.DifficultyTierPreference];
-                Logger.Info($"[Difficulty] {GetName()} returning avatar UI preference: {avatarPref}");
-                return avatarPref;
-            }
+                return CurrentAvatar.Properties[PropertyEnum.DifficultyTierPreference];
 
-            Logger.Info($"[Difficulty] {GetName()} returning default fallback difficulty.");
             return GameDatabase.GlobalsPrototype.DifficultyTierDefault;
         }
 
         public PrototypeId GetDifficultyTierForRegion(PrototypeId regionProtoRef, PrototypeId preferenceProtoRef = PrototypeId.Invalid)
         {
-            Logger.Info($"[Difficulty] GetDifficultyTierForRegion() initiated for {GetName()} | Dest: {regionProtoRef.GetNameFormatted()} | Client/UI Pref: {preferenceProtoRef}");
-
-            Party party = GetParty();
-            if (party != null && party.DifficultyTierProtoRef != PrototypeId.Invalid)
-            {
-                if (preferenceProtoRef != party.DifficultyTierProtoRef)
-                {
-                    Logger.Info($"[Difficulty] OVERRIDE: Client UI requested {preferenceProtoRef}, but Party requires {party.DifficultyTierProtoRef}. Forcing Party Difficulty.");
-                    preferenceProtoRef = party.DifficultyTierProtoRef;
-                }
-            }
-            else if (preferenceProtoRef == PrototypeId.Invalid)
-            {
+            if (preferenceProtoRef == PrototypeId.Invalid)
                 preferenceProtoRef = GetDifficultyTierPreference();
-                Logger.Info($"[Difficulty] No explicit UI preference provided. Pulled internal preference: {preferenceProtoRef}");
-            }
 
-            if (Properties[PropertyEnum.DifficultyTierPreference] != PrototypeId.Invalid)
-            {
-                Logger.Info($"[Difficulty] Player persistent property enforcing: {preferenceProtoRef}");
+            PrototypeId difficultyTierProtoRef = RegionPrototype.ConstrainDifficulty(regionProtoRef, preferenceProtoRef);
+            if (difficultyTierProtoRef == preferenceProtoRef)
                 return preferenceProtoRef;
-            }
 
-            PrototypeId constrainedDiff = RegionPrototype.ConstrainDifficulty(regionProtoRef, preferenceProtoRef);
-            Logger.Info($"[Difficulty] Constrained Difficulty Output: {constrainedDiff}");
+            if (CanChangeDifficulty(difficultyTierProtoRef))
+                return difficultyTierProtoRef;
 
-            if (constrainedDiff == preferenceProtoRef)
-            {
-                Logger.Info($"[Difficulty] Constrained difficulty matches preference. Returning: {preferenceProtoRef}");
-                return preferenceProtoRef;
-            }
-
-            if (CanChangeDifficulty(constrainedDiff))
-            {
-                Logger.Info($"[Difficulty] Change permitted to constrained difficulty: {constrainedDiff}");
-                return constrainedDiff;
-            }
-            Logger.Warn($"[Difficulty] Change denied for {GetName()} to {constrainedDiff}. Returning Invalid.");
             return PrototypeId.Invalid;
         }
 
         public void SendDifficultyTierPreferenceToPlayerManager()
         {
-            PrototypeId difficultyTierProtoRef = AdminDifficultyOverride != PrototypeId.Invalid
-                ? AdminDifficultyOverride
-                : GetDifficultyTierPreference();
+            PrototypeId difficultyTierProtoRef = CurrentAvatar != null
+                ? CurrentAvatar.Properties[PropertyEnum.DifficultyTierPreference]
+                : GameDatabase.GlobalsPrototype.DifficultyTierDefault;
 
-            Logger.Info($"[Difficulty] Syncing {difficultyTierProtoRef} to PlayerManager for {GetName()}");
             ServiceMessage.SetDifficultyTierPreference message = new(DatabaseUniqueId, (ulong)difficultyTierProtoRef);
             ServerManager.Instance.SendMessageToService(GameServiceType.PlayerManager, message);
         }
@@ -2720,19 +2639,12 @@ namespace MHServerEmu.Games.Entities
         {
             Party party = GetParty();
             if (party == null)
-            {
-                Logger.Info($"[Difficulty] UpdatePartyDifficulty() aborted: {GetName()} is not in a party.");
                 return;
-            }
 
             // Only the leader can update difficulty.
             if (party.IsLeader(this) == false)
-            {
-                Logger.Info($"[Difficulty] UpdatePartyDifficulty() aborted: {GetName()} is not the party leader.");
                 return;
-            }
 
-            Logger.Info($"[Difficulty] Leader {GetName()} is broadcasting party difficulty change to: {difficultyTierProtoRef}");
             PartyOperationPayload request = PartyOperationPayload.CreateBuilder()
                 .SetRequestingPlayerDbId(DatabaseUniqueId)
                 .SetRequestingPlayerName(GetName())
@@ -3035,7 +2947,7 @@ namespace MHServerEmu.Games.Entities
                 {
                     ulong oldestRegionId = 0;
                     TimeSpan oldestAccessTimestamp = TimeSpan.MaxValue;
-
+                    
                     foreach (var kvp in _mapDiscoveryDict)
                     {
                         TimeSpan accessTimestamp = kvp.Value.AccessTimestamp;
@@ -3273,7 +3185,7 @@ namespace MHServerEmu.Games.Entities
                 return;
             }
 
-            DoCancelPlayerTrade(this, tradePartner);
+            DoCancelPlayerTrade(this, tradePartner);     
         }
 
         public void SetPlayerTradeConfirmFlag(bool confirmFlag, uint sequenceNumber)
@@ -3471,7 +3383,7 @@ namespace MHServerEmu.Games.Entities
             {
                 ulong entityId = tradeInv.GetAnyEntity();
                 Entity entity = entityManager.GetEntity<Entity>(entityId);
-
+                
                 if (entity == null)
                 {
                     Logger.Error("GatherItemsForPlayerTrade(): entity == null");
@@ -3500,7 +3412,7 @@ namespace MHServerEmu.Games.Entities
 
                 ulong? stackId = 0;
                 InventoryResult result = item.ChangeInventoryLocation(destinationInv, Inventory.InvalidSlot, ref stackId, true);
-
+                
                 if (result != InventoryResult.Success)
                 {
                     Logger.Warn($"ReceiveItemsFromPlayerTrade(): Failed to move item [{item}] to destination inventory with result {result}!\noldOwner=[{oldOwner}], newOwner=[{newOwner}]");
@@ -3878,7 +3790,7 @@ namespace MHServerEmu.Games.Entities
             {
                 var entityDesc = new EntityDesc(target);
                 var outInteractData = new InteractData { IndicatorType = HUDEntityOverheadIcon.None };
-                var interactionType = InteractionManager.CallGetInteractionStatus(entityDesc, avatar, 0, InteractionFlags.Default, ref outInteractData);
+                var interactionType = InteractionManager.CallGetInteractionStatus(entityDesc, avatar, 0, InteractionFlags.Default, ref outInteractData);           
                 if (interactionType.HasFlag(InteractionMethod.Converse) && outInteractData.IndicatorType.HasValue)
                 {
                     var indicatorType = outInteractData.IndicatorType.Value;
@@ -3898,12 +3810,12 @@ namespace MHServerEmu.Games.Entities
             }
 
             var messageRelease = NetMessageMissionInteractRelease.DefaultInstance;
-            Game.NetworkManager.SendMessageToInterested(messageRelease, this, AOINetworkPolicyValues.AOIChannelOwner);
+            Game.NetworkManager.SendMessageToInterested(messageRelease, this, AOINetworkPolicyValues.AOIChannelOwner);           
         }
 
         public void SendRegionRestrictedRosterUpdate(bool enabled)
         {
-            var message = NetMessageRegionRestrictedRosterUpdate.CreateBuilder().SetEnabled(enabled).Build();
+            var message = NetMessageRegionRestrictedRosterUpdate.CreateBuilder().SetEnabled(enabled).Build(); 
             SendMessage(message);
         }
 
@@ -4044,14 +3956,6 @@ namespace MHServerEmu.Games.Entities
         {
             AchievementManager.OnScoringEvent(scoringEvent, entityId);
             LeaderboardManager.OnScoringEvent(scoringEvent, entityId);
-            if (scoringEvent.Type == ScoringEventType.AvatarKill)
-            {
-                Logger.Info($"[GuildKills] Kill detected for player {GetName()}. IsInGuild: {IsInGuild}");
-                if (IsInGuild)
-                {
-                    GetGuild()?.RecordKill();
-                }
-            }
         }
 
         public void UpdateScoringEventContext()
@@ -4221,7 +4125,7 @@ namespace MHServerEmu.Games.Entities
                 bool send = hudTutorialProto != null;
                 if (CurrentHUDTutorial != null)
                 {
-                    foreach (var entry in inventory)
+                    foreach(var entry in inventory)
                     {
                         var avatar = manager.GetEntity<Avatar>(entry.Id);
                         avatar?.ResetTutorialProps();
@@ -4296,14 +4200,14 @@ namespace MHServerEmu.Games.Entities
             // Update veteran (login) rewards
             if (Game.GameOptions.VeteranRewardsEnabled)
             {
-                GetLoginCount(out int loginCount);
-                var giftRequest = new ServiceMessage.PlayerRequestsGifts(DatabaseUniqueId, Game.Id, GetName());
-                ServerManager.Instance.SendMessageToService(GameServiceType.GiftItemDistributor, giftRequest);
-                GiveLoginRewards(loginCount);
-                Properties[PropertyEnum.LoginCount] = loginCount;
-                GiveEventDailyGifts();
-            }
+                if (GetLoginCount(out int loginCount))
+                {
+                    GiveLoginRewards(loginCount);
+                    Properties[PropertyEnum.LoginCount] = loginCount;
 
+                    GiveEventDailyGifts();
+                }
+            }
 
             // Send gifting restrictions update.
             // NOTE: Currently we don't actually need this since we don't rely on external services,
@@ -4950,7 +4854,7 @@ namespace MHServerEmu.Games.Entities
                 return true;
 
             using PropertyCollection tempProps = ObjectPoolManager.Instance.Get<PropertyCollection>();
-
+            
             using EvalContextData evalContext = ObjectPoolManager.Instance.Get<EvalContextData>();
             evalContext.SetVar_PropertyCollectionPtr(EvalContext.Default, tempProps);
             Eval.RunBool(permaBuffProto.EvalAvatarProperties, evalContext);

@@ -25,9 +25,10 @@ namespace MHServerEmu.Core.Serialization
         // Versions 1-8 were used in the 0.x branch, so we start at 9 here.
         Initial = 9,
         AddedMissionEventInstance = 10,
+        AddedAdminDifficulty = 11,
 
         // Update the current version if you add any    <---------
-        Current = AddedMissionEventInstance
+        Current = AddedAdminDifficulty
     }
 
     public enum GameBuildNumber : uint
