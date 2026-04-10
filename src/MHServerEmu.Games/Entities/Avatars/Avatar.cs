@@ -4722,9 +4722,6 @@ namespace MHServerEmu.Games.Entities.Avatars
             if (IsInWorld == false)
                 return 0f;
 
-            if (Game.CustomGameOptions.DisableMissionXPBonuses)
-                return 1f;
-
             TuningPrototype tuningProto = tuningTable.Prototype;
             if (tuningProto == null) return Logger.WarnReturn(0f, "GetMissionXPMultiplier(): tuningProto == null");
 
@@ -4737,7 +4734,10 @@ namespace MHServerEmu.Games.Entities.Avatars
             float multiplier = pctXPFromLevelDeltaCurve.GetAt(level - CharacterLevel);
             multiplier *= tuningProto.PctXPMultiplier;
             multiplier *= playerXPByDifficultyIndex.GetAt(tuningTable.DifficultyIndex);
-            multiplier *= GetAvatarXPMultiplier();
+
+            if (Game.CustomGameOptions.DisableMissionXPBonuses == false)
+                multiplier *= GetAvatarXPMultiplier();
+
             multiplier *= GetPartyXPMultiplier(tuningProto);
             multiplier *= GetLiveTuningXPMultiplier();
             return multiplier;

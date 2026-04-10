@@ -12,7 +12,6 @@ using MHServerEmu.Core.Network;
 using MHServerEmu.Core.Serialization;
 using MHServerEmu.Core.System.Time;
 using MHServerEmu.Core.VectorMath;
-using MHServerEmu.DatabaseAccess.Models;												  
 using MHServerEmu.Games.Achievements;
 using MHServerEmu.Games.Common;
 using MHServerEmu.Games.Dialog;
@@ -151,12 +150,9 @@ namespace MHServerEmu.Games.Entities
         public bool IsOnLoadingScreen { get; private set; }
         public bool IsFullscreenObscured { get => IsFullscreenMoviePlaying || IsOnLoadingScreen; }
         public uint FullscreenMovieSyncRequestId { get; set; }
-        public PrototypeId AdminDifficultyOverride { get; set; } = PrototypeId.Invalid;
 
         public bool IsSwitchingAvatar { get; private set; }
-        public bool IsVanished { get; set; }
-        private readonly Dictionary<PrototypeId, int> _extraSlotsByGroup = new();
-        public event Action ExtraSlotsChanged;
+
         public PlayerConnection PlayerConnection { get; private set; }
         public AreaOfInterest AOI { get => PlayerConnection.AOI; }
 
@@ -196,6 +192,8 @@ namespace MHServerEmu.Games.Entities
         public bool PlayerTradeConfirmFlag { get; private set; }
         public bool PlayerTradePartnerConfirmFlag { get; private set; }
         public uint PlayerTradeSequenceNumber { get; private set; }
+
+        public bool ProfileServerFrame { get; set; }
 
         public Player(Game game) : base(game)
         {
@@ -431,7 +429,6 @@ namespace MHServerEmu.Games.Entities
                     string emptyString = string.Empty;
                     success &= Serializer.Transfer(archive, ref emptyString);
                 }
-
             }
 
             bool hasCommunityData = archive.IsPersistent || archive.IsMigration ||
@@ -439,14 +436,7 @@ namespace MHServerEmu.Games.Entities
             success &= Serializer.Transfer(archive, ref hasCommunityData);
             if (hasCommunityData)
                 success &= Serializer.Transfer(archive, ref _community);
-            // Pass the memory override to the next region server without saving to DB
-            if (archive.InvolvesClient == false && archive.Version >= ArchiveVersion.AddedAdminDifficulty)
-            {
-                ulong diffOverrideId = (ulong)AdminDifficultyOverride;
-                success &= Serializer.Transfer(archive, ref diffOverrideId);
-                AdminDifficultyOverride = (PrototypeId)diffOverrideId;
-            }
-            // ----------------------
+
             // Unused bool, always false
             bool unkBool = false;
             success &= Serializer.Transfer(archive, ref unkBool);
@@ -523,11 +513,6 @@ namespace MHServerEmu.Games.Entities
             base.EnterGame(settings);
 
             InitPermaBuffs();
-			if (IsVanished)
-            {
-                CurrentAvatar.Properties[PropertyEnum.Stealth] = true;
-                CurrentAvatar.Properties[PropertyEnum.StealthDetection] = 10000;
-            }			   
 
             OnEnterGameInitStashTabOptions();
 
@@ -588,35 +573,13 @@ namespace MHServerEmu.Games.Entities
         /// </summary>
         public string GetName(PlayerAvatarIndex avatarIndex = PlayerAvatarIndex.Primary)
         {
-            string baseName;
             if ((avatarIndex >= PlayerAvatarIndex.Primary && avatarIndex < PlayerAvatarIndex.Count) == false)
-            {
-                // Logger.Warn("GetName(): avatarIndex out of range");
-                baseName = _playerName.Get(); // Fallback to primary player name
-            }
-            else if (avatarIndex == PlayerAvatarIndex.Secondary)
-            {
-                baseName = _secondaryPlayerName.Get();
-            }
-            else // Primary avatar
-            {
-                baseName = _playerName.Get();
-            }
+                Logger.Warn("GetName(): avatarIndex out of range");
 
+            if (avatarIndex == PlayerAvatarIndex.Secondary)
+                return _secondaryPlayerName.Get();
 
-            bool isAdminEquivalent = this.HasBadge(AvailableBadges.SiteCommands); // Use the badge(s) you've determined for admin/mod
-
-
-            if (isAdminEquivalent)
-            {
-
-                return $"{baseName} (Administrator!)";
-
-
-            }
-
-
-            return baseName;
+            return _playerName.Get();
         }
 
         /// <summary>
@@ -1324,7 +1287,7 @@ namespace MHServerEmu.Games.Entities
 
             // Drop item to the ground
             Region region = avatar.Region;
-           
+
             // Find a position to drop
             if (region.ChooseRandomPositionNearPoint(ref avatar.Bounds, PathFlags.Walk, PositionCheckFlags.CanBeBlockedEntity,
                 BlockingCheckFlags.CheckSpawns, 50f, 100f, out Vector3 dropPosition) == false)
@@ -2626,18 +2589,11 @@ namespace MHServerEmu.Games.Entities
         public bool CanChangeDifficulty(PrototypeId difficultyTierProtoRef)
         {
             DifficultyTierPrototype difficultyTierProto = difficultyTierProtoRef.As<DifficultyTierPrototype>();
-            if (difficultyTierProto == null)
-            {
-                Logger.Warn($"[Difficulty] CanChangeDifficulty(): Prototype is null for {difficultyTierProtoRef}");
-                return false;
-            }
+            if (difficultyTierProto == null) return Logger.WarnReturn(false, "CanChangeDifficulty(): difficultyTierProto == null");
 
             // The game assumes all difficulties to be unlocked if there is no current avatar
             if (CurrentAvatar != null && CurrentAvatar.CharacterLevel < difficultyTierProto.UnlockLevel)
-            {
-                Logger.Info($"[Difficulty] {GetName()} denied difficulty change. Level {CurrentAvatar.CharacterLevel} < Required {difficultyTierProto.UnlockLevel}");
                 return false;
-            }
 
             return true;
         }
@@ -2646,79 +2602,34 @@ namespace MHServerEmu.Games.Entities
         {
             Party party = GetParty();
             if (party != null)
-            {
-                Logger.Info($"[Difficulty] {GetName()} is in a party. Enforcing Party Difficulty: {party.DifficultyTierProtoRef}");
                 return party.DifficultyTierProtoRef;
-            }
-
-            if (AdminDifficultyOverride != PrototypeId.Invalid)
-            {
-                Logger.Info($"[Difficulty] {GetName()} has Admin Override. Enforcing: {AdminDifficultyOverride}");
-                return AdminDifficultyOverride;
-            }
 
             if (CurrentAvatar != null)
-            {
-                PrototypeId avatarPref = CurrentAvatar.Properties[PropertyEnum.DifficultyTierPreference];
-                Logger.Info($"[Difficulty] {GetName()} returning avatar UI preference: {avatarPref}");
-                return avatarPref;
-            }
+                return CurrentAvatar.Properties[PropertyEnum.DifficultyTierPreference];
 
-            Logger.Info($"[Difficulty] {GetName()} returning default fallback difficulty.");
             return GameDatabase.GlobalsPrototype.DifficultyTierDefault;
         }
 
         public PrototypeId GetDifficultyTierForRegion(PrototypeId regionProtoRef, PrototypeId preferenceProtoRef = PrototypeId.Invalid)
         {
-            Logger.Info($"[Difficulty] GetDifficultyTierForRegion() initiated for {GetName()} | Dest: {regionProtoRef.GetNameFormatted()} | Client/UI Pref: {preferenceProtoRef}");
-
-            Party party = GetParty();
-            if (party != null && party.DifficultyTierProtoRef != PrototypeId.Invalid)
-            {
-                if (preferenceProtoRef != party.DifficultyTierProtoRef)
-                {
-                    Logger.Info($"[Difficulty] OVERRIDE: Client UI requested {preferenceProtoRef}, but Party requires {party.DifficultyTierProtoRef}. Forcing Party Difficulty.");
-                    preferenceProtoRef = party.DifficultyTierProtoRef;
-                }
-            }
-            else if (preferenceProtoRef == PrototypeId.Invalid)
-            {
+            if (preferenceProtoRef == PrototypeId.Invalid)
                 preferenceProtoRef = GetDifficultyTierPreference();
-                Logger.Info($"[Difficulty] No explicit UI preference provided. Pulled internal preference: {preferenceProtoRef}");
-            }
 
-            if (Properties[PropertyEnum.DifficultyTierPreference] != PrototypeId.Invalid)
-            {
-                Logger.Info($"[Difficulty] Player persistent property enforcing: {preferenceProtoRef}");
+            PrototypeId difficultyTierProtoRef = RegionPrototype.ConstrainDifficulty(regionProtoRef, preferenceProtoRef);
+            if (difficultyTierProtoRef == preferenceProtoRef)
                 return preferenceProtoRef;
-            }
 
-            PrototypeId constrainedDiff = RegionPrototype.ConstrainDifficulty(regionProtoRef, preferenceProtoRef);
-            Logger.Info($"[Difficulty] Constrained Difficulty Output: {constrainedDiff}");
+            if (CanChangeDifficulty(difficultyTierProtoRef))
+                return difficultyTierProtoRef;
 
-            if (constrainedDiff == preferenceProtoRef)
-            {
-                Logger.Info($"[Difficulty] Constrained difficulty matches preference. Returning: {preferenceProtoRef}");
-                return preferenceProtoRef;
-            }
-
-            if (CanChangeDifficulty(constrainedDiff))
-            {
-                Logger.Info($"[Difficulty] Change permitted to constrained difficulty: {constrainedDiff}");
-                return constrainedDiff;
-            }
-
-            Logger.Warn($"[Difficulty] Change denied for {GetName()} to {constrainedDiff}. Returning Invalid.");
             return PrototypeId.Invalid;
         }
 
         public void SendDifficultyTierPreferenceToPlayerManager()
         {
-            PrototypeId difficultyTierProtoRef = AdminDifficultyOverride != PrototypeId.Invalid
-                ? AdminDifficultyOverride
-                : GetDifficultyTierPreference();
-
-            Logger.Info($"[Difficulty] Syncing {difficultyTierProtoRef} to PlayerManager for {GetName()}");
+            PrototypeId difficultyTierProtoRef = CurrentAvatar != null
+                ? CurrentAvatar.Properties[PropertyEnum.DifficultyTierPreference]
+                : GameDatabase.GlobalsPrototype.DifficultyTierDefault;
 
             ServiceMessage.SetDifficultyTierPreference message = new(DatabaseUniqueId, (ulong)difficultyTierProtoRef);
             ServerManager.Instance.SendMessageToService(GameServiceType.PlayerManager, message);
@@ -2728,18 +2639,11 @@ namespace MHServerEmu.Games.Entities
         {
             Party party = GetParty();
             if (party == null)
-            {
-                Logger.Info($"[Difficulty] UpdatePartyDifficulty() aborted: {GetName()} is not in a party.");
                 return;
-            }
 
+            // Only the leader can update difficulty.
             if (party.IsLeader(this) == false)
-            {
-                Logger.Info($"[Difficulty] UpdatePartyDifficulty() aborted: {GetName()} is not the party leader.");
                 return;
-            }
-
-            Logger.Info($"[Difficulty] Leader {GetName()} is broadcasting party difficulty change to: {difficultyTierProtoRef}");
 
             PartyOperationPayload request = PartyOperationPayload.CreateBuilder()
                 .SetRequestingPlayerDbId(DatabaseUniqueId)
@@ -2970,7 +2874,7 @@ namespace MHServerEmu.Games.Entities
         }
 
         public bool SendRegionRequestQueueCommandToPlayerManager(PrototypeId regionRef, PrototypeId difficultyTierRef,
-            RegionRequestQueueCommandVar command, ulong groupId = 0, ulong targetPlayerDbId = 0)
+            RegionRequestQueueCommandVar command, ulong groupId = 0, ulong targetPlayerDbId = 0, int teamSizeOverride = -1)
         {
             ulong playerDbId = DatabaseUniqueId;
             ulong regionProtoId = (ulong)regionRef;
@@ -3002,7 +2906,7 @@ namespace MHServerEmu.Games.Entities
                     break;
             }
 
-            ServiceMessage.MatchRegionRequestQueueCommand message = new(playerDbId, regionProtoId, difficultyTierProtoId, metaStateProtoId, command, groupId, targetPlayerDbId);
+            ServiceMessage.MatchRegionRequestQueueCommand message = new(playerDbId, regionProtoId, difficultyTierProtoId, metaStateProtoId, command, groupId, targetPlayerDbId, teamSizeOverride);
             ServerManager.Instance.SendMessageToService(GameServiceType.PlayerManager, message);
 
             return true;
@@ -4052,14 +3956,6 @@ namespace MHServerEmu.Games.Entities
         {
             AchievementManager.OnScoringEvent(scoringEvent, entityId);
             LeaderboardManager.OnScoringEvent(scoringEvent, entityId);
-            if (scoringEvent.Type == ScoringEventType.AvatarKill)
-            {
-                Logger.Info($"[GuildKills] Kill detected for player {GetName()}. IsInGuild: {IsInGuild}");
-                if (IsInGuild)
-                {
-                    GetGuild()?.RecordKill();
-                }
-            }
         }
 
         public void UpdateScoringEventContext()
@@ -4304,11 +4200,13 @@ namespace MHServerEmu.Games.Entities
             // Update veteran (login) rewards
             if (Game.GameOptions.VeteranRewardsEnabled)
             {
-                int loginCount = GetLoginCount();
-                var giftRequest = new ServiceMessage.PlayerRequestsGifts(DatabaseUniqueId, Game.Id, GetName());
-                ServerManager.Instance.SendMessageToService(GameServiceType.GiftItemDistributor, giftRequest);
-                GiveLoginRewards(loginCount);
-                Properties[PropertyEnum.LoginCount] = loginCount;
+                if (GetLoginCount(out int loginCount))
+                {
+                    GiveLoginRewards(loginCount);
+                    Properties[PropertyEnum.LoginCount] = loginCount;
+
+                    GiveEventDailyGifts();
+                }
             }
 
             // Send gifting restrictions update.
@@ -4320,25 +4218,33 @@ namespace MHServerEmu.Games.Entities
                 .Build());
         }
 
-        private int GetLoginCount()
+        private bool GetLoginCount(out int loginCount)
         {
+            bool rollover = false;
+
             // Check the rollover (daily at 10 AM UTC+0, same as shared quests)
             using PropertyCollection rolloverProperties = ObjectPoolManager.Instance.Get<PropertyCollection>();
             rolloverProperties[PropertyEnum.LootCooldownRolloverWallTime, 0, (PropertyParam)Weekday.All] = 10f;
 
             TimeSpan currentTime = Clock.UnixTime;
 
-            if (LootUtilities.GetLastLootCooldownRolloverWallTime(rolloverProperties, currentTime, out TimeSpan lastRolloverTime) == false)
-                return Logger.WarnReturn(0, "GetLoginCount(): Failed to get last loot cooldown rollover wall time");
-
-            if (lastRolloverTime > _loginRewardCooldownTimeStart)
+            if (LootUtilities.GetLastLootCooldownRolloverWallTime(rolloverProperties, currentTime, out TimeSpan lastRolloverTime))
             {
-                _loginCount++;
-                _loginRewardCooldownTimeStart = currentTime;
-                Logger.Trace($"GetLoginCount(): Rollover for player [{this}], loginCount = {_loginCount}");
+                if (lastRolloverTime > _loginRewardCooldownTimeStart)
+                {
+                    rollover = true;
+                    _loginCount++;
+                    _loginRewardCooldownTimeStart = currentTime;
+                    Logger.Trace($"GetLoginCount(): Rollover for player [{this}], loginCount = {_loginCount}");
+                }
+            }
+            else
+            {
+                Logger.Warn("GetLoginCount(): Failed to get last loot cooldown rollover wall time");
             }
 
-            return (int)_loginCount;
+            loginCount = (int)_loginCount;
+            return rollover;
         }
 
         private void GiveLoginRewards(int loginCount)
@@ -4369,6 +4275,17 @@ namespace MHServerEmu.Games.Entities
                 }
 
                 Properties[rewardId] = (long)Clock.UnixTime.TotalSeconds;
+            }
+        }
+
+        private void GiveEventDailyGifts()
+        {
+            LootManager lootManager = Game.LootManager;
+
+            foreach (PrototypeId eventDailyGiftProtoRef in Game.EventDailyGifts)
+            {
+                if (lootManager.GiveItem(eventDailyGiftProtoRef, LootContext.CashShop, this) == false)
+                    Logger.Warn($"GiveEventDailyGifts(): Failed to give event daily gift {eventDailyGiftProtoRef.GetName()} to player [{this}]");
             }
         }
 
