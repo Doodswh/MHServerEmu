@@ -15,7 +15,7 @@ CREATE TABLE IF NOT EXISTS "BannedHardware" (
 ALTER TABLE "Account" ADD COLUMN "LastKnownMachineId" TEXT;
 
 -- Update schema version
-PRAGMA user_version=5;
+PRAGMA user_version=6;
 =======
 ﻿-- Add guild data.
 

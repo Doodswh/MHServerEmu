@@ -602,6 +602,7 @@ namespace MHServerEmu.Core.Network
             public readonly NetMessageChat Chat = chat;
             public readonly int PrestigeLevel = prestigeLevel;
             public readonly List<ulong> PlayerFilter = playerFilter;
+            public string DisplayName { get; }
         }
 
         /// <summary>

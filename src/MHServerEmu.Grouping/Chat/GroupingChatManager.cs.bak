@@ -24,7 +24,6 @@ namespace MHServerEmu.Grouping.Chat
 
         private readonly string _serverName;
         private readonly int _serverPrestigeLevel;
-       
 
         private readonly ChatBroadcastMessage _motd;
         private readonly bool _logPrivateChatRooms;
@@ -74,18 +73,17 @@ namespace MHServerEmu.Grouping.Chat
                 SendMessage(_liveTuningEventMotd, client);
         }
 
-        public void OnChat(IFrontendClient client, NetMessageChat chat, int prestigeLevel, List<ulong> playerFilter, string displayName = null)
+        public void OnChat(IFrontendClient client, NetMessageChat chat, int prestigeLevel, List<ulong> playerFilter)
         {
             DBAccount account = ((IDBAccountOwner)client).Account;
 
             ChatRoomTypes roomType = chat.RoomType;
             ChatMessage theMessage = chat.TheMessage;
             ulong roomId = 0;
-            string senderName = string.IsNullOrEmpty(displayName) == false ? displayName : account.PlayerName;
 
             ChatNormalMessage message = ChatNormalMessage.CreateBuilder()
                 .SetRoomType(roomType)
-                .SetFromPlayerName(senderName)  
+                .SetFromPlayerName(account.PlayerName)
                 .SetTheMessage(theMessage)
                 .SetPrestigeLevel(prestigeLevel)
                 .Build();

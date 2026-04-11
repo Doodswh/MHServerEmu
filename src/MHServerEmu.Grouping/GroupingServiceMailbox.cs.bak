@@ -1,7 +1,6 @@
 ﻿using Gazillion;
 using MHServerEmu.Core.Logging;
 using MHServerEmu.Core.Network;
-using MHServerEmu.Core.System.Time;
 
 namespace MHServerEmu.Grouping
 {
@@ -99,7 +98,6 @@ namespace MHServerEmu.Grouping
             NetMessageChat chat = groupingManagerChat.Chat;
             int prestigeLevel = groupingManagerChat.PrestigeLevel;
             List<ulong> playerFilter = groupingManagerChat.PlayerFilter;
-            string displayName = groupingManagerChat.DisplayName;
 
             if (_groupingManager.ClientManager.TryGetClient(playerDbId, out IFrontendClient client) == false)
             {
@@ -107,8 +105,7 @@ namespace MHServerEmu.Grouping
                 return;
             }
 
-            
-            _groupingManager.ChatManager.OnChat(client, chat, prestigeLevel, playerFilter, displayName);
+            _groupingManager.ChatManager.OnChat(client, chat, prestigeLevel, playerFilter);
         }
 
         private void OnGroupingManagerTell(in ServiceMessage.GroupingManagerTell groupingManagerTell)
