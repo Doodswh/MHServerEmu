@@ -26,6 +26,7 @@ namespace MHServerEmu.Commands.Implementations
 
         [Command("Moveitems")]
         [CommandInvokerType(CommandInvokerType.Client)]
+        [CommandUserLevel(AccountUserLevel.Admin)]
         public string MoveItems(string[] @params, NetClient client)
         {
             PlayerConnection playerConnection = (PlayerConnection)client;

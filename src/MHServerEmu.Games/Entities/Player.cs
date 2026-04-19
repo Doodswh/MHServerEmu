@@ -111,6 +111,7 @@ namespace MHServerEmu.Games.Entities
         // sent along with it.
         private bool _emailVerified;
         private TimeSpan _accountCreationTimestamp;     // UnixTime
+        private TimeSpan _eventDailyGiftLastGivenTime;
 
         private RepVar_ulong _partyId = new();
 
@@ -495,6 +496,7 @@ namespace MHServerEmu.Games.Entities
                 // Login count
                 success &= Serializer.Transfer(archive, ref _loginCount);
                 success &= Serializer.Transfer(archive, ref _loginRewardCooldownTimeStart);
+                success &= Serializer.Transfer(archive, ref _eventDailyGiftLastGivenTime);
             }
 
             return success;
@@ -603,19 +605,6 @@ namespace MHServerEmu.Games.Entities
             {
                 baseName = _playerName.Get();
             }
-
-
-            bool isAdminEquivalent = this.HasBadge(AvailableBadges.SiteCommands); // Use the badge(s) you've determined for admin/mod
-
-
-            if (isAdminEquivalent)
-            {
-
-                return $"{baseName} (Administrator!)";
-
-
-            }
-
 
             return baseName;
         }
@@ -4377,6 +4366,10 @@ namespace MHServerEmu.Games.Entities
 
         private void GiveEventDailyGifts()
         {
+            // Only give if we haven't given gifts since the last rollover
+            if (_eventDailyGiftLastGivenTime >= _loginRewardCooldownTimeStart)
+                return;
+
             LootManager lootManager = Game.LootManager;
 
             foreach (PrototypeId eventDailyGiftProtoRef in Game.EventDailyGifts)
@@ -4384,6 +4377,8 @@ namespace MHServerEmu.Games.Entities
                 if (lootManager.GiveItem(eventDailyGiftProtoRef, LootContext.CashShop, this) == false)
                     Logger.Warn($"GiveEventDailyGifts(): Failed to give event daily gift {eventDailyGiftProtoRef.GetName()} to player [{this}]");
             }
+
+            _eventDailyGiftLastGivenTime = Clock.UnixTime;
         }
 
         #endregion

@@ -26,9 +26,9 @@ namespace MHServerEmu.Core.Serialization
         Initial = 9,
         AddedAdminDifficulty = 10,
         AddedMissionEventInstance = 11,
+        AddedEventDailyGiftTime = 12,   
 
-        // Update the current version if you add any    <---------
-        Current = AddedMissionEventInstance
+        Current = AddedEventDailyGiftTime  
     }
 
     public enum GameBuildNumber : uint

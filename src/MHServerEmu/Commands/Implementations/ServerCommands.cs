@@ -52,7 +52,7 @@ namespace MHServerEmu.Commands.Implementations
         [Command("reloadlivetuning")]
         [CommandDescription("Reloads live tuning settings.")]
         [CommandUsage("server reloadlivetuning")]
-        [CommandUserLevel(AccountUserLevel.Admin)]
+        [CommandUserLevel(AccountUserLevel.Dev)]
        
         public string ReloadLiveTuning(string[] @params, NetClient client)
         {
@@ -73,7 +73,7 @@ namespace MHServerEmu.Commands.Implementations
 
         [Command("reloaddashboard")]
         [CommandDescription("Reloads the web dashboard.")]
-        [CommandUserLevel(AccountUserLevel.Admin)]
+        [CommandUserLevel(AccountUserLevel.Dev)]
         [CommandInvokerType(CommandInvokerType.ServerConsole)]
         public string ReloadDashboard(string[] @params, NetClient client)
         {
@@ -129,8 +129,7 @@ namespace MHServerEmu.Commands.Implementations
         [Command("shutdown")]
         [CommandDescription("Shuts the server down.")]
         [CommandUsage("server shutdown")]
-        [CommandUserLevel(AccountUserLevel.Admin)]
-        [CommandInvokerType(CommandInvokerType.ServerConsole)]
+        [CommandUserLevel(AccountUserLevel.Dev)]
         public string Shutdown(string[] @params, NetClient client)
         {
             string shutdownRequester = client == null ? "the server console" : client.ToString();

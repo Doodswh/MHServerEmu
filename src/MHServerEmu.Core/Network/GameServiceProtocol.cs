@@ -595,14 +595,14 @@ namespace MHServerEmu.Core.Network
         /// <summary>
         /// [Game -> GroupingManager] Routes a regular chat message from a game instance.
         /// </summary>
-        public readonly struct GroupingManagerChat(ulong playerDbId, NetMessageChat chat, int prestigeLevel, List<ulong> playerFilter)
+        public readonly struct GroupingManagerChat(ulong playerDbId, NetMessageChat chat, int prestigeLevel, List<ulong> playerFilter, string displayName = null)
             : IGameServiceMessage
         {
             public readonly ulong PlayerDbId = playerDbId;
             public readonly NetMessageChat Chat = chat;
             public readonly int PrestigeLevel = prestigeLevel;
             public readonly List<ulong> PlayerFilter = playerFilter;
-            public string DisplayName { get; }
+            public string DisplayName { get; } = displayName;
         }
 
         /// <summary>

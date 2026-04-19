@@ -77,6 +77,7 @@ namespace MHServerEmu.Commands.Implementations
         [CommandDescription("Unlocks all stolen powers.")]
         [CommandUsage("power stealpowers")]
         [CommandInvokerType(CommandInvokerType.Client)]
+        [CommandUserLevel(AccountUserLevel.Admin)]
         public string StealPowers(string[] @params, NetClient client)
         {
             PlayerConnection playerConnection = (PlayerConnection)client;
@@ -109,6 +110,7 @@ namespace MHServerEmu.Commands.Implementations
         [CommandDescription("Unlocks avatar stolen powers.")]
         [CommandUsage("power stealavatarpowers")]
         [CommandInvokerType(CommandInvokerType.Client)]
+        [CommandUserLevel(AccountUserLevel.Admin)]
         public string StealAvatarPowers(string[] @params, NetClient client)
         {
             PlayerConnection playerConnection = (PlayerConnection)client;

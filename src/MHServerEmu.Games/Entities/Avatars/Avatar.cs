@@ -4313,7 +4313,12 @@ namespace MHServerEmu.Games.Entities.Avatars
             if (IsUsingGamepadInput)
             {
                 if (IsSingleInteraction(interaction) == false && interaction.HasFlag(InteractionMethod.Throw)) return false;
-                if (IsInWorld == false && interactee.IsInWorld == false) return false;
+
+                if (interactee.IsInWorld == false)
+                    return base.InInteractRange(interactee, interaction, interactFallbackRange);
+
+                if (IsInWorld == false) return false;
+
                 return InGamepadInteractRange(interactee);
             }
             return base.InInteractRange(interactee, interaction, interactFallbackRange);

@@ -48,7 +48,7 @@ namespace MHServerEmu.Games.Network
         private static readonly Logger Logger = LogManager.CreateLogger();
 
         private readonly IFrontendClient _frontendClient;
-        private readonly DBAccount _dbAccount;
+        public readonly DBAccount _dbAccount;
 
         private bool _doNotUpdateDBAccount = false;
 

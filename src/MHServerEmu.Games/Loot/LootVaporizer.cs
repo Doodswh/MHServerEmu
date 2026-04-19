@@ -23,6 +23,11 @@ namespace MHServerEmu.Games.Loot
     public static class LootVaporizer
     {
         private static readonly Logger Logger = LogManager.CreateLogger();
+        public static readonly List<string> AutoLootWhitelist = new()
+        {
+            "AncientForgottenDevice", 
+             "Cake",
+        };
 
         public static bool ShouldVaporizeLootResult(Player player, in LootResult lootResult, PrototypeId avatarProtoRef)
         {
@@ -38,7 +43,7 @@ namespace MHServerEmu.Games.Loot
                     ItemPrototype itemProto = lootResult.ItemSpec?.ItemProtoRef.As<ItemPrototype>();
                     if (itemProto == null) return false;
 
-                    // 1. Armor/Weapons Logic (Sell Junk)
+                    //Armor/Weapons Logic (Sell Junk)
                     if (itemProto is ArmorPrototype armorProto)
                     {
                         AvatarPrototype avatarProto = avatarProtoRef.As<AvatarPrototype>();
@@ -118,12 +123,23 @@ namespace MHServerEmu.Games.Loot
                 for (int i = summary.Currencies.Count - 1; i >= 0; i--)
                 {
                     CurrencySpec currency = summary.Currencies[i];
-                    player.Properties[PropertyEnum.Currency, currency.CurrencyRef] += currency.Amount;
+
+                    PrototypeId currencyRef = currency.CurrencyRef;
+                    int amount = currency.Amount;
+
+                    player.Properties[PropertyEnum.Currency, currencyRef] += amount;
+
+                    CurrencyPrototype currencyProto = currencyRef.As<CurrencyPrototype>();
+                    if (currencyProto != null)
+                    {
+                        player.GetRegion()?.CurrencyCollectedEvent.Invoke(new(player, currencyRef, player.Properties[PropertyEnum.Currency, currencyRef]));
+                        player.OnScoringEvent(new(ScoringEventType.CurrencyCollected, currencyProto, amount));
+                    }
+
                     summary.Currencies.RemoveAt(i);
                 }
             }
 
-            // 2. Items with Currency Properties
             if (summary.ItemSpecs.Count > 0)
             {
                 for (int i = summary.ItemSpecs.Count - 1; i >= 0; i--)
@@ -144,15 +160,22 @@ namespace MHServerEmu.Games.Loot
                         if (itemProto.GetCurrency(out PrototypeId currencyType, out int amount))
                         {
                             int totalAmount = amount * itemSpec.StackCount;
+
                             player.Properties[PropertyEnum.Currency, currencyType] += totalAmount;
-                            player.OnScoringEvent(new(ScoringEventType.ItemCollected, itemProto, itemSpec.RarityProtoRef.As<Prototype>(), itemSpec.StackCount));
+
+                            CurrencyPrototype currencyProto = currencyType.As<CurrencyPrototype>();
+                            if (currencyProto != null)
+                            {
+                                player.GetRegion()?.CurrencyCollectedEvent.Invoke(new(player, currencyType, player.Properties[PropertyEnum.Currency, currencyType]));
+                                player.OnScoringEvent(new(ScoringEventType.CurrencyCollected, currencyProto, totalAmount));
+                            }
+
                             summary.ItemSpecs.RemoveAt(i);
                         }
                     }
                 }
             }
 
-            // 3. Agents/Orbs with Currency Properties (Odin Marks, Worldstones)
             if (summary.AgentSpecs.Count > 0)
             {
                 for (int i = summary.AgentSpecs.Count - 1; i >= 0; i--)
@@ -161,7 +184,6 @@ namespace MHServerEmu.Games.Loot
                     WorldEntityPrototype agentProto = agentSpec.AgentProtoRef.As<WorldEntityPrototype>();
                     if (agentProto == null) continue;
 
-                    // Pre-check to ensure we don't spam logs on non-currency agents
                     bool hasCurrencyProperty = false;
                     foreach (var _ in agentProto.Properties.IteratePropertyRange(PropertyEnum.ItemCurrency))
                     {
@@ -171,16 +193,98 @@ namespace MHServerEmu.Games.Loot
 
                     if (hasCurrencyProperty)
                     {
-                        // Use GetCurrency() helper instead of manual iteration to avoid compilation errors
                         if (agentProto.GetCurrency(out PrototypeId currencyType, out int amount))
                         {
-                            Logger.Info($"[LOOT_DEBUG] Auto-Pickup CurrencyAgent: {agentProto.DisplayName} -> {currencyType} ({amount})");
-
                             player.Properties[PropertyEnum.Currency, currencyType] += amount;
 
-                            player.OnScoringEvent(new(ScoringEventType.ItemCollected, agentProto, GameDatabase.LootGlobalsPrototype.RarityDefault.As<Prototype>(), 1));
+                            CurrencyPrototype currencyProto = currencyType.As<CurrencyPrototype>();
+                            if (currencyProto != null)
+                            {
+                                player.GetRegion()?.CurrencyCollectedEvent.Invoke(new(player, currencyType, player.Properties[PropertyEnum.Currency, currencyType]));
+                                player.OnScoringEvent(new(ScoringEventType.CurrencyCollected, currencyProto, amount));
+                            }
 
                             summary.AgentSpecs.RemoveAt(i);
+                        }
+                    }
+                }
+            }
+
+            if (summary.ItemSpecs.Count > 0)
+            {
+                for (int i = summary.ItemSpecs.Count - 1; i >= 0; i--)
+                {
+                    ItemSpec itemSpec = summary.ItemSpecs[i];
+                    ItemPrototype itemProto = itemSpec.ItemProtoRef.As<ItemPrototype>();
+                    if (itemProto == null) continue;
+
+                    string internalName = itemProto.DataRef.GetName();
+                    if (string.IsNullOrEmpty(internalName)) continue;
+
+                    bool isWhitelisted = false;
+                    foreach (string whiteListedText in AutoLootWhitelist)
+                    {
+                        if (internalName.Contains(whiteListedText, StringComparison.OrdinalIgnoreCase))
+                        {
+                            isWhitelisted = true;
+                            break;
+                        }
+                    }
+
+                    if (isWhitelisted)
+                    {
+                        Inventory mainInventory = player.GetInventory(InventoryConvenienceLabel.General);
+                        if (mainInventory == null) continue;
+
+                        using EntitySettings settings = ObjectPoolManager.Instance.Get<EntitySettings>();
+                        settings.EntityRef = itemSpec.ItemProtoRef;
+                        settings.ItemSpec = itemSpec;
+
+                        Item newItem = player.Game.EntityManager.CreateEntity(settings) as Item;
+                        if (newItem == null) continue;
+
+                        newItem.Properties[PropertyEnum.InventoryStackCount] = itemSpec.StackCount;
+
+                        bool wasAdded = false;
+                        ulong? stackEntityId = 0;
+                        InventoryResult stackResult = InventoryResult.Invalid;
+                        InventoryResult slotResult = InventoryResult.Invalid;
+
+                        uint slot = mainInventory.GetAutoStackSlot(newItem, true);
+                        if (slot != Inventory.InvalidSlot)
+                        {
+                            stackResult = newItem.ChangeInventoryLocation(mainInventory, slot, ref stackEntityId, true);
+                            if (stackResult == InventoryResult.Success) wasAdded = true;
+                        }
+
+                        if (wasAdded == false)
+                        {
+                            slotResult = newItem.ChangeInventoryLocation(mainInventory, Inventory.InvalidSlot, ref stackEntityId, true);
+                            if (slotResult == InventoryResult.Success) wasAdded = true;
+                        }
+
+                        if (wasAdded)
+                        {
+                            player.OnScoringEvent(new(ScoringEventType.ItemCollected, itemProto, itemSpec.RarityProtoRef.As<Prototype>(), itemSpec.StackCount));
+
+                            if (stackEntityId.HasValue && stackEntityId.Value != 0)
+                            {
+                                Item stackEntity = player.Game.EntityManager.GetEntity<Item>(stackEntityId.Value);
+                                if (stackEntity != null)
+                                {
+                                    stackEntity.ChangeInventoryLocation(mainInventory, slot);
+                                }
+                            }
+                            else
+                            {
+                                newItem.SetRecentlyAdded(true);
+                            }
+
+                            summary.ItemSpecs.RemoveAt(i);
+                        }
+                        else
+                        {
+                            newItem.Destroy();
                         }
                     }
                 }

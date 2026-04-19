@@ -2,6 +2,7 @@
 using MHServerEmu.Core.Logging;
 using MHServerEmu.Core.Memory;
 using MHServerEmu.Core.Network;
+using MHServerEmu.DatabaseAccess.Models;
 using MHServerEmu.Games.Common;
 using MHServerEmu.Games.Entities;
 using MHServerEmu.Games.GameData;
@@ -280,7 +281,27 @@ namespace MHServerEmu.Games.Social
         private void SendChat(Player player, NetMessageChat chat, List<ulong> playerFilter = null)
         {
             int prestigeLevel = player.CurrentAvatar != null ? player.CurrentAvatar.PrestigeLevel : 0;
-            ServiceMessage.GroupingManagerChat chatMessage = new(player.DatabaseUniqueId, chat, prestigeLevel, playerFilter);
+
+           
+            string displayName = player.GetName();
+            var account = player.PlayerConnection?._dbAccount;
+            if (account != null)
+            {
+              
+                if (account.UserLevel == AccountUserLevel.Dev || account.Flags.HasFlag(AccountFlags.IsDev))
+                {
+                    displayName += "[Dev]";
+                }
+                else if (account.UserLevel == AccountUserLevel.Admin)
+                {
+                    displayName += "[Admin]";
+                }
+            }
+
+            
+            ServiceMessage.GroupingManagerChat chatMessage = new(player.DatabaseUniqueId, chat, prestigeLevel, playerFilter, displayName);
+            // --- NEW CODE END ---
+
             ServerManager.Instance.SendMessageToService(GameServiceType.GroupingManager, chatMessage);
         }
 
