@@ -463,7 +463,47 @@ namespace MHServerEmu.Games.GameData.PatchManager
             var infoTable = GameDatabase.PropertyInfoTable;
             PropertyInfo propertyInfo = infoTable.LookupPropertyInfo(propertyEnum);
 
-            return ParseJsonPropertyId(jsonElement, propertyEnum, propertyInfo);
+            Span<PropertyParam> paramValues = stackalloc PropertyParam[Property.MaxParamCount];
+            propertyInfo.DefaultParamValues.CopyTo(paramValues);
+
+            for (int i = 0; i < propertyInfo.ParamCount && i < Property.MaxParamCount; i++)
+            {
+                if (jsonElement.TryGetProperty($"Param{i}", out var paramValue))
+                {
+                    switch (propertyInfo.GetParamType(i))
+                    {
+                        case PropertyParamType.Asset:
+                            AssetId assetId = AssetId.Invalid;
+                            if (paramValue.ValueKind == JsonValueKind.String)
+                            {
+                                object converted = PrototypePatchManager.ConvertValue(paramValue.GetString(), typeof(AssetId));
+                                if (converted is AssetId cId) assetId = cId;
+                            }
+                            else
+                                assetId = (AssetId)paramValue.GetUInt64();
+
+                            paramValues[i] = Property.ToParam(assetId);
+                            break;
+
+                        case PropertyParamType.Prototype:
+                            PrototypeId protoId = PrototypeId.Invalid;
+                            if (paramValue.ValueKind == JsonValueKind.String)
+                                protoId = GameDatabase.GetPrototypeRefByName(paramValue.GetString());
+                            else
+                                protoId = (PrototypeId)paramValue.GetUInt64();
+
+                            paramValues[i] = Property.ToParam(propertyEnum, i, protoId);
+                            break;
+
+                        case PropertyParamType.Integer:
+                            if (paramValue.TryGetInt32(out int intValue))
+                                paramValues[i] = (PropertyParam)intValue;
+                            break;
+                    }
+                }
+            }
+
+            return new PropertyId(propertyEnum, paramValues[0], paramValues[1], paramValues[2], paramValues[3]);
         }
 
         public static PropertyCollection ParseJsonProperties(JsonElement jsonElement)
