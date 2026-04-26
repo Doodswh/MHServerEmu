@@ -459,47 +459,90 @@ namespace MHServerEmu.Games.GameData.PatchManager
             if (!jsonElement.TryGetProperty("PropertyEnum", out var propEnumElement))
                 throw new InvalidOperationException("PropertyId JSON must contain 'PropertyEnum' field.");
 
-            var propertyEnum = (PropertyEnum)Enum.Parse(typeof(PropertyEnum), propEnumElement.GetString(), true);
+            var enumString = propEnumElement.GetString();
+            if (!Enum.TryParse(typeof(PropertyEnum), enumString, true, out var parsedEnum))
+            {
+                Logger.Warn($"[PatchManager] ❌ Invalid PropertyEnum '{enumString}' provided in PropertyId patch.");
+                return PropertyId.Invalid;
+            }
+
+            var propertyEnum = (PropertyEnum)parsedEnum;
             var infoTable = GameDatabase.PropertyInfoTable;
             PropertyInfo propertyInfo = infoTable.LookupPropertyInfo(propertyEnum);
+
+            if (propertyInfo == null)
+            {
+                Logger.Warn($"[PatchManager] ❌ PropertyInfo schema not found for valid Enum '{propertyEnum}'.");
+                return PropertyId.Invalid;
+            }
 
             Span<PropertyParam> paramValues = stackalloc PropertyParam[Property.MaxParamCount];
             propertyInfo.DefaultParamValues.CopyTo(paramValues);
 
+            // --- LOGGING ENHANCEMENT: Check for EXTRA parameters ---
+            foreach (var prop in jsonElement.EnumerateObject())
+            {
+                if (prop.Name.StartsWith("Param") && int.TryParse(prop.Name.AsSpan(5), out int paramIndex))
+                {
+                    if (paramIndex >= propertyInfo.ParamCount)
+                    {
+                        Logger.Warn($"[PatchManager] ⚠️ Property '{propertyEnum}' only expects {propertyInfo.ParamCount} parameter(s) (Param0 to Param{propertyInfo.ParamCount - 1}). You provided '{prop.Name}', which will be IGNORED.");
+                    }
+                }
+            }
+
+            // --- CORE LOGIC & MISSING PARAM CHECKS ---
             for (int i = 0; i < propertyInfo.ParamCount && i < Property.MaxParamCount; i++)
             {
-                if (jsonElement.TryGetProperty($"Param{i}", out var paramValue))
+                string paramName = $"Param{i}";
+                var expectedType = propertyInfo.GetParamType(i);
+
+                if (jsonElement.TryGetProperty(paramName, out var paramValue))
                 {
-                    switch (propertyInfo.GetParamType(i))
+                    try
                     {
-                        case PropertyParamType.Asset:
-                            AssetId assetId = AssetId.Invalid;
-                            if (paramValue.ValueKind == JsonValueKind.String)
-                            {
-                                object converted = PrototypePatchManager.ConvertValue(paramValue.GetString(), typeof(AssetId));
-                                if (converted is AssetId cId) assetId = cId;
-                            }
-                            else
-                                assetId = (AssetId)paramValue.GetUInt64();
+                        switch (expectedType)
+                        {
+                            case PropertyParamType.Asset:
+                                AssetId assetId = AssetId.Invalid;
+                                if (paramValue.ValueKind == JsonValueKind.String)
+                                {
+                                    object converted = PrototypePatchManager.ConvertValue(paramValue.GetString(), typeof(AssetId));
+                                    if (converted is AssetId cId) assetId = cId;
+                                }
+                                else
+                                    assetId = (AssetId)paramValue.GetUInt64();
 
-                            paramValues[i] = Property.ToParam(assetId);
-                            break;
+                                paramValues[i] = Property.ToParam(assetId);
+                                break;
 
-                        case PropertyParamType.Prototype:
-                            PrototypeId protoId = PrototypeId.Invalid;
-                            if (paramValue.ValueKind == JsonValueKind.String)
-                                protoId = GameDatabase.GetPrototypeRefByName(paramValue.GetString());
-                            else
-                                protoId = (PrototypeId)paramValue.GetUInt64();
+                            case PropertyParamType.Prototype:
+                                PrototypeId protoId = PrototypeId.Invalid;
+                                if (paramValue.ValueKind == JsonValueKind.String)
+                                    protoId = GameDatabase.GetPrototypeRefByName(paramValue.GetString());
+                                else
+                                    protoId = (PrototypeId)paramValue.GetUInt64();
 
-                            paramValues[i] = Property.ToParam(propertyEnum, i, protoId);
-                            break;
+                                paramValues[i] = Property.ToParam(propertyEnum, i, protoId);
+                                break;
 
-                        case PropertyParamType.Integer:
-                            if (paramValue.TryGetInt32(out int intValue))
-                                paramValues[i] = (PropertyParam)intValue;
-                            break;
+                            case PropertyParamType.Integer:
+                                if (paramValue.TryGetInt32(out int intValue))
+                                    paramValues[i] = (PropertyParam)intValue;
+                                else
+                                    Logger.Warn($"[PatchManager] ❌ '{paramName}' for '{propertyEnum}' expects an Integer, but the JSON value was invalid.");
+                                break;
+                        }
                     }
+                    catch (Exception ex)
+                    {
+                        Logger.Warn($"[PatchManager] ❌ Failed to parse '{paramName}' for '{propertyEnum}': {ex.Message}");
+                    }
+                }
+                else
+                {
+                    // LOGGING ENHANCEMENT: Missing parameter warning
+                    Logger.Warn($"[PatchManager] ⚠️ Property '{propertyEnum}' expects a '{paramName}' (Type: {expectedType}), but it was not found in the JSON. The engine will fallback to the default value for this parameter.");
                 }
             }
 
