@@ -211,6 +211,10 @@ namespace MHServerEmu.Games.GameData.PatchManager
 
                 if (targetPropCollection != null && patchPropCollection != null)
                 {
+                    if (entry.ReplaceEntirely)
+                    {
+                        targetPropCollection.Clear();
+                    }
                     // Merge the patched properties into the existing collection
                     foreach (var kvp in patchPropCollection)
                     {

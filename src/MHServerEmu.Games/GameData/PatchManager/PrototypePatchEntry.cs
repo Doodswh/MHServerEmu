@@ -16,6 +16,7 @@ namespace MHServerEmu.Games.GameData.PatchManager
         public string Path { get; }
         public string Description { get; }
         public ValueBase Value { get; }
+        public bool ReplaceEntirely { get; }
 
         [JsonIgnore]
         public string СlearPath { get; }
@@ -29,13 +30,14 @@ namespace MHServerEmu.Games.GameData.PatchManager
         public bool Patched { get; set; }
 
         [JsonConstructor]
-        public PrototypePatchEntry(bool enabled, string prototype, string path, string description, ValueBase value)
+        public PrototypePatchEntry(bool enabled, string prototype, string path, string description, ValueBase value, bool replaceEntirely)
         {
             Enabled = enabled;
             Prototype = prototype;
             Path = path;
             Description = description;
             Value = value;
+
 
             int lastDotIndex = path.LastIndexOf('.');
             if (lastDotIndex == -1)
@@ -68,6 +70,7 @@ namespace MHServerEmu.Games.GameData.PatchManager
             }
 
             Patched = false;
+            ReplaceEntirely = replaceEntirely;
         }
     }
 
@@ -119,13 +122,21 @@ namespace MHServerEmu.Games.GameData.PatchManager
 
             try
             {
+                bool replaceEntirely = false;
+                if (root.TryGetProperty("ReplaceEntirely", out var replaceProp))
+                {
+                    replaceEntirely = replaceProp.GetBoolean();
+                }
                 var entry = new PrototypePatchEntry
                 (
                     enabled,
                     prototype,
                     path,
                     description,
-                    GetValueBase(valueProp, valueType)
+                    GetValueBase(valueProp, valueType),
+                    replaceEntirely
+
+
                 );
 
                 if (valueType == ValueType.Properties)
