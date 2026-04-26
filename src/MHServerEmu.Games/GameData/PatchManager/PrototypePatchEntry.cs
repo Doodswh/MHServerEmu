@@ -1,3 +1,4 @@
+using MHServerEmu.Core.Logging;
 using MHServerEmu.Core.VectorMath;
 using MHServerEmu.Games.GameData.Calligraphy;
 using MHServerEmu.Games.GameData.Prototypes;
@@ -11,6 +12,7 @@ namespace MHServerEmu.Games.GameData.PatchManager
 {
     public class PrototypePatchEntry
     {
+        
         public bool Enabled { get; }
         public string Prototype { get; }
         public string Path { get; }
@@ -76,7 +78,7 @@ namespace MHServerEmu.Games.GameData.PatchManager
 
     public class PatchEntryConverter : JsonConverter<PrototypePatchEntry>
     {
-
+        private static readonly Logger Logger = LogManager.CreateLogger();
         public override PrototypePatchEntry Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
         {
             using JsonDocument doc = JsonDocument.ParseValue(ref reader);
@@ -473,14 +475,28 @@ namespace MHServerEmu.Games.GameData.PatchManager
             {
                 try
                 {
-                    var propEnum = (PropertyEnum)Enum.Parse(typeof(PropertyEnum), property.Name);
+                    if (!Enum.TryParse(typeof(PropertyEnum), property.Name, out var parsedEnum))
+                    {
+                        Logger.Warn($"[PatchEntryConverter] ❌ Invalid PropertyEnum '{property.Name}' found in JSON. It has been skipped.");
+                        continue;
+                    }
+
+                    var propEnum = (PropertyEnum)parsedEnum;
                     PropertyInfo propertyInfo = infoTable.LookupPropertyInfo(propEnum);
+
+                    if (propertyInfo == null)
+                    {
+                        Logger.Warn($"[PatchEntryConverter] ❌ PropertyInfo not found for valid Enum '{propEnum}'. Skipped.");
+                        continue;
+                    }
+
                     PropertyId propId = ParseJsonPropertyId(property.Value, propEnum, propertyInfo);
                     PropertyValue propValue = ParseJsonPropertyValue(property.Value, propertyInfo);
                     properties.SetProperty(propValue, propId);
                 }
                 catch (Exception ex)
                 {
+                    Logger.Error($"[PatchEntryConverter] Error parsing property '{property.Name}': {ex.Message}");
                 }
             }
 

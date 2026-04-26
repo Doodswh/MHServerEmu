@@ -1,20 +1,21 @@
 using MHServerEmu.Core.Helpers;
+using MHServerEmu.Core.Logging;
+using MHServerEmu.Games.GameData.Calligraphy;
 using MHServerEmu.Games.GameData.Prototypes;
+using MHServerEmu.Games.Properties;
+using System;
+using System.Collections;
+using System.Collections.Generic;
 using System.ComponentModel;
+using System.Linq;
 using System.Reflection;
 using System.Text.Json;
-using MHServerEmu.Games.GameData.Calligraphy;
-using System.Collections.Generic;
-using System.Linq;
-using System;
-using MHServerEmu.Games.Properties;
-using System.Collections;
 
 namespace MHServerEmu.Games.GameData.PatchManager
 {
     public class PrototypePatchManager
     {
-
+        private static readonly Logger Logger = LogManager.CreateLogger();
         private readonly Stack<PrototypeId> _protoStack = new();
         private readonly Dictionary<PrototypeId, List<PrototypePatchEntry>> _patchDict = new();
         private readonly Dictionary<Prototype, string> _pathDict = new();
@@ -187,19 +188,22 @@ namespace MHServerEmu.Games.GameData.PatchManager
 
         private bool CheckAndUpdate(PrototypePatchEntry entry, Prototype prototype)
         {
-
             // Navigate to the target object using the path
             var targetObject = GetOrCreateObjectFromPath(prototype, entry.СlearPath);
             if (targetObject == null)
             {
+                Logger.Warn($"[PatchManager] Failed to resolve path '{entry.СlearPath}' on prototype '{entry.Prototype}'. Double check your spelling or array indexes.");
                 return false;
             }
-
 
             // Use the enhanced field lookup from PrototypeClassManager
             var enhancedField = GameDatabase.PrototypeClassManager.GetFieldByName(targetObject.GetType(), entry.FieldName);
             if (!enhancedField.HasValue)
             {
+                var availableProps = GetAvailableProperties(targetObject);
+                Logger.Warn($"[PatchManager] ❌ Field/Property '{entry.FieldName}' NOT FOUND on type '{targetObject.GetType().Name}'.");
+                Logger.Warn($"[PatchManager] Path: '{entry.Path}' | Prototype: '{entry.Prototype}'");
+                Logger.Warn($"[PatchManager] ✅ Valid Fields/Properties for this object are: {string.Join(", ", availableProps)}");
                 return false;
             }
 
@@ -211,29 +215,39 @@ namespace MHServerEmu.Games.GameData.PatchManager
 
                 if (targetPropCollection != null && patchPropCollection != null)
                 {
-                    if (entry.ReplaceEntirely)
-                    {
-                        targetPropCollection.Clear();
-                    }
+                    
+                     if (entry.ReplaceEntirely) targetPropCollection.Clear();
+
                     // Merge the patched properties into the existing collection
                     foreach (var kvp in patchPropCollection)
                     {
-                        // SetProperty natively overwrites the existing value for this specific PropertyId
                         targetPropCollection.SetProperty(kvp.Value, kvp.Key);
                     }
                     entry.Patched = true;
+                    Logger.Trace($"[PatchManager] Successfully patched PropertyCollection on '{entry.Prototype}'.");
                     return true;
+                }
+                else
+                {
+                    Logger.Warn($"[PatchManager] PropertyCollection patch failed on '{entry.Prototype}'. Target or Patch collection was null.");
+                    return false;
                 }
             }
 
             // Validate field writability
             if (!fieldInfo.CanWrite)
             {
+                Logger.Warn($"[PatchManager] ❌ Field/Property '{entry.FieldName}' on '{targetObject.GetType().Name}' is Read-Only! (Prototype: '{entry.Prototype}')");
                 return false;
             }
 
             // Apply the update
-            return UpdateValue(targetObject, fieldInfo, entry);
+            bool success = UpdateValue(targetObject, fieldInfo, entry);
+            if (!success)
+            {
+                Logger.Warn($"[PatchManager] ❌ Failed to update value for '{entry.FieldName}' on '{entry.Prototype}'. See errors above.");
+            }
+            return success;
         }
 
         private List<string> GetAvailableProperties(object obj)
@@ -261,29 +275,23 @@ namespace MHServerEmu.Games.GameData.PatchManager
                 else
                 {
                     object rawValue = entry.Value.GetValue();
-
                     object convertedValue = ConvertValue(rawValue, fieldInfo.PropertyInfo.PropertyType);
-
-                    // Special handling for Eval and ComplexObject - they're already parsed
-                    if (entry.Value.ValueType == ValueType.Eval || entry.Value.ValueType == ValueType.ComplexObject)
-                    {
-                    }
-                    else
-                    {
-                    }
 
                     // Use the centralized property setting method
                     if (!GameDatabase.PrototypeClassManager.TrySetPropertyValue(targetObject, fieldInfo.PropertyInfo, convertedValue))
                     {
+                        Logger.Warn($"[PatchManager] TrySetPropertyValue rejected the value for '{entry.FieldName}'. Target expects type '{fieldInfo.PropertyInfo.PropertyType.Name}', but got '{convertedValue?.GetType().Name ?? "null"}'.");
                         return false;
                     }
                 }
 
                 entry.Patched = true;
+                Logger.Trace($"[PatchManager] Successfully patched '{entry.FieldName}' on '{entry.Prototype}'.");
                 return true;
             }
             catch (Exception ex)
             {
+                Logger.Error($"[PatchManager] CRITICAL ERROR updating '{entry.FieldName}' on '{entry.Prototype}': {ex.Message}\n{ex.StackTrace}");
                 return false;
             }
         }
