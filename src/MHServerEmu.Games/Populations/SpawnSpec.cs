@@ -148,6 +148,8 @@ namespace MHServerEmu.Games.Populations
             if (ActiveEntity == null)
                 return Logger.WarnReturn(false, $"Spawn(): Failed to create entity {EntityRef.GetName()}");
 
+            PatrolBossSpawnProtection.TryApply(ActiveEntity, region);
+
             var twinBoost = GameDatabase.PopulationGlobalsPrototype.TwinEnemyBoost;
             foreach (var kvp in Properties.IteratePropertyRange(PropertyEnum.EnemyBoost))
             {

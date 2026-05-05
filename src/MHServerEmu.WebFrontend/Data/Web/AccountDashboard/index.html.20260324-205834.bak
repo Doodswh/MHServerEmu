@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MHServerEmu Account Hub</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Oswald:wght@300;400;500;700&family=Space+Grotesk:wght@400;500;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="page-shell">
+        <header class="hero">
+            <div class="hero-copy">
+                <p class="eyebrow">Account Dashboard</p>
+                <h1>Inspect your roster, progression, and gear from one place.</h1>
+                <p class="hero-text">
+                    Sign in with your game account credentials to review account details, total playtime,
+                    per-character progression, and inventory layouts without launching the client.
+                </p>
+            </div>
+            <div class="hero-status panel panel-accent">
+                <div class="status-line">
+                    <span class="status-label">Connection</span>
+                    <strong id="connection-state">Checking session</strong>
+                </div>
+                <p id="connection-detail" class="muted">Trying to restore an existing account session.</p>
+                <div id="session-pill" class="session-pill is-hidden">Signed in</div>
+            </div>
+        </header>
+
+        <main class="dashboard-layout">
+            <section class="panel login-panel" id="auth-panel">
+                <div class="section-heading">
+                    <p class="kicker">Secure Sign-In</p>
+                    <h2>Account Access</h2>
+                </div>
+
+                <form id="login-form" class="auth-form">
+                    <label for="account-email">Email Address</label>
+                    <input id="account-email" name="email" type="email" autocomplete="username" placeholder="hero@xmail.com" required>
+
+                    <label for="account-password">Password</label>
+                    <input id="account-password" name="password" type="password" autocomplete="current-password" placeholder="Enter your password" required>
+
+                    <div class="form-actions">
+                        <button id="login-submit" class="button button-primary" type="submit">Sign In</button>
+                        <button id="login-reset" class="button button-secondary" type="button">Clear</button>
+                    </div>
+                </form>
+
+                <div id="login-message" class="message" aria-live="polite"></div>
+                <p class="helper-copy">
+                    This dashboard is meant to use the same game account credentials players use in the client.
+                </p>
+            </section>
+
+            <section class="dashboard-main is-hidden" id="dashboard-main">
+                <div class="section-row">
+                    <section class="panel">
+                        <div class="section-heading">
+                            <p class="kicker">Account</p>
+                            <h2>Overview</h2>
+                        </div>
+                        <div id="account-overview" class="account-overview"></div>
+                    </section>
+
+                    <section class="panel quick-stats-panel">
+                        <div class="section-heading">
+                            <p class="kicker">Progress</p>
+                            <h2>Headline Stats</h2>
+                        </div>
+                        <div id="headline-stats" class="stat-grid"></div>
+                        <div class="logout-row">
+                            <button id="logout-button" class="button button-secondary" type="button">Sign Out</button>
+                        </div>
+                    </section>
+                </div>
+
+                <section class="panel">
+                    <div class="section-heading">
+                        <p class="kicker">Roster</p>
+                        <h2>Character Stats</h2>
+                    </div>
+                    <div id="character-stats" class="character-grid"></div>
+                </section>
+
+                <section class="panel">
+                    <div class="section-heading">
+                        <p class="kicker">Gear</p>
+                        <h2>Inventory & Equipment</h2>
+                    </div>
+                    <div id="inventory-sections" class="inventory-sections"></div>
+                </section>
+            </section>
+        </main>
+    </div>
+
+    <script src="config.js"></script>
+    <script src="script.js"></script>
+</body>
+</html>

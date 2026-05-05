@@ -594,7 +594,6 @@ namespace MHServerEmu.Games.Entities
             string baseName;
             if ((avatarIndex >= PlayerAvatarIndex.Primary && avatarIndex < PlayerAvatarIndex.Count) == false)
             {
-                // Logger.Warn("GetName(): avatarIndex out of range");
                 baseName = _playerName.Get(); // Fallback to primary player name
             }
             else if (avatarIndex == PlayerAvatarIndex.Secondary)
@@ -604,6 +603,21 @@ namespace MHServerEmu.Games.Entities
             else // Primary avatar
             {
                 baseName = _playerName.Get();
+            }
+
+          
+            var account = this.PlayerConnection?._dbAccount;
+
+            if (account != null)
+            {
+                if (account.UserLevel == AccountUserLevel.Dev || account.Flags.HasFlag(AccountFlags.IsDev))
+                {
+                    return $"[Dev] {baseName}";
+                }
+                else if (account.UserLevel == AccountUserLevel.Admin)
+                {
+                    return $"[Admin] {baseName}";
+                }
             }
 
             return baseName;

@@ -89,7 +89,7 @@ namespace MHServerEmu.Commands.Implementations
 
         [Command("userlevel")]
         [CommandDescription("Changes user level for the specified account.")]
-        [CommandUsage("account userlevel [email] [0|1|2]")]
+        [CommandUsage("account userlevel [email] [0|1|2|3]")]
         [CommandUserLevel(AccountUserLevel.Admin)]
         [CommandInvokerType(CommandInvokerType.ServerConsole)]
         [CommandParamCount(2)]

@@ -781,7 +781,8 @@ namespace Gazillion {
     eGTV_HighVolumeMetricsEnabled = 27,
     eGTV_MediumVolumeMetricsEnabled = 28,
     eGTV_LowVolumeMetricsEnabled = 29,
-    eGTV_NumGlobalTuningVars = 30,
+    eGTV_PatrolBossSpawnInvulnerabilitySeconds = 30,
+    eGTV_NumGlobalTuningVars = 31,
   }
   
   public enum AreaTuningVar {

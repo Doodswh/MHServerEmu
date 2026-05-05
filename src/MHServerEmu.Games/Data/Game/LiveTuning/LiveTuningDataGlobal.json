@@ -126,6 +126,11 @@
   },
   {
     "Prototype": "",
+    "Setting": "eGTV_PatrolBossSpawnInvulnerabilitySeconds",
+    "Value": 15.0
+  },
+  {
+    "Prototype": "",
     "Setting": "eGTV_RespectLevelForInfinityXP",
     "Value": 1.0
   }

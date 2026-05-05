@@ -5,6 +5,8 @@
         private readonly Dictionary<ulong, ReplacementRecord> _replacementDict = new();
 
         public static ReplacementDirectory Instance { get; } = new();
+        public ReplacementRecord FindRecordByName(string name) =>
+    _replacementDict.Values.FirstOrDefault(r => r.Name == name);
 
         public int RecordCount { get => _replacementDict.Count; }
 

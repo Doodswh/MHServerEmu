@@ -1,0 +1,248 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <script>
+        (function () {
+            try {
+                var storedTheme = localStorage.getItem("coa-theme");
+                var resolvedTheme = storedTheme || (window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
+                document.documentElement.setAttribute("data-theme", resolvedTheme);
+                document.documentElement.style.colorScheme = resolvedTheme;
+            } catch (error) {}
+        }());
+    </script>
+    <title>COA Server Metrics</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=Sora:wght@500;600;700;800&display=swap" rel="stylesheet">
+    <link href="https://mho.councilofancients.com/static/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <header id="main-header">
+        <nav class="navbar fixed-top navbar-expand-lg navbar-dark">
+            <div class="container">
+                <div class="navbar-brand-group">
+                    <a id="main-logo" class="navbar-brand" href="/">C<span class="navbar-omega">&Omega;</span>A</a>
+                    <div class="navbar-server-status" id="navbar-server-status" aria-live="polite">
+                        <span class="navbar-server-status-dot is-loading" id="navbar-server-status-dot" aria-hidden="true"></span>
+                        <span class="navbar-server-status-text" id="navbar-server-status-text">Checking status</span>
+                    </div>
+                </div>
+                <button id="hamburger" class="navbar-toggler" type="button" aria-controls="navbarSupportedContent" aria-expanded="false" aria-label="Toggle navigation">
+                    <span class="icon-bar"></span>
+                    <span class="icon-bar"></span>
+                    <span class="icon-bar"></span>
+                </button>
+                <div class="collapse navbar-collapse" id="navbarSupportedContent">
+                    <ul class="navbar-nav ml-auto">
+                        <li class="nav-item"><a class="nav-link" href="/#about">About</a></li>
+                        <li class="nav-item"><a class="nav-link" href="/#features">Get Started</a></li>
+                        <li class="nav-item"><a class="nav-link" href="#" id="server-details-trigger" role="button" aria-controls="serverdetails">Server Details</a></li>
+                        <li class="nav-item"><a class="nav-link" href="https://mho.councilofancients.com/register">Sign Up</a></li>
+                        <li class="nav-item"><a class="nav-link" href="https://mho.councilofancients.com/AccountDashboard/">Account</a></li>
+                        <li class="nav-item"><a class="nav-link" href="https://discord.gg/6ujgCA89pB" target="_blank" rel="noopener noreferrer"><i class="fa-brands fa-discord"></i> Discord</a></li>
+                        <li class="nav-item">
+                            <button class="theme-toggle" type="button" data-theme-toggle aria-label="Toggle color theme">
+                                <i class="fa-solid fa-circle-half-stroke" aria-hidden="true"></i>
+                                <span data-theme-label>Light</span>
+                            </button>
+                        </li>
+                    </ul>
+                </div>
+            </div>
+        </nav>
+    </header>
+
+    <div class="page-shell">
+        <main class="layout">
+            <section class="hero glass-panel">
+                <div class="hero-copy">
+                    <p class="eyebrow">Server Metrics</p>
+                </div>
+                <div class="hero-stats">
+                    <div class="stat-card glass-inset">
+                        <span class="stat-label">Auto Refresh</span>
+                        <label class="sr-only" for="refresh-interval-select">Auto refresh interval</label>
+                        <select id="refresh-interval-select" class="stat-select" aria-label="Auto refresh interval">
+                            <option value="10000">10 sec</option>
+                            <option value="30000">30 sec</option>
+                            <option value="60000" selected>60 sec</option>
+                        </select>
+                    </div>
+                    <div class="stat-card glass-inset">
+                        <span class="stat-label">Last Sync</span>
+                        <strong id="last-sync-label">Waiting</strong>
+                    </div>
+                    <div class="stat-card glass-inset">
+                        <span class="stat-label">Active Panel</span>
+                        <strong id="active-panel-label">Server Status</strong>
+                    </div>
+                </div>
+            </section>
+
+            <section class="tabs-shell glass-panel">
+                <div class="tabs-header">
+                    <div>
+                        <p class="eyebrow">Views</p>
+                        <h2>Metrics Panels</h2>
+                    </div>
+                    <div class="tab-button-container" role="tablist" aria-label="Server metrics sections">
+                        <button class="tab-button" id="server-status-tab-button" type="button" aria-selected="false">Server Status</button>
+                        <button class="tab-button" id="metrics-tab-button" type="button" aria-selected="false">Metrics</button>
+                        <button class="tab-button" id="region-report-tab-button" type="button" aria-selected="false">Region</button>
+                    </div>
+                </div>
+
+                <section class="content tab-content" id="server-status-tab">
+                    <div class="panel-header">
+                        <div>
+                            <p class="eyebrow">Live Status</p>
+                            <h2>Server Status</h2>
+                            <p>High-level service counts, uptime, player/session numbers, and web frontend request totals.</p>
+                        </div>
+                        <button class="button button-secondary" id="server-status-button" type="button">Refresh</button>
+                    </div>
+                    <div class="panel-body glass-inset" id="server-status-container"></div>
+                </section>
+
+                <section class="content tab-content hidden" id="metrics-tab">
+                    <div class="panel-header">
+                        <div>
+                            <p class="eyebrow">Performance</p>
+                            <h2>Metrics</h2>
+                            <p>Memory stats and per-game performance counters grouped by metric type.</p>
+                        </div>
+                        <button class="button button-secondary" id="metrics-button" type="button">Refresh</button>
+                    </div>
+                    <div class="metrics-layout">
+                        <article class="panel-body glass-inset">
+                            <p class="subheading">Report Metadata</p>
+                            <div id="metrics-report-metadata"></div>
+                        </article>
+                        <article class="panel-body glass-inset">
+                            <p class="subheading">Memory</p>
+                            <div id="metrics-memory-container"></div>
+                        </article>
+                    </div>
+                    <article class="panel-body glass-inset">
+                        <div class="metrics-select-row">
+                            <p class="subheading">Game Metrics</p>
+                            <select id="metrics-game-select" aria-label="Select game metric"></select>
+                        </div>
+                        <div id="metrics-game-container"></div>
+                    </article>
+                    <article class="panel-body glass-inset">
+                        <div class="metrics-select-row">
+                            <p class="subheading">Hot Regions</p>
+                            <select id="metrics-region-game-select" aria-label="Select game for hot-region metrics"></select>
+                        </div>
+                        <div class="metrics-region-toolbar">
+                            <label class="metrics-region-control" for="metrics-region-sort-select">
+                                <span>Sort By</span>
+                                <select id="metrics-region-sort-select" aria-label="Sort hot regions by phase or load">
+                                    <option value="hotness">Hotness</option>
+                                    <option value="aoi">AOI Load</option>
+                                    <option value="events">Event Load</option>
+                                    <option value="transfers">Transfer Load</option>
+                                    <option value="pending">Pending Work</option>
+                                    <option value="players">Players</option>
+                                    <option value="region">Region Id</option>
+                                </select>
+                            </label>
+                            <label class="metrics-region-checkbox" for="metrics-region-hot-only">
+                                <input id="metrics-region-hot-only" type="checkbox">
+                                <span>Show only hot regions</span>
+                            </label>
+                        </div>
+                        <div id="metrics-regions-summary"></div>
+                        <div id="metrics-regions-container"></div>
+                    </article>
+                </section>
+
+                <section class="content tab-content hidden" id="region-report-tab">
+                    <div class="panel-header">
+                        <div>
+                            <p class="eyebrow">Regions</p>
+                            <h2>Region Report</h2>
+                            <p>Currently reported region IDs, names, difficulty tiers, and their uptime values.</p>
+                        </div>
+                        <button class="button button-secondary" id="region-report-button" type="button">Refresh</button>
+                    </div>
+                    <div class="panel-body glass-inset" id="region-report-container"></div>
+                </section>
+            </section>
+        </main>
+    </div>
+
+    <div class="modal fade" id="serverdetails" tabindex="-1" role="dialog" aria-labelledby="server-details-title" aria-hidden="true">
+        <div class="modal-dialog modal-xl" role="document">
+            <div class="modal-content server-details-modal">
+                <div class="modal-header">
+                    <div>
+                        <p class="eyebrow modal-eyebrow">Server Details</p>
+                        <h2 class="modal-title" id="server-details-title">Server perks built for a faster, more active return.</h2>
+                    </div>
+                    <button type="button" class="close" data-dismiss="modal" aria-label="Close">
+                        <span aria-hidden="true">&times;</span>
+                    </button>
+                </div>
+                <div class="modal-body">
+                    <p class="server-details-intro">The COA public server keeps the experience moving with tuned cooldowns, boosted progression, custom rewards, and quality-of-life adjustments that make logging back in feel worthwhile.</p>
+                    <div class="server-details-modal-grid">
+                        <article class="glass-inset server-details-modal-card">
+                            <div class="server-details-modal-head">
+                                <div class="server-details-modal-icon"><i class="fa-solid fa-server" aria-hidden="true"></i></div>
+                                <div><p class="eyebrow modal-eyebrow">Features</p><h3>Server Features</h3></div>
+                            </div>
+                            <ul class="server-details-modal-list">
+                                <li><strong>50% Cooldowns:</strong> All hero skills have their cooldowns reduced by 50%, with more tuning planned for individual abilities over time.</li>
+                                <li><strong>Custom Commands:</strong> Access a range of custom and modified commands designed to expand gameplay options.</li>
+                            </ul>
+                        </article>
+                        <article class="glass-inset server-details-modal-card">
+                            <div class="server-details-modal-head">
+                                <div class="server-details-modal-icon"><i class="fa-solid fa-coins" aria-hidden="true"></i></div>
+                                <div><p class="eyebrow modal-eyebrow">Economy</p><h3>Economy</h3></div>
+                            </div>
+                            <ul class="server-details-modal-list">
+                                <li><strong>Eternity Splinter Conversion:</strong> Convert your Eternity Splinters into G's at a 20-to-1 ratio.</li>
+                            </ul>
+                        </article>
+                        <article class="glass-inset server-details-modal-card">
+                            <div class="server-details-modal-head">
+                                <div class="server-details-modal-icon"><i class="fa-solid fa-bolt" aria-hidden="true"></i></div>
+                                <div><p class="eyebrow modal-eyebrow">Rates</p><h3>Rates</h3></div>
+                            </div>
+                            <ul class="server-details-modal-list">
+                                <li><strong>Experience Boost:</strong> Enjoy a 3x experience rate so leveling heroes feels meaningfully faster.</li>
+                                <li><strong>Loot Increase:</strong> Benefit from a 2x loot rate for better rewards across your runs.</li>
+                            </ul>
+                        </article>
+                        <article class="glass-inset server-details-modal-card">
+                            <div class="server-details-modal-head">
+                                <div class="server-details-modal-icon"><i class="fa-solid fa-gift" aria-hidden="true"></i></div>
+                                <div><p class="eyebrow modal-eyebrow">Rewards</p><h3>Daily Gifts</h3></div>
+                            </div>
+                            <ul class="server-details-modal-list">
+                                <li><strong>Custom Daily Gifts:</strong> A unique daily gift system, separate from the standard login rewards, adds a little extra reason to drop in regularly.</li>
+                            </ul>
+                        </article>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="button modal-btn" data-dismiss="modal">Close</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="config.js"></script>
+    <script src="script.js"></script>
+</body>
+</html>
+
+

@@ -1,0 +1,553 @@
+(function () {
+    const state = {
+        authenticated: false,
+        loading: false,
+        accountData: null
+    };
+
+    const elements = {
+        loginForm: document.getElementById("login-form"),
+        loginSubmit: document.getElementById("login-submit"),
+        loginReset: document.getElementById("login-reset"),
+        loginMessage: document.getElementById("login-message"),
+        dashboardMain: document.getElementById("dashboard-main"),
+        connectionState: document.getElementById("connection-state"),
+        connectionDetail: document.getElementById("connection-detail"),
+        sessionPill: document.getElementById("session-pill"),
+        overview: document.getElementById("account-overview"),
+        headlineStats: document.getElementById("headline-stats"),
+        characterStats: document.getElementById("character-stats"),
+        inventorySections: document.getElementById("inventory-sections"),
+        logoutButton: document.getElementById("logout-button")
+    };
+
+    const api = {
+        async request(path, options) {
+            const response = await fetch(window.location.origin + dashboardConfig.originSuffix + path, {
+                credentials: "include",
+                headers: {
+                    "Content-Type": "application/json"
+                },
+                ...options
+            });
+
+            let data = null;
+            try {
+                data = await response.json();
+            } catch (_) {
+                data = null;
+            }
+
+            return {
+                ok: response.ok,
+                status: response.status,
+                data: data
+            };
+        },
+
+        get(path) {
+            return this.request(path, { method: "GET" });
+        },
+
+        post(path, data) {
+            return this.request(path, {
+                method: "POST",
+                body: JSON.stringify(data || {})
+            });
+        }
+    };
+
+    function setMessage(element, text, tone) {
+        element.textContent = text || "";
+        element.className = "message" + (tone ? " " + tone : "");
+    }
+
+    function setConnection(stateText, detailText, isAuthenticated) {
+        elements.connectionState.textContent = stateText;
+        elements.connectionDetail.textContent = detailText;
+        elements.sessionPill.classList.toggle("is-hidden", !isAuthenticated);
+    }
+
+    function setLoading(isLoading) {
+        state.loading = isLoading;
+        elements.loginSubmit.disabled = isLoading;
+        elements.logoutButton.disabled = isLoading;
+    }
+
+    function showDashboard(isVisible) {
+        elements.dashboardMain.classList.toggle("is-hidden", !isVisible);
+    }
+
+    function formatDuration(rawValue) {
+        const value = Number(rawValue || 0);
+        if (!Number.isFinite(value) || value <= 0) {
+            return "0m";
+        }
+
+        const hours = Math.floor(value / 3600);
+        const minutes = Math.floor((value % 3600) / 60);
+
+        if (hours <= 0) {
+            return minutes + "m";
+        }
+
+        return hours + "h " + minutes + "m";
+    }
+
+    function formatValue(value, fallback) {
+        if (value === null || value === undefined || value === "") {
+            return fallback || "Unavailable";
+        }
+
+        return String(value);
+    }
+
+    function createCard(label, value, cardClass) {
+        const card = document.createElement("div");
+        card.className = cardClass;
+        card.innerHTML = "<span></span><strong></strong>";
+        card.querySelector("span").textContent = label;
+        card.querySelector("strong").textContent = value;
+        return card;
+    }
+
+    function createEmptyState(text) {
+        const node = document.createElement("div");
+        node.className = "empty-state";
+        node.textContent = text;
+        return node;
+    }
+
+    function startCase(value) {
+        return String(value || "")
+            .replace(/([A-Z])/g, " $1")
+            .replace(/[_-]+/g, " ")
+            .replace(/\s+/g, " ")
+            .trim()
+            .replace(/^./, function (match) {
+                return match.toUpperCase();
+            });
+    }
+
+    function normalizeInventoryGroups(inventoryBlock) {
+        const groups = [];
+
+        Object.keys(inventoryBlock || {}).forEach(function (key) {
+            const value = inventoryBlock[key];
+            if (!Array.isArray(value) || key === "equipment") {
+                return;
+            }
+
+            groups.push({
+                name: startCase(key),
+                items: value
+            });
+        });
+
+        return groups;
+    }
+
+    function normalizeResponse(data) {
+        if (!data) {
+            return null;
+        }
+
+        const account = data.account || {};
+        const stats = data.stats || {};
+        const characters = Array.isArray(data.characters) ? data.characters : [];
+
+        return {
+            account: {
+                email: account.email || account.Email,
+                playerName: account.playerName || account.PlayerName,
+                accountId: account.accountId || account.id || account.Id,
+                userLevel: account.userLevel || account.UserLevel,
+                lastLogin: account.lastLogin || account.LastLogin,
+                lastLogout: account.lastLogout || account.LastLogout
+            },
+            stats: {
+                totalTimePlayed: stats.totalTimePlayed || stats.TotalTimePlayed || 0,
+                highestLevel: stats.highestLevel || stats.HighestLevel || 0,
+                totalCharacters: stats.totalCharacters || stats.TotalCharacters || characters.length,
+                totalItems: stats.totalItems || stats.TotalItems || characters.reduce(function (sum, character) {
+                    const inventory = character.inventory || {};
+                    const inventoryLists = Object.values(inventory).filter(Array.isArray);
+                    return sum + inventoryLists.reduce(function (count, list) {
+                        return count + list.length;
+                    }, 0);
+                }, 0)
+            },
+            characters: characters.map(function (character, index) {
+                const statsBlock = character.stats || {};
+                const inventoryBlock = character.inventory || {};
+
+                return {
+                    id: character.id || character.characterId || character.dbGuid || index + 1,
+                    name: character.name || character.characterName || character.avatarName || "Character " + (index + 1),
+                    archetype: character.archetype || character.prototypeName || "Hero",
+                    level: character.level || statsBlock.level || statsBlock.characterLevel || 0,
+                    timePlayed: character.timePlayed || statsBlock.timePlayed || statsBlock.avatarTimePlayed || 0,
+                    equipment: Array.isArray(character.equipment) ? character.equipment : (Array.isArray(inventoryBlock.equipment) ? inventoryBlock.equipment : []),
+                    inventories: normalizeInventoryGroups(inventoryBlock)
+                };
+            })
+        };
+    }
+
+    function renderDashboard(data) {
+        const normalized = normalizeResponse(data);
+        state.accountData = normalized;
+
+        elements.overview.innerHTML = "";
+        elements.headlineStats.innerHTML = "";
+        elements.characterStats.innerHTML = "";
+        elements.inventorySections.innerHTML = "";
+
+        if (!normalized) {
+            elements.overview.appendChild(createEmptyState("No account data was returned by the dashboard API."));
+            return;
+        }
+
+        const account = normalized.account;
+        const stats = normalized.stats;
+        const characters = normalized.characters;
+
+        [
+            ["Player Name", formatValue(account.playerName)],
+            ["Email", formatValue(account.email)],
+            ["Account ID", formatValue(account.accountId)],
+            ["User Level", formatValue(account.userLevel, "0")],
+            ["Last Login", formatValue(account.lastLogin)],
+            ["Last Logout", formatValue(account.lastLogout)]
+        ].forEach(function (entry) {
+            elements.overview.appendChild(createCard(entry[0], entry[1], "info-card"));
+        });
+
+        [
+            ["Total Time Played", formatDuration(stats.totalTimePlayed)],
+            ["Highest Character Level", formatValue(stats.highestLevel, "0")],
+            ["Characters", formatValue(stats.totalCharacters, "0")],
+            ["Tracked Items", formatValue(stats.totalItems, "0")]
+        ].forEach(function (entry) {
+            elements.headlineStats.appendChild(createCard(entry[0], entry[1], "stat-card"));
+        });
+
+        if (!characters.length) {
+            elements.characterStats.appendChild(createEmptyState("No saved characters were found for this account."));
+            elements.inventorySections.appendChild(createEmptyState("Inventory details will appear here once the account data includes characters."));
+            return;
+        }
+
+        characters.forEach(function (character) {
+            elements.characterStats.appendChild(renderCharacterCard(character));
+            elements.inventorySections.appendChild(renderInventoryCard(character));
+        });
+    }
+
+    function renderCharacterCard(character) {
+        const card = document.createElement("article");
+        card.className = "character-card";
+        card.innerHTML = [
+            "<div class=\"character-header\">",
+            "  <div>",
+            "    <h3></h3>",
+            "    <div class=\"muted character-subtitle\"></div>",
+            "  </div>",
+            "  <span class=\"inventory-label\">Active Roster Entry</span>",
+            "</div>",
+            "<div class=\"character-meta\"></div>"
+        ].join("");
+
+        card.querySelector("h3").textContent = character.name;
+        card.querySelector(".character-subtitle").textContent = character.archetype;
+
+        const meta = card.querySelector(".character-meta");
+        [
+            ["Level", formatValue(character.level, "0")],
+            ["Time Played", formatDuration(character.timePlayed)],
+            ["Equipment Slots", String(character.equipment.length)],
+            ["Inventory Groups", String(character.inventories.length)]
+        ].forEach(function (entry) {
+            const chip = document.createElement("div");
+            chip.className = "meta-chip";
+            chip.innerHTML = "<span class=\"inventory-label\"></span><strong></strong>";
+            chip.querySelector("span").textContent = entry[0];
+            chip.querySelector("strong").textContent = entry[1];
+            meta.appendChild(chip);
+        });
+
+        return card;
+    }
+
+    function renderInventoryCard(character) {
+        const card = document.createElement("article");
+        card.className = "inventory-card";
+        card.innerHTML = [
+            "<div class=\"inventory-header\">",
+            "  <div>",
+            "    <h3></h3>",
+            "    <div class=\"muted\"></div>",
+            "  </div>",
+            "  <span class=\"inventory-label\">Inventory Breakdown</span>",
+            "</div>"
+        ].join("");
+
+        card.querySelector("h3").textContent = character.name;
+        card.querySelector(".muted").textContent = character.archetype;
+
+        const equipmentTitle = document.createElement("h4");
+        equipmentTitle.className = "inventory-block-title";
+        equipmentTitle.textContent = "Equipment";
+        card.appendChild(equipmentTitle);
+
+        const equipmentGrid = document.createElement("div");
+        equipmentGrid.className = "equipment-grid";
+        if (!character.equipment.length) {
+            equipmentGrid.appendChild(createEmptyState("No equipped items were returned for this character."));
+        } else {
+            character.equipment.forEach(function (item) {
+                equipmentGrid.appendChild(renderEquipmentSlot(item));
+            });
+        }
+        card.appendChild(equipmentGrid);
+
+        const inventoryTitle = document.createElement("h4");
+        inventoryTitle.className = "inventory-block-title";
+        inventoryTitle.textContent = "Inventories";
+        card.appendChild(inventoryTitle);
+
+        if (!character.inventories.length) {
+            card.appendChild(createEmptyState("No inventory groups were returned for this character."));
+            return card;
+        }
+
+        character.inventories.forEach(function (group) {
+            const label = document.createElement("div");
+            label.className = "inventory-label";
+            label.textContent = group.name;
+            card.appendChild(label);
+
+            const list = document.createElement("div");
+            list.className = "inventory-list";
+
+            if (!group.items.length) {
+                list.appendChild(createEmptyState("This inventory is empty."));
+            } else {
+                group.items.forEach(function (item) {
+                    list.appendChild(renderInventoryItem(item));
+                });
+            }
+
+            card.appendChild(list);
+        });
+
+        return card;
+    }
+
+    function renderEquipmentSlot(item) {
+        const node = document.createElement("div");
+        node.className = "equipment-slot";
+        node.innerHTML = "<span class=\"inventory-label\"></span><strong></strong><div class=\"muted\"></div>";
+        node.querySelector("span").textContent = formatValue(item.slot || item.slotName || "Slot");
+        node.querySelector("strong").textContent = formatValue(item.name || item.itemName, "Unknown Item");
+        node.querySelector(".muted").textContent = formatValue(item.rarity || item.prototypeName || item.entityProtoGuid, "No metadata");
+        return node;
+    }
+
+    function renderInventoryItem(item) {
+        const node = document.createElement("div");
+        node.className = "inventory-item";
+        node.innerHTML = "<strong></strong><div class=\"muted\"></div>";
+        node.querySelector("strong").textContent = formatValue(item.name || item.itemName, "Unknown Item");
+        node.querySelector(".muted").textContent = [
+            formatValue(item.quantity || item.count || item.stackSize, "1"),
+            formatValue(item.rarity || item.prototypeName || item.entityProtoGuid, "No metadata")
+        ].join(" • ");
+        return node;
+    }
+
+    function applyAuthenticatedState(data, message) {
+        state.authenticated = true;
+        showDashboard(true);
+        setConnection("Signed in", "Account dashboard is connected and ready.", true);
+        setMessage(elements.loginMessage, message || "", "success");
+        renderDashboard(data);
+    }
+
+    function applySignedOutState(detailText) {
+        state.authenticated = false;
+        state.accountData = null;
+        showDashboard(false);
+        setConnection("Awaiting sign-in", detailText || "Use your game account credentials to open the dashboard.", false);
+        elements.overview.innerHTML = "";
+        elements.headlineStats.innerHTML = "";
+        elements.characterStats.innerHTML = "";
+        elements.inventorySections.innerHTML = "";
+    }
+
+    async function refreshDashboard() {
+        if (dashboardConfig.demoMode) {
+            applyAuthenticatedState(getDemoData(), "Demo account data loaded.");
+            return;
+        }
+
+        const result = await api.get(dashboardConfig.endpoints.data);
+        if (!result.ok || !result.data) {
+            throw new Error((result.data && result.data.message) || "Unable to load account data.");
+        }
+
+        applyAuthenticatedState(result.data, "Account data refreshed.");
+    }
+
+    async function restoreSession() {
+        if (dashboardConfig.demoMode) {
+            applyAuthenticatedState(getDemoData(), "Demo mode is enabled.");
+            return;
+        }
+
+        const result = await api.get(dashboardConfig.endpoints.session);
+        if (!result.ok || !result.data || !result.data.authenticated) {
+            applySignedOutState((result.data && result.data.message) || "No active account session was found.");
+            return;
+        }
+
+        await refreshDashboard();
+    }
+
+    async function handleLogin(event) {
+        event.preventDefault();
+        setMessage(elements.loginMessage, "", "");
+
+        const formData = new FormData(elements.loginForm);
+        const payload = {
+            email: String(formData.get("email") || "").trim(),
+            password: String(formData.get("password") || "")
+        };
+
+        if (!payload.email || !payload.password) {
+            setMessage(elements.loginMessage, "Enter both your email address and password.", "error");
+            return;
+        }
+
+        setLoading(true);
+        try {
+            if (dashboardConfig.demoMode) {
+                applyAuthenticatedState(getDemoData(), "Demo sign-in succeeded.");
+                return;
+            }
+
+            const result = await api.post(dashboardConfig.endpoints.login, payload);
+            if (!result.ok || !result.data || !result.data.authenticated) {
+                setMessage(elements.loginMessage, (result.data && result.data.message) || "Sign-in failed.", "error");
+                applySignedOutState("Authentication failed. Check the supplied account credentials.");
+                return;
+            }
+
+            await refreshDashboard();
+        } catch (error) {
+            setMessage(elements.loginMessage, error.message || "Unable to reach the account dashboard backend.", "error");
+        } finally {
+            setLoading(false);
+        }
+    }
+
+    async function handleLogout() {
+        setLoading(true);
+        try {
+            if (!dashboardConfig.demoMode) {
+                await api.post(dashboardConfig.endpoints.logout, {});
+            }
+
+            applySignedOutState("You have been signed out of the account dashboard.");
+            setMessage(elements.loginMessage, "Signed out.", "success");
+        } finally {
+            setLoading(false);
+        }
+    }
+
+    function getDemoData() {
+        return {
+            account: {
+                email: "captain@demo.local",
+                playerName: "EarthsMightiest",
+                accountId: "2305959271250591745",
+                userLevel: 0,
+                lastLogin: "Recently",
+                lastLogout: "Just now"
+            },
+            stats: {
+                totalTimePlayed: 183420,
+                highestLevel: 60,
+                totalCharacters: 3,
+                totalItems: 27
+            },
+            characters: [
+                {
+                    name: "Captain America",
+                    archetype: "Shield Vanguard",
+                    level: 60,
+                    timePlayed: 90420,
+                    equipment: [
+                        { slot: "Costume Core", name: "Aegis Uniform", rarity: "Cosmic" },
+                        { slot: "Medal", name: "Midtown Command Medal", rarity: "Legendary" },
+                        { slot: "Artifact", name: "Shieldsmith's Relic", rarity: "Unique" }
+                    ],
+                    inventory: {
+                        general: [
+                            { name: "Raid Cache", quantity: 2, rarity: "Reward Chest" },
+                            { name: "Omega File", quantity: 11, rarity: "Consumable" }
+                        ],
+                        stash: [
+                            { name: "Civil War Insignia", quantity: 1, rarity: "Artifact" }
+                        ]
+                    }
+                },
+                {
+                    name: "Scarlet Witch",
+                    archetype: "Chaos Adept",
+                    level: 49,
+                    timePlayed: 61200,
+                    equipment: [
+                        { slot: "Legendary", name: "Wundagore Focus", rarity: "Legendary" },
+                        { slot: "Insignia", name: "Order of Attilan", rarity: "Epic" }
+                    ],
+                    inventory: {
+                        general: [
+                            { name: "Chaos Crystal", quantity: 4, rarity: "Crafting" },
+                            { name: "Fortune Card", quantity: 9, rarity: "Consumable" }
+                        ]
+                    }
+                },
+                {
+                    name: "Rocket Raccoon",
+                    archetype: "Heavy Weapons Specialist",
+                    level: 32,
+                    timePlayed: 31800,
+                    equipment: [
+                        { slot: "Ring", name: "Nova Corps Loop", rarity: "Rare" }
+                    ],
+                    inventory: {
+                        general: [
+                            { name: "Field Cache", quantity: 3, rarity: "Loot" }
+                        ],
+                        crafter: [
+                            { name: "Unstable Component", quantity: 15, rarity: "Material" }
+                        ]
+                    }
+                }
+            ]
+        };
+    }
+
+    elements.loginForm.addEventListener("submit", handleLogin);
+    elements.loginReset.addEventListener("click", function () {
+        elements.loginForm.reset();
+        setMessage(elements.loginMessage, "", "");
+    });
+    elements.logoutButton.addEventListener("click", handleLogout);
+
+    restoreSession().catch(function (error) {
+        applySignedOutState("Account session could not be restored.");
+        setMessage(elements.loginMessage, error.message || "Session restore failed.", "error");
+    });
+})();

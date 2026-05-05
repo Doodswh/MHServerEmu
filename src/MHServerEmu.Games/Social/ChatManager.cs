@@ -282,25 +282,11 @@ namespace MHServerEmu.Games.Social
         {
             int prestigeLevel = player.CurrentAvatar != null ? player.CurrentAvatar.PrestigeLevel : 0;
 
-           
-            string displayName = player.GetName();
-            var account = player.PlayerConnection?._dbAccount;
-            if (account != null)
-            {
-              
-                if (account.UserLevel == AccountUserLevel.Dev || account.Flags.HasFlag(AccountFlags.IsDev))
-                {
-                    displayName += "[Dev]";
-                }
-                else if (account.UserLevel == AccountUserLevel.Admin)
-                {
-                    displayName += "[Admin]";
-                }
-            }
-
             
+            string displayName = player.GetName();
+
+          
             ServiceMessage.GroupingManagerChat chatMessage = new(player.DatabaseUniqueId, chat, prestigeLevel, playerFilter, displayName);
-            // --- NEW CODE END ---
 
             ServerManager.Instance.SendMessageToService(GameServiceType.GroupingManager, chatMessage);
         }

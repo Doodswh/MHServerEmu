@@ -1,12 +1,13 @@
-﻿using System.Net;
+﻿using Gazillion;
 using Google.ProtocolBuffers;
-using Gazillion;
 using MHServerEmu.Core.Extensions;
 using MHServerEmu.Core.Logging;
 using MHServerEmu.Core.Network;
 using MHServerEmu.Core.Network.Web;
 using MHServerEmu.Core.RateLimiting;
+using MHServerEmu.PlayerManagement.Auth;
 using MHServerEmu.WebFrontend.Network;
+using System.Net;
 
 namespace MHServerEmu.WebFrontend.Handlers
 {
@@ -60,6 +61,7 @@ namespace MHServerEmu.WebFrontend.Handlers
 
             string ipAddressHandle = context.GetIPAddressHandle(out string ipAddress);
 
+           
             if (_loginRateLimiter != null && _loginRateLimiter.AddTime(ipAddress) == false)
             {
                 Logger.Warn($"OnLoginDataPB(): Rate limit exceeded for {ipAddressHandle}");

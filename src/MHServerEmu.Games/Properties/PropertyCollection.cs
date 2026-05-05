@@ -1117,7 +1117,7 @@ namespace MHServerEmu.Games.Properties
                 return;
 
             while (_parentCollections.Count > 0)
-                RemoveChildCollection(this);
+                _parentCollections.First().RemoveChildCollection(this); 
         }
 
         /// <summary>

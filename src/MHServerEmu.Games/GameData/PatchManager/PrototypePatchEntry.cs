@@ -182,6 +182,9 @@ namespace MHServerEmu.Games.GameData.PatchManager
                 ValueType.PrototypeId or ValueType.PrototypeDataRef => new SimpleValue<PrototypeId>((PrototypeId)jsonElement.GetUInt64(), valueType),
                 ValueType.LocaleStringId => new SimpleValue<LocaleStringId>((LocaleStringId)jsonElement.GetUInt64(), valueType),
                 ValueType.Vector3 => new SimpleValue<Vector3>(ParseJsonVector3(jsonElement), valueType),
+                ValueType.Long => new SimpleValue<long>(jsonElement.GetInt64(), valueType),
+                ValueType.ULong => new SimpleValue<ulong>(jsonElement.GetUInt64(), valueType),
+                ValueType.RawJson => new SimpleValue<JsonElement>(jsonElement.Clone(), valueType),
 
                 // Complex types
                 ValueType.Prototype => new SimpleValue<Prototype>(ParseJsonPrototype(jsonElement), valueType),
@@ -199,6 +202,9 @@ namespace MHServerEmu.Games.GameData.PatchManager
                 ValueType.BooleanArray => new ArrayValue<bool>(jsonElement, valueType, x => x.GetBoolean()),
                 ValueType.Vector3Array => new ArrayValue<Vector3>(jsonElement, valueType, x => ParseJsonVector3(x)),
                 ValueType.PropertyId => new SimpleValue<PropertyId>(ParseJsonPropertyIdSingle(jsonElement), valueType),
+                ValueType.LongArray => new ArrayValue<long>(jsonElement, valueType, x => x.GetInt64()),
+                ValueType.ULongArray => new ArrayValue<ulong>(jsonElement, valueType, x => x.GetUInt64()),
+                ValueType.RawJsonArray => new ArrayValue<JsonElement>(jsonElement, valueType, x => x.Clone()),
 
                 _ => throw new NotSupportedException($"ValueType '{valueType}' is not supported.")
             };
@@ -739,7 +745,7 @@ namespace MHServerEmu.Games.GameData.PatchManager
         String,
         Boolean,
         Float,
-        Double, // NEW: Added Double support
+        Double, 
         Integer,
         Enum,
         PrototypeGuid,
@@ -749,6 +755,9 @@ namespace MHServerEmu.Games.GameData.PatchManager
         Vector3,
         PropertyId,
         Eval,
+        Long,          
+        ULong,          
+        RawJson,        
 
         // Complex Types
         Prototype,
@@ -759,12 +768,15 @@ namespace MHServerEmu.Games.GameData.PatchManager
         StringArray,
         BooleanArray,
         FloatArray,
-        DoubleArray, // NEW: Added DoubleArray support
+        DoubleArray, 
         IntegerArray,
         PrototypeIdArray,
         PrototypeDataRefArray,
         PrototypeArray,
         Vector3Array,
+        LongArray,      
+        ULongArray,    
+        RawJsonArray
     }
 
     public abstract class ValueBase

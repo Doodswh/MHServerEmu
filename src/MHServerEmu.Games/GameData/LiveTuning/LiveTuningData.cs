@@ -204,7 +204,11 @@ namespace MHServerEmu.Games.GameData.LiveTuning
             // Global
             for (int i = 0; i < (int)GlobalTuningVar.eGTV_NumGlobalTuningVars; i++)
             {
-                float tuningVarValue = GetLiveGlobalTuningVar((GlobalTuningVar)i);
+                GlobalTuningVar tuningVar = (GlobalTuningVar)i;
+                if (tuningVar == GlobalTuningVar.eGTV_PatrolBossSpawnInvulnerabilitySeconds)
+                    continue;
+
+                float tuningVarValue = GetLiveGlobalTuningVar(tuningVar);
                 if (tuningVarValue == DefaultTuningVarValue)
                     continue;
 

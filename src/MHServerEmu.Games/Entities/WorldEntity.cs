@@ -86,6 +86,9 @@ namespace MHServerEmu.Games.Entities
         private readonly EventPointer<ScheduledExitWorldEvent> _exitWorldEvent = new();
         private readonly EventPointer<ScheduledKillEvent> _scheduledKillEvent = new();
         private readonly EventPointer<NegateHotspotsEvent> _negateHotspotsEvent = new();
+        private readonly EventPointer<ScheduledTemporaryInvulnerabilityEndEvent> _temporaryInvulnerabilityEndEvent = new();
+        private TimeSpan _temporaryInvulnerabilityEndTime = TimeSpan.Zero;
+        private bool _temporaryInvulnerabilitySetProperty;
 
         private RegionLocation _regionLocation;
         private RegionLocationSafe _exitWorldRegionLocation;
@@ -4723,6 +4726,37 @@ namespace MHServerEmu.Games.Entities
 
             return vendorTypeProto.GlobalEvent;
         }
+        public void ApplyTemporaryInvulnerability(TimeSpan duration)
+        {
+            if (duration <= TimeSpan.Zero || Game == null || IsInWorld == false || IsDead)
+                return;
+
+            TimeSpan endTime = Game.CurrentTime + duration;
+            if (_temporaryInvulnerabilityEndEvent.IsValid && endTime <= _temporaryInvulnerabilityEndTime)
+                return;
+
+            _temporaryInvulnerabilityEndTime = endTime;
+            if (Properties[PropertyEnum.Invulnerable] == false)
+            {
+                Properties[PropertyEnum.Invulnerable] = true;
+                _temporaryInvulnerabilitySetProperty = true;
+            }
+
+            if (_temporaryInvulnerabilityEndEvent.IsValid)
+                Game.GameEventScheduler.RescheduleEvent(_temporaryInvulnerabilityEndEvent, duration);
+            else
+                ScheduleEntityEvent(_temporaryInvulnerabilityEndEvent, duration);
+        }
+
+        private void OnTemporaryInvulnerabilityExpired()
+        {
+            _temporaryInvulnerabilityEndTime = TimeSpan.Zero;
+            if (_temporaryInvulnerabilitySetProperty)
+            {
+                Properties[PropertyEnum.Invulnerable] = false;
+                _temporaryInvulnerabilitySetProperty = false;
+            }
+        }
 
         #region Scheduled Events
 
@@ -4833,7 +4867,10 @@ namespace MHServerEmu.Games.Entities
         {
             protected override CallbackDelegate GetCallback() => (t, p1) => ((WorldEntity)t).TryActivateOnHealthProcs(p1);
         }
-
+        private class ScheduledTemporaryInvulnerabilityEndEvent : CallMethodEvent<Entity>
+        {
+            protected override CallbackDelegate GetCallback() => (t) => ((WorldEntity)t).OnTemporaryInvulnerabilityExpired();
+        }
         private class ScheduledPowerResultsEvent : CallMethodEventParam1<Entity, PowerResults>
         {
             protected override CallbackDelegate GetCallback() => (t, p1) => ((WorldEntity)t).ApplyPowerResults(p1);

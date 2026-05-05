@@ -1,0 +1,10 @@
+const dashboardConfig = {
+    originSuffix: "",
+    endpoints: {
+        session: "/AccountDashboard/Session",
+        login: "/AccountDashboard/Login",
+        logout: "/AccountDashboard/Logout",
+        data: "/AccountDashboard/Data"
+    },
+    demoMode: false
+};
