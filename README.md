@@ -10,3 +10,6 @@ We post development progress reports on our [blog](https://crypto137.github.io/M
 This is the modified version of the emulator.
 
 
+This is based of the nightly build so you will need to grab the main vanilla build from below and then this just is the server only, so just replace that with this build. 
+
+https://github.com/Crypto137/MHServerEmu/releases/tag/1.0.1
