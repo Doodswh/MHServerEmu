@@ -104,7 +104,7 @@ namespace MHServerEmu.Games
         public TimeSpan LastUpdateEndTime { get; set; } = Clock.GameTime;
 
         public ulong CurrentRepId { get => ++_currentRepId; }
-        public Dictionary<ulong, IArchiveMessageHandler> MessageHandlerDict { get; } = new();
+        public Dictionary<ulong, IArchiveMessageHandler> MessageHandlers { get; } = new();  // Same as Game::AccessMessageHandlerHash() client-side
 
         public bool AchievementsEnabled { get => GameOptions.AchievementsEnabled; }
         public bool OmegaMissionsEnabled { get => GameOptions.OmegaMissionsEnabled; }

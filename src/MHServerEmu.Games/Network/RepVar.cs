@@ -8,8 +8,6 @@ namespace MHServerEmu.Games.Network
 {
     public abstract class RepVar<T> : IArchiveMessageHandler, ISerialize
     {
-        private static readonly Logger Logger = LogManager.CreateLogger();
-
         private IArchiveMessageDispatcher _messageDispatcher = null;
         private AOINetworkPolicyValues _interestPolicies = AOINetworkPolicyValues.AOIChannelNone;
         private ulong _replicationId = IArchiveMessageDispatcher.InvalidReplicationId;
@@ -71,26 +69,25 @@ namespace MHServerEmu.Games.Network
             return success;
         }
 
-        public bool Bind(IArchiveMessageDispatcher messageDispatcher, AOINetworkPolicyValues interestPolicies)
+        public void Bind(IArchiveMessageDispatcher messageDispatcher, AOINetworkPolicyValues interestPolicies)
         {
-            if (messageDispatcher == null) return Logger.WarnReturn(false, "Bind(): messageDispatcher == null");
+            if (!Verify.IsNotNull(messageDispatcher)) return;
 
             if (IsBound)
-                return Logger.WarnReturn(false, $"Bind(): Already bound with replicationId {_replicationId} to {_messageDispatcher}");
+            {
+                Verify.IsTrue(_messageDispatcher == messageDispatcher, $"Already bound with replicationId {_replicationId} to {_messageDispatcher}");
+                return;
+            }
 
             _messageDispatcher = messageDispatcher;
             _interestPolicies = interestPolicies;
-            _replicationId = messageDispatcher.RegisterMessageHandler(this, ref _replicationId);    // pass repId field by ref so that we don't have to expose a setter
-
-            return true;
+            _replicationId = messageDispatcher.RegisterMessageHandler(this, ref _replicationId);
         }
 
         public void Unbind()
         {
-            if (IsBound == false)
-                return;
-
-            _messageDispatcher.UnregisterMessageHandler(this);
+            _messageDispatcher?.UnregisterMessageHandler(this);
+            _messageDispatcher = null;
             _replicationId = IArchiveMessageDispatcher.InvalidReplicationId;
         }
 
