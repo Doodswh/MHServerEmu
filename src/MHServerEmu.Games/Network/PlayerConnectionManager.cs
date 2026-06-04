@@ -23,9 +23,6 @@ namespace MHServerEmu.Games.Network
         // HashSet for preventing the same account from logging in multiple times
         private readonly HashSet<ulong> _playerDbIds = new();
 
-        // Queue for pending player connections (i.e. players currently loading)
-        private readonly Queue<PlayerConnection> _pendingPlayerConnectionQueue = new();
-
         /// <summary>
         /// Constructs a new <see cref="PlayerConnectionManager"/> instance for the provided <see cref="Game"/>.
         /// </summary>

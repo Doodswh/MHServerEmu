@@ -25,6 +25,7 @@ using MHServerEmu.Games.GameData;
 using MHServerEmu.Games.GameData.Prototypes;
 using MHServerEmu.Games.Leaderboards;
 using MHServerEmu.Games.MetaGames;
+using MHServerEmu.Games.Missions;
 using MHServerEmu.Games.MTXStore;
 using MHServerEmu.Games.Navi;
 using MHServerEmu.Games.Powers;
@@ -32,6 +33,7 @@ using MHServerEmu.Games.Properties;
 using MHServerEmu.Games.Regions;
 using MHServerEmu.Games.Social.Communities;
 using MHServerEmu.Games.Social.Parties;
+using MHServerEmu.Games.UI;
 
 namespace MHServerEmu.Games.Network
 {
@@ -507,6 +509,8 @@ namespace MHServerEmu.Games.Network
         /// </summary>
         public override void ReceiveMessage(in MailboxMessage message)
         {
+            if (!Verify.IsNotNull(Player)) return;
+
             // Commented out messages are unused / not yet implemented.
 
             switch ((ClientToGameServerMessage)message.Id)
@@ -683,37 +687,33 @@ namespace MHServerEmu.Games.Network
             }
         }
 
-        private bool OnPlayerSystemMetrics(in MailboxMessage message)
+        private void OnPlayerSystemMetrics(in MailboxMessage message)
         {
             var playerSystemMetrics = message.As<NetMessagePlayerSystemMetrics>();
-            if (playerSystemMetrics == null) return Logger.WarnReturn(false, $"OnPlayerSystemMetrics(): Failed to retrieve message");
+            if (!Verify.IsNotNull(playerSystemMetrics)) return;
 
             // Adding this handler to reduce log spam.
             // This message is sent when the client logs in for the first time after startup. We are not interested in any of this info.
-
-            return true;
         }
 
-        private bool OnPlayerSteamInfo(in MailboxMessage message)
+        private void OnPlayerSteamInfo(in MailboxMessage message)
         {
             var playerSteamInfo = message.As<NetMessagePlayerSteamInfo>();
-            if (playerSteamInfo == null) return Logger.WarnReturn(false, $"OnPlayerSteamInfo(): Failed to retrieve message");
+            if (!Verify.IsNotNull(playerSteamInfo)) return;
 
             // Adding this handler to reduce log spam.
             // TODO: Figure out if we can make use of any Steam functionality. If so, set PropertyEnum.SteamUserId and PropertyEnum.SteamAchievementUpdateSeqNum here.
 
             // NOTE: It's impossible to use this to grant Steam achievements without a publisher API key.
             // See SetUserStatsForGame in Steamworks docs for more info: https://partner.steamgames.com/doc/webapi/isteamuserstats
-
-            return true;
         }
 
-        private bool OnSyncTimeRequest(in MailboxMessage message)
+        private void OnSyncTimeRequest(in MailboxMessage message)
         {
             var syncTimeRequest = message.As<NetMessageSyncTimeRequest>();
-            if (syncTimeRequest == null) return Logger.WarnReturn(false, $"OnSyncTimeRequest(): Failed to retrieve message");
+            if (!Verify.IsNotNull(syncTimeRequest)) return;
 
-            var reply = NetMessageSyncTimeReply.CreateBuilder()
+            NetMessageSyncTimeReply reply = NetMessageSyncTimeReply.CreateBuilder()
                 .SetGameTimeClientSent(syncTimeRequest.GameTimeClientSent)
                 .SetGameTimeServerReceived(message.GameTimeReceived.Ticks / 10)
                 .SetGameTimeServerSent(Clock.GameTime.Ticks / 10)
@@ -727,26 +727,24 @@ namespace MHServerEmu.Games.Network
 
             SendMessage(reply);
             FlushMessages();    // Send the reply ASAP for more accurate timing
-            return true;
         }
 
-        private bool OnIsRegionAvailable(in MailboxMessage message)
+        private void OnIsRegionAvailable(in MailboxMessage message)
         {
             var isRegionAvailable = message.As<NetMessageIsRegionAvailable>();
-            if (isRegionAvailable == null) return Logger.WarnReturn(false, $"OnIsRegionAvailable(): Failed to retrieve message");
+            if (!Verify.IsNotNull(isRegionAvailable)) return;
 
             // We don't really need this because we now load players into towns, and client streaming via BitRaider isn't a thing anymore.
-            return true;
         }
 
-        private bool OnUpdateAvatarState(in MailboxMessage message)
+        private void OnUpdateAvatarState(in MailboxMessage message)
         {
             var updateAvatarState = message.As<NetMessageUpdateAvatarState>();
-            if (updateAvatarState == null) return Logger.WarnReturn(false, $"OnUpdateAvatarState(): Failed to retrieve message");
+            if (!Verify.IsNotNull(updateAvatarState)) return;
 
             Avatar avatar = Player.CurrentAvatar;
             if (avatar == null || avatar.IsAliveInWorld == false)
-                return false;
+                return;
 
             // Transfer data from the archive
             // NOTE: We need to be extra careful here because this is the only archive that is serialized by the client,
@@ -754,38 +752,33 @@ namespace MHServerEmu.Games.Network
             using Archive archive = new(ArchiveSerializeType.Replication, updateAvatarState.ArchiveData);
 
             int avatarIndex = 0;
-            if (Serializer.Transfer(archive, ref avatarIndex) == false)
-                return Logger.WarnReturn(false, "OnUpdateAvatarState(): Failed to transfer avatarIndex");
+            if (!Verify.IsTrue(Serializer.Transfer(archive, ref avatarIndex))) return;
 
             ulong avatarEntityId = 0;
-            if (Serializer.Transfer(archive, ref avatarEntityId) == false)
-                return Logger.WarnReturn(false, "OnUpdateAvatarState(): Failed to transfer avatarEntityId");
+            if (!Verify.IsTrue(Serializer.Transfer(archive, ref avatarEntityId))) return;
 
             if (avatarEntityId != avatar.Id)
-                return false;
+                return;
 
             bool isUsingGamepadInput = false;
-            if (Serializer.Transfer(archive, ref isUsingGamepadInput) == false)
-                return Logger.WarnReturn(false, "OnUpdateAvatarState(): Failed to transfer isUsingGamepadInput");
-            avatar.IsUsingGamepadInput = isUsingGamepadInput;
+            if (!Verify.IsTrue(Serializer.Transfer(archive, ref isUsingGamepadInput))) return;
 
             uint avatarWorldInstanceId = 0;
-            if (Serializer.Transfer(archive, ref avatarWorldInstanceId) == false)
-                return Logger.WarnReturn(false, "OnUpdateAvatarState(): Failed to transfer avatarWorldInstanceId");
+            if (!Verify.IsTrue(Serializer.Transfer(archive, ref avatarWorldInstanceId))) return;
+
+            if (avatarWorldInstanceId != avatar.AvatarWorldInstanceId)
+                return;
 
             uint fieldFlagsRaw = 0;
-            if (Serializer.Transfer(archive, ref fieldFlagsRaw) == false)
-                return Logger.WarnReturn(false, "OnUpdateAvatarState(): Failed to transfer fieldFlags");
-            var fieldFlags = (LocomotionMessageFlags)fieldFlagsRaw;
+            if (!Verify.IsTrue(Serializer.Transfer(archive, ref fieldFlagsRaw))) return;
+            LocomotionMessageFlags fieldFlags = (LocomotionMessageFlags)fieldFlagsRaw;
 
             Vector3 syncPosition = Vector3.Zero;
-            if (Serializer.TransferVectorFixed(archive, ref syncPosition, 3) == false)
-                return Logger.WarnReturn(false, "OnUpdateAvatarState(): Failed to transfer syncPosition");
+            if (!Verify.IsTrue(Serializer.TransferVectorFixed(archive, ref syncPosition, 3))) return;
 
             Orientation syncOrientation = Orientation.Zero;
             bool yawOnly = fieldFlags.HasFlag(LocomotionMessageFlags.HasFullOrientation) == false;
-            if (Serializer.TransferOrientationFixed(archive, ref syncOrientation, yawOnly, 6) == false)
-                return Logger.WarnReturn(false, "OnUpdateAvatarState(): Failed to transfer syncOrientation");
+            if (!Verify.IsTrue(Serializer.TransferOrientationFixed(archive, ref syncOrientation, yawOnly, 6))) return;
 
             // Update locomotion state
             bool canMove = avatar.CanMove();
@@ -799,6 +792,8 @@ namespace MHServerEmu.Games.Network
             {
                 position = syncPosition;
                 orientation = syncOrientation;
+
+                avatar.IsUsingGamepadInput = isUsingGamepadInput;
 
                 // Update position without sending it to clients (local avatar is moved by its own client, other avatars are moved by locomotion)
                 if (avatar.ChangeRegionPosition(canMove ? position : null, canRotate ? orientation : null, ChangePositionFlags.DoNotSendToClients) == ChangePositionResult.PositionChanged)
@@ -824,12 +819,11 @@ namespace MHServerEmu.Games.Network
                 // NOTE: Deserialize in a try block because we don't trust this
                 try
                 {
-                    if (LocomotionState.SerializeFrom(archive, ref newSyncState, fieldFlags) == false)
-                        return Logger.WarnReturn(false, "OnUpdateAvatarState(): Failed to transfer newSyncState");
+                    if (!Verify.IsTrue(LocomotionState.SerializeFrom(archive, ref newSyncState, fieldFlags))) return;
                 }
                 catch (Exception e)
                 {
-                    return Logger.WarnReturn(false, $"OnUpdateAvatarState(): Failed to transfer newSyncState ({e.Message})");
+                    Verify.IsTrue(false, $"Failed to transfer newSyncState ({e.Message})");
                 }
 
                 avatar.Locomotor.SetSyncState(ref newSyncState, position, orientation);
@@ -838,66 +832,53 @@ namespace MHServerEmu.Games.Network
             const float PositionDesyncDistanceSqThreshold = 512f * 512f;
             if (desyncDistanceSq > PositionDesyncDistanceSqThreshold)
                 Logger.Warn($"OnUpdateAvatarState(): Position desync for player [{Player}] - offset={MathHelper.SquareRoot(desyncDistanceSq)}, moveSpeed={avatar.Locomotor.LastSyncState.BaseMoveSpeed}, power={avatar.ActivePowerRef.GetName()}");
-
-            return true;
         }
 
-        private bool OnCellLoaded(in MailboxMessage message)
+        private void OnCellLoaded(in MailboxMessage message)
         {
             var cellLoaded = message.As<NetMessageCellLoaded>();
-            if (cellLoaded == null) return Logger.WarnReturn(false, $"OnCellLoaded(): Failed to retrieve message");
+            if (!Verify.IsNotNull(cellLoaded)) return;
 
             Player.OnCellLoaded(cellLoaded.CellId, cellLoaded.RegionId);
-
-            return true;
         }
 
-        private bool OnAdminCommand(in MailboxMessage message)
+        private void OnAdminCommand(in MailboxMessage message)
         {
             var adminCommand = message.As<NetMessageAdminCommand>();
-            if (adminCommand == null) return Logger.WarnReturn(false, $"OnAdminCommand(): Failed to retrieve message");
+            if (!Verify.IsNotNull(adminCommand)) return;
 
             Game.AdminCommandManager.OnAdminCommand(Player, adminCommand);
-
-            return true;
         }
 
-        private bool OnTryActivatePower(in MailboxMessage message)
+        private void OnTryActivatePower(in MailboxMessage message)
         {
             var tryActivatePower = message.As<NetMessageTryActivatePower>();
-            if (tryActivatePower == null) return Logger.WarnReturn(false, $"OnTryActivatePower(): Failed to retrieve message");
+            if (!Verify.IsNotNull(tryActivatePower)) return;
 
             Avatar avatar = Player.GetActiveAvatarById(tryActivatePower.IdUserEntity);
-
-            // These checks fail due to lag, so no need to log
-            if (avatar == null) return true;
-            if (avatar.IsInWorld == false) return true;
+            if (avatar == null || avatar.IsInWorld == false)
+                return;
 
             PrototypeId powerProtoRef = (PrototypeId)tryActivatePower.PowerPrototypeId;
 
-            // Build settings from the protobuf
             PowerActivationSettings settings = new(avatar.RegionLocation.Position);
             settings.ApplyProtobuf(tryActivatePower);
 
             avatar.ActivatePower(powerProtoRef, ref settings);
-
-            return true;
         }
 
-        private bool OnPowerRelease(in MailboxMessage message)
+        private void OnPowerRelease(in MailboxMessage message)
         {
             var powerRelease = message.As<NetMessagePowerRelease>();
-            if (powerRelease == null) return Logger.WarnReturn(false, $"OnPowerRelease(): Failed to retrieve message");
+            if (!Verify.IsNotNull(powerRelease)) return;
 
             Avatar avatar = Player.GetActiveAvatarById(powerRelease.IdUserEntity);
-
-            // These checks fail due to lag, so no need to log
-            if (avatar == null) return true;
-            if (avatar.IsInWorld == false) return true;
+            if (avatar == null || avatar.IsInWorld == false)
+                return;
 
             PrototypeId powerProtoRef = (PrototypeId)powerRelease.PowerPrototypeId;
             Power power = avatar.GetPower(powerProtoRef);
-            if (power == null) return Logger.WarnReturn(false, "OnPowerRelease(): power == null");
+            if (!Verify.IsNotNull(power)) return;
 
             PowerActivationSettings settings = new(avatar.RegionLocation.Position);
 
@@ -908,53 +889,46 @@ namespace MHServerEmu.Games.Network
                 settings.TargetPosition = new(powerRelease.TargetPosition);
 
             power.ReleaseVariableActivation(ref settings);
-            return true;
         }
 
-        private bool OnTryCancelPower(in MailboxMessage message)
+        private void OnTryCancelPower(in MailboxMessage message)
         {
             var tryCancelPower = message.As<NetMessageTryCancelPower>();
-            if (tryCancelPower == null) return Logger.WarnReturn(false, $"OnTryCancelPower(): Failed to retrieve message");
+            if (!Verify.IsNotNull(tryCancelPower)) return;
 
             Avatar avatar = Player.GetActiveAvatarById(tryCancelPower.IdUserEntity);
-
-            // These checks fail due to lag, so no need to log
-            if (avatar == null) return true;
-            if (avatar.IsInWorld == false) return true;
+            if (avatar == null || avatar.IsInWorld == false)
+                return;
 
             PrototypeId powerProtoRef = (PrototypeId)tryCancelPower.PowerPrototypeId;
             Power power = avatar.GetPower(powerProtoRef);
-            if (power == null) return Logger.WarnReturn(false, "OnTryCancelPower(): power == null");
+            if (!Verify.IsNotNull(power)) return;
 
             EndPowerFlags flags = (EndPowerFlags)tryCancelPower.EndPowerFlags;
             flags |= EndPowerFlags.ClientRequest;   // Always mark as a client request in case someone tries to cheat here
             power.EndPower(flags);
-
-            return true;
         }
 
-        private bool OnTryCancelActivePower(in MailboxMessage message)
+        private void OnTryCancelActivePower(in MailboxMessage message)
         {
             var tryCancelActivePower = message.As<NetMessageTryCancelActivePower>();
-            if (tryCancelActivePower == null) return Logger.WarnReturn(false, $"OnTryCancelActivePower(): Failed to retrieve message");
+            if (!Verify.IsNotNull(tryCancelActivePower)) return;
 
             Avatar avatar = Player.GetActiveAvatarById(tryCancelActivePower.IdUserEntity);
-
-            // These checks fail due to lag, so no need to log
-            if (avatar == null) return true;
-            if (avatar.IsInWorld == false) return true;
+            if (avatar == null || avatar.IsInWorld == false)
+                return;
 
             avatar.ActivePower?.EndPower(EndPowerFlags.ExplicitCancel | EndPowerFlags.ClientRequest);
-            return true;
         }
 
-        private bool OnContinuousPowerUpdate(in MailboxMessage message)
+        private void OnContinuousPowerUpdate(in MailboxMessage message)
         {
             var continuousPowerUpdate = message.As<NetMessageContinuousPowerUpdateToServer>();
-            if (continuousPowerUpdate == null) return Logger.WarnReturn(false, $"OnContinuousPowerUpdate(): Failed to retrieve message");
+            if (!Verify.IsNotNull(continuousPowerUpdate)) return;
 
             Avatar avatar = Player.GetActiveAvatarByIndex(continuousPowerUpdate.AvatarIndex);
-            if (avatar == null) return true;
+            if (avatar == null)
+                return;
 
             PrototypeId powerProtoRef = (PrototypeId)continuousPowerUpdate.PowerPrototypeId;
             ulong targetId = continuousPowerUpdate.HasIdTargetEntity ? continuousPowerUpdate.IdTargetEntity : 0;
@@ -962,26 +936,24 @@ namespace MHServerEmu.Games.Network
             int randomSeed = continuousPowerUpdate.HasRandomSeed ? (int)continuousPowerUpdate.RandomSeed : 0;
 
             avatar.SetContinuousPower(powerProtoRef, targetId, targetPosition, randomSeed, false);
-            return true;
         }
 
-        private bool OnCancelPendingAction(in MailboxMessage message)
+        private void OnCancelPendingAction(in MailboxMessage message)
         {
             var cancelPendingAction = message.As<NetMessageCancelPendingAction>();
-            if (cancelPendingAction == null) return Logger.WarnReturn(false, $"OnCancelPendingAction(): Failed to retrieve message");
+            if (!Verify.IsNotNull(cancelPendingAction)) return;
 
             Avatar avatar = Player.GetActiveAvatarByIndex(cancelPendingAction.AvatarIndex);
-            if (avatar == null) return true;
+            if (avatar == null)
+                return;
 
             avatar.CancelPendingAction();
-
-            return true;
         }
 
-        private bool OnPing(in MailboxMessage message)
+        private void OnPing(in MailboxMessage message)
         {
             var ping = message.As<NetMessagePing>();
-            if (ping == null) return Logger.WarnReturn(false, $"OnPing(): Failed to retrieve message");
+            if (!Verify.IsNotNull(ping)) return;
 
             // Copy request info
             var response = NetMessagePingResponse.CreateBuilder()
@@ -1002,85 +974,82 @@ namespace MHServerEmu.Games.Network
 
             SendMessage(response.Build());
             FlushMessages();    // Send the reply ASAP for more accurate timing (NOTE: this is not accurate to our packet dumps, but gives better ping values)
-            return true;
         }
 
-        private bool OnFps(in MailboxMessage message)
+        private void OnFps(in MailboxMessage message)
         {
             var fps = message.As<NetMessageFPS>();
-            if (fps == null) return Logger.WarnReturn(false, $"OnFps(): Failed to retrieve message");
+            if (!Verify.IsNotNull(fps)) return;
 
             // Dummy handler, we are not interested in FPS metrics
             //Logger.Trace($"OnFps():\n{fps}");
-            return true;
         }
 
-        private bool OnGamepadMetric(in MailboxMessage message)
+        private void OnGamepadMetric(in MailboxMessage message)
         {
             var gamepadMetric = message.As<NetMessageGamepadMetric>();
-            if (gamepadMetric == null) return Logger.WarnReturn(false, $"OnGamepadMetric(): Failed to retrieve message");
+            if (!Verify.IsNotNull(gamepadMetric)) return;
 
             // Dummy handler, we are not interested in gamepad metrics
             //Logger.Trace($"OnGamepadMetric():\n{gamepadMetric}");
-            return true;
         }
 
-        private bool OnPickupInteraction(in MailboxMessage message)
+        private void OnPickupInteraction(in MailboxMessage message)
         {
             var pickupInteraction = message.As<NetMessagePickupInteraction>();
-            if (pickupInteraction == null) return Logger.WarnReturn(false, $"OnPickupInteraction(): Failed to retrieve message");
+            if (!Verify.IsNotNull(pickupInteraction)) return;
 
             // Make sure there is an avatar in play
             Avatar avatar = Player.CurrentAvatar;
             if (avatar == null)
-                return false;
+                return;
 
             // Find item entity
             Item item = Game.EntityManager.GetEntity<Item>(pickupInteraction.IdTarget);
 
             // Make sure the item still exists and is not owned by item (multiple pickup interactions can be received due to lag)
             if (item == null || Player.Owns(item))
-                return true;
+                return;
 
             // Validate pickup range
             bool useInteractFallbackRange = pickupInteraction.HasUseInteractFallbackRange && pickupInteraction.UseInteractFallbackRange;
             if (avatar.InInteractRange(item, InteractionMethod.PickUp, useInteractFallbackRange) == false)
-                return false;
+                return;
 
             // Validate ownership
-            if (item.IsRootOwner == false)
-                return Logger.WarnReturn(false, $"OnPickupInteraction(): Player [{Player}] is attempting to pick up item [{item}] owned by another player [{item.GetOwnerOfType<Player>()}]");
+            if (!Verify.IsTrue(item.IsRootOwner, $"Player [{Player}] is attempting to pick up item [{item}] owned by another player [{item.GetOwnerOfType<Player>()}]"))
+                return;
 
-            if (item.IsBoundToAccount)
-                return Logger.WarnReturn(false, $"OnPickupInteraction(): Player [{Player}] is attempting to pick up item [{item}] that is account bound");
+            if (!Verify.IsTrue(item.IsBoundToAccount == false, $"Player [{Player}] is attempting to pick up item [{item}] that is account bound"))
+                return;
 
             // Do not allow to pick up items belonging to other players
             ulong restrictedToPlayerGuid = item.Properties[PropertyEnum.RestrictedToPlayerGuid];
-            if (restrictedToPlayerGuid != 0 && restrictedToPlayerGuid != Player.DatabaseUniqueId)
-                return Logger.WarnReturn(false, $"OnPickupInteraction(): Player [{Player}] is attempting to pick up item [{item}] restricted to player 0x{restrictedToPlayerGuid:X}");
+            if (!Verify.IsTrue(restrictedToPlayerGuid == 0 || restrictedToPlayerGuid == Player.DatabaseUniqueId, $"Player [{Player}] is attempting to pick up item [{item}] restricted to player 0x{restrictedToPlayerGuid:X}"))
+                return;
 
             // Try to pick up the item as currency
             if (Player.AcquireCurrencyItem(item))
             {
                 Player.CurrentAvatar?.TryActivateOnLootPickupProcs(item);
                 item.Destroy();
-                return true;
+                return;
             }
 
             // Invoke pickup Event
-            var region = Player.GetRegion();
+            Region region = Player.GetRegion();
             region?.PlayerPreItemPickupEvent.Invoke(new(Player, item));
 
             // Destroy mission items that shouldn't go to the inventory
             if (item.Properties[PropertyEnum.PickupDestroyPending])
             {
                 item.Destroy();
-                return true;
+                return;
             }
 
             // Add item to the player's inventory
             Inventory inventory = Player.GetInventory(InventoryConvenienceLabel.General);
-            if (inventory == null) return Logger.WarnReturn(false, "OnPickupInteraction(): inventory == null");
+            if (!Verify.IsNotNull(inventory)) return;
 
             InventoryResult result = item.ChangeInventoryLocation(inventory);
             if (result != InventoryResult.Success)
@@ -1092,12 +1061,8 @@ namespace MHServerEmu.Games.Network
                         .SetItemID(item.Id)
                         .Build());
                 }
-                else
-                {
-                    Logger.Warn($"OnPickupInteraction(): Failed to add item [{item}] to inventory of player [{Player}], reason: {result}");
-                }
 
-                return false;
+                return;
             }
 
             // Flag the item as recently added
@@ -1118,14 +1083,12 @@ namespace MHServerEmu.Games.Network
             item.Properties.RemoveProperty(PropertyEnum.RestrictedToPlayerGuid);
 
             Player.CurrentAvatar?.TryActivateOnLootPickupProcs(item);
-
-            return true;
         }
 
-        private bool OnTryInventoryMove(in MailboxMessage message)
+        private void OnTryInventoryMove(in MailboxMessage message)
         {
             var tryInventoryMove = message.As<NetMessageTryInventoryMove>();
-            if (tryInventoryMove == null) return Logger.WarnReturn(false, $"OnTryInventoryMove(): Failed to retrieve message");
+            if (!Verify.IsNotNull(tryInventoryMove)) return;
 
             ulong itemId = tryInventoryMove.ItemId;
             ulong containerId = tryInventoryMove.ToInventoryOwnerId;
@@ -1134,21 +1097,21 @@ namespace MHServerEmu.Games.Network
             bool isStackSplit = tryInventoryMove.HasIsStackSplit && tryInventoryMove.IsStackSplit;
 
             if (isStackSplit)
-                return Player.TryInventoryStackSplit(itemId, containerId, inventoryProtoRef, slot);
-
-            return Player.TryInventoryMove(itemId, containerId, inventoryProtoRef, slot);
+                Player.TryInventoryStackSplit(itemId, containerId, inventoryProtoRef, slot);
+            else
+                Player.TryInventoryMove(itemId, containerId, inventoryProtoRef, slot);
         }
 
-        private bool OnTryMoveCraftingResultsToGeneral(in MailboxMessage message)
+        private void OnTryMoveCraftingResultsToGeneral(in MailboxMessage message)
         {
             var tryMoveCraftingResultsToGeneral = message.As<NetMessageTryMoveCraftingResultsToGeneral>();
-            if (tryMoveCraftingResultsToGeneral == null) return Logger.WarnReturn(false, $"OnTryMoveCraftingResultsToGeneral(): Failed to retrieve message");
+            if (!Verify.IsNotNull(tryMoveCraftingResultsToGeneral)) return;
 
             Inventory generalInv = Player.GetInventory(InventoryConvenienceLabel.General);
-            if (generalInv == null) return Logger.WarnReturn(false, "OnTryMoveCraftingResultsToGeneral(): generalInv == null");
+            if (!Verify.IsNotNull(generalInv)) return;
 
             Inventory resultsInv = Player.GetInventory(InventoryConvenienceLabel.CraftingResults);
-            if (resultsInv == null) return Logger.WarnReturn(false, "OnTryMoveCraftingResultsToGeneral(): resultsInv == null");
+            if (!Verify.IsNotNull(resultsInv)) return;
 
             EntityManager entityManager = Game.EntityManager;
             ulong playerId = Player.Id;
@@ -1158,7 +1121,7 @@ namespace MHServerEmu.Games.Network
                 ulong itemId = resultsInv.GetAnyEntity();
 
                 Item item = entityManager.GetEntity<Item>(itemId);
-                if (item == null) return Logger.WarnReturn(false, "OnTryMoveCraftingResultsToGeneral(): item == null");
+                if (!Verify.IsNotNull(item)) return;
 
                 uint freeSlot = generalInv.GetFreeSlot(item, true, true);
                 if (freeSlot == Inventory.InvalidSlot || Player.TryInventoryMove(itemId, playerId, generalInv.PrototypeDataRef, freeSlot) == false)
@@ -1171,67 +1134,63 @@ namespace MHServerEmu.Games.Network
                     break;
                 }
             }
-
-            return true;
         }
 
-        private bool OnInventoryTrashItem(in MailboxMessage message)
+        private void OnInventoryTrashItem(in MailboxMessage message)
         {
             var inventoryTrashItem = message.As<NetMessageInventoryTrashItem>();
-            if (inventoryTrashItem == null) return Logger.WarnReturn(false, $"OnInventoryTrashItem(): Failed to retrieve message");
+            if (!Verify.IsNotNull(inventoryTrashItem)) return;
 
-            // Validate item
-            if (inventoryTrashItem.ItemId == Entity.InvalidId) return Logger.WarnReturn(false, "OnInventoryTrashItem(): itemId == Entity.InvalidId");
+            ulong itemId = inventoryTrashItem.ItemId;
+            if (!Verify.IsTrue(itemId != Entity.InvalidId)) return;
 
-            var item = Game.EntityManager.GetEntity<Item>(inventoryTrashItem.ItemId);
-            if (item == null) return Logger.WarnReturn(false, "OnInventoryTrashItem(): item == null");
+            Item item = Game.EntityManager.GetEntity<Item>(itemId);
+            if (!Verify.IsNotNull(item)) return;
 
-            // Trash it
-            return Player.TrashItem(item);
+            Player.TrashItem(item);
         }
 
-        private bool OnThrowInteraction(in MailboxMessage message)
+        private void OnThrowInteraction(in MailboxMessage message)
         {
             var throwInteraction = message.As<NetMessageThrowInteraction>();
-            if (throwInteraction == null) return Logger.WarnReturn(false, $"OnThrowInteraction(): Failed to retrieve message");
+            if (!Verify.IsNotNull(throwInteraction)) return;
             
-            // Ignoring avatar index here
-            Avatar avatar = Player.CurrentAvatar;
-            if (avatar == null) return Logger.WarnReturn(false, "OnThrowInteraction(): avatar == null");
+            Avatar avatar = Player.GetActiveAvatarByIndex(throwInteraction.AvatarIndex);
+            if (!Verify.IsNotNull(avatar)) return;
 
-            return avatar.StartThrowing(throwInteraction.IdTarget);
+            avatar.StartThrowing(throwInteraction.IdTarget);
         }
 
-        private bool OnPerformPreInteractPower(in MailboxMessage message)
+        private void OnPerformPreInteractPower(in MailboxMessage message)
         {
             var performPreInteractPower = message.As<NetMessagePerformPreInteractPower>();
-            if (performPreInteractPower == null) return Logger.WarnReturn(false, $"OnPerformPreInteractPower(): Failed to retrieve message");
+            if (!Verify.IsNotNull(performPreInteractPower)) return;
 
-            var currentAvatar = Player.CurrentAvatar;
-            if (currentAvatar == null) return Logger.WarnReturn(false, $"OnPerformPreInteractPower(): CurrentAvatar is null");
+            Avatar avatar = Player.GetActiveAvatarByIndex(performPreInteractPower.AvatarIndex);
+            if (!Verify.IsNotNull(avatar)) return;
 
-            var target = Game.EntityManager.GetEntity<WorldEntity>(performPreInteractPower.IdTarget);
-            if (target == null) return Logger.WarnReturn(false, $"OnPerformPreInteractPower(): Failed to get terget {performPreInteractPower.IdTarget}");
+            WorldEntity target = Game.EntityManager.GetEntity<WorldEntity>(performPreInteractPower.IdTarget);
+            if (target == null)
+                return;
 
-            return currentAvatar.PerformPreInteractPower(target, performPreInteractPower.HasDialog);
+            avatar.PerformPreInteractPower(target, performPreInteractPower.HasDialog);
         }
 
-        private bool OnUseInteractableObject(in MailboxMessage message)
+        private void OnUseInteractableObject(in MailboxMessage message)
         {
             var useInteractableObject = message.As<NetMessageUseInteractableObject>();
-            if (useInteractableObject == null) return Logger.WarnReturn(false, $"OnUseInteractableObject(): Failed to retrieve message");
+            if (!Verify.IsNotNull(useInteractableObject)) return;
 
             Avatar avatar = Player.GetActiveAvatarByIndex(useInteractableObject.AvatarIndex);
-            if (avatar == null) return Logger.WarnReturn(false, "OnUseInteractableObject(): avatar == null");
+            if (!Verify.IsNotNull(avatar)) return;
 
             avatar.UseInteractableObject(useInteractableObject.IdTarget, (PrototypeId)useInteractableObject.MissionPrototypeRef);
-            return true;
         }
 
-        private bool OnTryCraft(in MailboxMessage message)
+        private void OnTryCraft(in MailboxMessage message)
         {
             var tryCraft = message.As<NetMessageTryCraft>();
-            if (tryCraft == null) return Logger.WarnReturn(false, "OnTryCraft(): Failed to retrieve message");
+            if (!Verify.IsNotNull(tryCraft)) return;
 
             EntityManager entityManager = Game.EntityManager;
 
@@ -1239,10 +1198,10 @@ namespace MHServerEmu.Games.Network
             ulong recipeItemId = tryCraft.IdRecipe;
 
             Item recipeItem = entityManager.GetEntity<Item>(recipeItemId);
-            if (recipeItem == null) return Logger.WarnReturn(false, "OnTryCraft(): recipeItem == null");
+            if (!Verify.IsNotNull(recipeItem)) return;
 
-            if (Player.Owns(recipeItem) == false)
-                return Logger.WarnReturn(false, $"OnTryCraft(): Player [{Player}] is attempting to use recipe item [{recipeItem}] that does not belong to them");
+            if (!Verify.IsTrue(Player.Owns(recipeItem), $"Player [{Player}] is attempting to use recipe item [{recipeItem}] that does not belong to them"))
+                return;
 
             // Validate ingredients
             using var ingredientIdsHandle = ListPool<ulong>.Instance.Get(out List<ulong> ingredientIds);
@@ -1256,10 +1215,10 @@ namespace MHServerEmu.Games.Network
                 if (ingredientId != Entity.InvalidId)
                 {
                     Entity ingredient = entityManager.GetEntity<Entity>(ingredientId);
-                    if (ingredient == null) return Logger.WarnReturn(false, "OnTryCraft(): ingredient == null");
+                    if (!Verify.IsNotNull(ingredient)) return;
 
-                    if (Player.Owns(ingredient) == false)
-                        return Logger.WarnReturn(false, $"OnTryCraft(): Player [{Player}] is attempting to use ingredient [{ingredient}] that does not belong to them");
+                    if (!Verify.IsTrue(Player.Owns(ingredient), $"Player [{Player}] is attempting to use ingredient [{ingredient}] that does not belong to them"))
+                        return;
                 }
 
                 ingredientIds.Add(ingredientId);
@@ -1272,29 +1231,27 @@ namespace MHServerEmu.Games.Network
                 SendMessage(NetMessageCraftingFailure.CreateBuilder()
                     .SetCraftingResult((uint)craftingResult)
                     .Build());
-
-                return false;
             }
-
-            SendMessage(NetMessageCraftingSuccess.DefaultInstance);
-            return true;
+            else
+            {
+                SendMessage(NetMessageCraftingSuccess.DefaultInstance);
+            }
         }
 
-        private bool OnUseWaypoint(in MailboxMessage message)
+        private void OnUseWaypoint(in MailboxMessage message)
         {
             var useWaypoint = message.As<NetMessageUseWaypoint>();
-            if (useWaypoint == null) return Logger.WarnReturn(false, $"OnUseWaypoint(): Failed to retrieve message");
+            if (!Verify.IsNotNull(useWaypoint)) return;
 
             Avatar avatar = Player.GetActiveAvatarByIndex(useWaypoint.AvatarIndex);
-            if (avatar == null) return Logger.WarnReturn(false, "OnUseWaypoint(): avatar == null");
-
-            if (avatar.IsAliveInWorld == false) return Logger.WarnReturn(false, "OnUseWaypoint(): avatar.IsAliveInWorld == false");
+            if (!Verify.IsNotNull(avatar)) return;
+            if (!Verify.IsTrue(avatar.IsAliveInWorld)) return;
 
             Transition waypoint = Game.EntityManager.GetEntity<Transition>(useWaypoint.IdTransitionEntity);
-            if (waypoint == null) return Logger.WarnReturn(false, "OnUseWaypoint(): waypoint == null");
+            if (!Verify.IsNotNull(waypoint)) return;
 
-            if (avatar.InInteractRange(waypoint, InteractionMethod.Use) == false)
-                return Logger.WarnReturn(false, $"OnUseWaypoint(): Avatar [{avatar}] is not in interact range of waypoint [{waypoint}]");
+            if (!Verify.IsTrue(avatar.InInteractRange(waypoint, InteractionMethod.Use), $"Avatar [{avatar}] is not in interact range of waypoint [{waypoint}]"))
+                return;
 
             PrototypeId waypointProtoRef = (PrototypeId)useWaypoint.WaypointDataRef;
             PrototypeId regionProtoRefOverride = (PrototypeId)useWaypoint.RegionProtoId;
@@ -1304,474 +1261,472 @@ namespace MHServerEmu.Games.Network
             teleporter.Initialize(Player, TeleportContextEnum.TeleportContext_Waypoint);
             teleporter.TransitionEntity = waypoint;
             teleporter.TeleportToWaypoint(waypointProtoRef, regionProtoRefOverride, difficultyProtoRef);
-
-            return true;
         }
 
-        private bool OnSwitchAvatar(in MailboxMessage message)
+        private void OnSwitchAvatar(in MailboxMessage message)
         {
             var switchAvatar = message.As<NetMessageSwitchAvatar>();
-            if (switchAvatar == null) return Logger.WarnReturn(false, $"OnSwitchAvatar(): Failed to retrieve message");
+            if (!Verify.IsNotNull(switchAvatar)) return;
 
-            // Start the avatar switching process
-            if (Player.BeginAvatarSwitch((PrototypeId)switchAvatar.AvatarPrototypeId) == false)
-                return Logger.WarnReturn(false, "OnSwitchAvatar(): Failed to begin avatar switch");
-
-            return true;
+            Player.BeginAvatarSwitch((PrototypeId)switchAvatar.AvatarPrototypeId);
         }
 
-        private bool OnChangeDifficulty(in MailboxMessage message)
+        private void OnChangeDifficulty(in MailboxMessage message)
         {
             var changeDifficulty = message.As<NetMessageChangeDifficulty>();
-            if (changeDifficulty == null) return Logger.WarnReturn(false, $"OnChangeDifficulty(): Failed to retrieve message");
+            if (!Verify.IsNotNull(changeDifficulty)) return;
 
             PrototypeId difficultyTierProtoRef = (PrototypeId)changeDifficulty.DifficultyTierProtoId;
 
             if (Player.CanChangeDifficulty(difficultyTierProtoRef) == false)
-                return Logger.WarnReturn(false, $"{this} is trying to change difficulty to {difficultyTierProtoRef}, which is not allowed");
+                return;
 
-            Logger.Trace($"OnChangeDifficulty(): Setting preferred difficulty for {Player.CurrentAvatar} to {difficultyTierProtoRef.GetName()}");
-            Player.CurrentAvatar.Properties[PropertyEnum.DifficultyTierPreference] = difficultyTierProtoRef;
+            Avatar avatar = Player.CurrentAvatar;
+            if (avatar == null)
+                return;
 
-            return true;
+#if DEBUG
+            Logger.Trace($"OnChangeDifficulty(): Setting preferred difficulty for {avatar} to {difficultyTierProtoRef.GetName()}");
+#endif
+
+            avatar.Properties[PropertyEnum.DifficultyTierPreference] = difficultyTierProtoRef;
         }
 
-        private bool OnRefreshAbilityKeyMapping(in MailboxMessage message)
+        private void OnRefreshAbilityKeyMapping(in MailboxMessage message)
         {
             var refreshAbilityKeyMapping = message.As<NetMessageRefreshAbilityKeyMapping>();
-            if (refreshAbilityKeyMapping == null) return Logger.WarnReturn(false, $"OnRefreshAbilityKeyMapping(): Failed to retrieve message");
+            if (!Verify.IsNotNull(refreshAbilityKeyMapping)) return;
 
             Avatar avatar = Game.EntityManager.GetEntity<Avatar>(refreshAbilityKeyMapping.AvatarId);
-            if (avatar == null) return Logger.WarnReturn(false, "OnRefreshAbilityKeyMapping(): avatar == null");
+            if (!Verify.IsNotNull(avatar)) return;
 
             Player owner = avatar.GetOwnerOfType<Player>();
-            if (owner != Player)
-                return Logger.WarnReturn(false, $"OnRefreshAbilityKeyMapping(): Player [{Player}] is attempting to refresh ability key mapping for avatar [{avatar}] that belongs to another player");
+            if (!Verify.IsTrue(owner == Player, $"Player [{Player}] is attempting to refresh ability key mapping for avatar [{avatar}] that belongs to another player"))
+                return;
 
             avatar.RefreshAbilityKeyMapping(false);
-            return true;
         }
 
-        private bool OnAbilitySlotToAbilityBar(in MailboxMessage message)
+        private void OnAbilitySlotToAbilityBar(in MailboxMessage message)
         {
             var abilitySlotToAbilityBar = message.As<NetMessageAbilitySlotToAbilityBar>();
-            if (abilitySlotToAbilityBar == null) return Logger.WarnReturn(false, $"OnAbilitySlotToAbilityBar(): Failed to retrieve message");
+            if (!Verify.IsNotNull(abilitySlotToAbilityBar)) return;
 
             Avatar avatar = Game.EntityManager.GetEntity<Avatar>(abilitySlotToAbilityBar.AvatarId);
-            if (avatar == null) return Logger.WarnReturn(false, "OnAbilitySlotToAbilityBar(): avatar == null");
+            if (!Verify.IsNotNull(avatar)) return;
 
             Player owner = avatar.GetOwnerOfType<Player>();
-            if (owner != Player)
-                return Logger.WarnReturn(false, $"OnAbilitySlotToAbilityBar(): Player [{Player}] is attempting to slot ability for avatar [{avatar}] that belongs to another player");
+            if (!Verify.IsTrue(owner == Player, $"Player [{Player}] is attempting to slot ability for avatar [{avatar}] that belongs to another player"))
+                return;
 
             avatar.SlotAbility((PrototypeId)abilitySlotToAbilityBar.PrototypeRefId, (AbilitySlot)abilitySlotToAbilityBar.SlotNumber, false, false);
-            return true;
         }
 
-        private bool OnAbilityUnslotFromAbilityBar(in MailboxMessage message)
+        private void OnAbilityUnslotFromAbilityBar(in MailboxMessage message)
         {
             var abilityUnslotFromAbilityBar = message.As<NetMessageAbilityUnslotFromAbilityBar>();
-            if (abilityUnslotFromAbilityBar == null) return Logger.WarnReturn(false, $"OnAbilityUnslotFromAbilityBar(): Failed to retrieve message");
+            if (!Verify.IsNotNull(abilityUnslotFromAbilityBar)) return;
 
             Avatar avatar = Game.EntityManager.GetEntity<Avatar>(abilityUnslotFromAbilityBar.AvatarId);
-            if (avatar == null) return Logger.WarnReturn(false, "OnAbilityUnslotFromAbilityBar(): avatar == null");
+            if (!Verify.IsNotNull(avatar)) return;
 
             Player owner = avatar.GetOwnerOfType<Player>();
-            if (owner != Player)
-                return Logger.WarnReturn(false, $"OnAbilityUnslotFromAbilityBar(): Player [{Player}] is attempting to unslot ability for avatar [{avatar}] that belongs to another player");
+            if (!Verify.IsTrue(owner == Player, $"Player [{Player}] is attempting to unslot ability for avatar [{avatar}] that belongs to another player"))
+                return;
 
             avatar.UnslotAbility((AbilitySlot)abilityUnslotFromAbilityBar.SlotNumber, false);
-            return true;
         }
 
-        private bool OnAbilitySwapInAbilityBar(in MailboxMessage message)
+        private void OnAbilitySwapInAbilityBar(in MailboxMessage message)
         {
             var abilitySwapInAbilityBar = message.As<NetMessageAbilitySwapInAbilityBar>();
-            if (abilitySwapInAbilityBar == null) return Logger.WarnReturn(false, $"OnAbilitySwapInAbilityBar(): Failed to retrieve message");
+            if (!Verify.IsNotNull(abilitySwapInAbilityBar)) return;
 
             Avatar avatar = Game.EntityManager.GetEntity<Avatar>(abilitySwapInAbilityBar.AvatarId);
-            if (avatar == null) return Logger.WarnReturn(false, "OnAbilitySwapInAbilityBar(): avatar == null");
+            if (!Verify.IsNotNull(avatar)) return;
 
             Player owner = avatar.GetOwnerOfType<Player>();
-            if (owner != Player)
-                return Logger.WarnReturn(false, $"OnAbilitySwapInAbilityBar(): Player [{Player}] is attempting to swap abilities for avatar [{avatar}] that belongs to another player");
+            if (!Verify.IsTrue(owner == Player, $"Player [{Player}] is attempting to swap abilities for avatar [{avatar}] that belongs to another player"))
+                return;
 
             avatar.SwapAbilities((AbilitySlot)abilitySwapInAbilityBar.SlotNumberA, (AbilitySlot)abilitySwapInAbilityBar.SlotNumberB, false);
-            return true;
         }
 
-        private bool OnPowerRecentlyUnlocked(in MailboxMessage message)
+        private void OnPowerRecentlyUnlocked(in MailboxMessage message)
         {
             var powerRecentlyUnlocked = message.As<NetMessagePowerRecentlyUnlocked>();
-            if (powerRecentlyUnlocked == null) return Logger.WarnReturn(false, $"OnPowerRecentlyUnlocked(): Failed to retrieve message");
+            if (!Verify.IsNotNull(powerRecentlyUnlocked)) return;
 
             // PowerUnlocked is a client-authoritative property, this message is used to keep the server in sync.
             // It is also flagged as ReplicateForTransfer, so it's supposed to persist until the client logs out.
             Avatar avatar = Game.EntityManager.GetEntity<Avatar>(powerRecentlyUnlocked.AvatarEntityId);
             if (avatar == null)
-                return false;
+                return;
 
             // Get the power prototype instance to validate that this is a real power prototype
             PowerPrototype powerProto = ((PrototypeId)powerRecentlyUnlocked.PowerPrototypeId).As<PowerPrototype>();
-            if (powerProto == null) return Logger.WarnReturn(false, "OnPowerRecentlyUnlocked(): powerProto == null");
+            if (!Verify.IsNotNull(powerProto)) return;
 
             avatar.Properties[PropertyEnum.PowerUnlocked, powerProto.DataRef] = powerRecentlyUnlocked.IsRecentlyUnlocked;
-            return true;
         }
 
-        private bool OnRequestDeathRelease(in MailboxMessage message)
+        private void OnRequestDeathRelease(in MailboxMessage message)
         {
             var requestDeathRelease = message.As<NetMessageRequestDeathRelease>();
-            if (requestDeathRelease == null) return Logger.WarnReturn(false, $"OnRequestDeathRelease(): Failed to retrieve message");
+            if (!Verify.IsNotNull(requestDeathRelease)) return;
 
-            Avatar avatar = Player.CurrentAvatar;
-            if (avatar == null) return Logger.WarnReturn(false, $"OnRequestDeathRelease(): avatar == null");
+            Avatar avatar = Player.GetActiveAvatarByIndex((int)requestDeathRelease.AvatarIndex);
+            if (!Verify.IsNotNull(avatar)) return;
 
-            // Requesting release of an avatar who is no longer dead due to lag
-            if (avatar.IsDead == false) return true;
+            if (avatar.IsDead == false)
+                return;
 
             // Validate request
-            var requestType = (DeathReleaseRequestType)requestDeathRelease.RequestType;
-            if (requestType >= DeathReleaseRequestType.NumRequestTypes)
-                return Logger.WarnReturn(false, $"OnRequestDeathRelease(): Invalid request type {requestType} for avatar {avatar}");
+            DeathReleaseRequestType requestType = (DeathReleaseRequestType)requestDeathRelease.RequestType;
+            if (!Verify.IsTrue(requestType >= 0 && requestType < DeathReleaseRequestType.NumRequestTypes)) return;
 
-            if (requestType == DeathReleaseRequestType.Corpse && avatar.Properties[PropertyEnum.HasResurrectPending] == false)
-                return Logger.WarnReturn(false, $"OnRequestDeathRelease(): Avatar {avatar} attempted to resurrect at corpse without a pending resurrect");
+            if (requestType == DeathReleaseRequestType.Corpse)
+            {
+                if (!Verify.IsTrue(avatar.Properties[PropertyEnum.HasResurrectPending], $"Avatar {avatar} attempted to resurrect at corpse without a pending resurrect"))
+                    return;
+            }
             else if (requestType == DeathReleaseRequestType.Ally)
-                return Logger.WarnReturn(false, $"OnRequestDeathRelease(): Local coop mode is not implemented");    // Remove this if we ever implement local coop
+            {
+                // Add validation for local coop here if we ever implement it.
+                Verify.IsTrue(false);
+                return;
+            }
 
-            // Do the death release (resurrect and move)
-            return avatar.DoDeathRelease(requestType);
+            avatar.DoDeathRelease(requestType);
         }
 
-        private bool OnRequestResurrectDecline(in MailboxMessage message)
+        private void OnRequestResurrectDecline(in MailboxMessage message)
         {
             var requestResurrectDecline = message.As<NetMessageRequestResurrectDecline>();
-            if (requestResurrectDecline == null) return Logger.WarnReturn(false, $"OnRequestResurrectDecline(): Failed to retrieve message");
+            if (!Verify.IsNotNull(requestResurrectDecline)) return;
 
-            Avatar avatar = Player?.GetActiveAvatarByIndex((int)requestResurrectDecline.AvatarIndex);
-            if (avatar == null) return Logger.WarnReturn(false, "OnRequestResurrectDecline(): avatar == null");
+            Avatar avatar = Player.GetActiveAvatarByIndex((int)requestResurrectDecline.AvatarIndex);
+            if (!Verify.IsNotNull(avatar)) return;
 
             avatar.ResurrectDecline();
-            return true;
         }
 
-        private bool OnRequestResurrectAvatar(in MailboxMessage message)
+        private void OnRequestResurrectAvatar(in MailboxMessage message)
         {
             var requestResurrectAvatar = message.As<NetMessageRequestResurrectAvatar>();
-            if (requestResurrectAvatar == null) return Logger.WarnReturn(false, $"OnRequestResurrectAvatar(): Failed to retrieve message");
+            if (!Verify.IsNotNull(requestResurrectAvatar)) return;
 
-            Avatar resurrectorAvatar = Player?.GetActiveAvatarByIndex((int)requestResurrectAvatar.AvatarIndex);
-            if (resurrectorAvatar == null) return Logger.WarnReturn(false, "OnRequestResurrectAvatar(): resurrectorAvatar == null");
+            Avatar resurrectorAvatar = Player.GetActiveAvatarByIndex((int)requestResurrectAvatar.AvatarIndex);
+            if (!Verify.IsNotNull(resurrectorAvatar)) return;
 
             Avatar targetAvatar = Game.EntityManager.GetEntity<Avatar>(requestResurrectAvatar.TargetId);
-            if (targetAvatar == null) return Logger.WarnReturn(false, "OnRequestResurrectAvatar(): targetAvatar == null");
+            if (!Verify.IsNotNull(targetAvatar)) return;
 
             resurrectorAvatar.ResurrectOtherAvatar(targetAvatar);
-            return true;
         }
 
-        private bool OnReturnToHub(in MailboxMessage message)
+        private void OnReturnToHub(in MailboxMessage message)
         {
             var returnToHub = message.As<NetMessageReturnToHub>();
-            if (returnToHub == null) return Logger.WarnReturn(false, $"OnReturnToHub(): Failed to retrieve message");
+            if (!Verify.IsNotNull(returnToHub)) return;
 
             Avatar avatar = Player.CurrentAvatar;
-            if (avatar == null) return Logger.WarnReturn(false, "OnReturnToHub(): avatar == null");
+            if (!Verify.IsNotNull(avatar)) return;
 
             Region region = avatar.Region;
-            if (region == null) return Logger.WarnReturn(false, "OnReturnToHub(): region == null");
+            if (!Verify.IsNotNull(region)) return;
 
-            if (region.Behavior == RegionBehavior.Town && Player.HasBodysliderProperties() == false)
-                return Logger.WarnReturn(false, $"OnReturnToHub(): Player [{Player}] is attempting to bodyslide from town without a saved return location");
+            if (region.Behavior == RegionBehavior.Town)
+            {
+                if (!Verify.IsTrue(Player.HasBodysliderProperties(), $"Player [{Player}] is attempting to bodyslide from town without a saved return location"))
+                    return;
+            }
 
             PrototypeId bodysliderPowerRef = region.GetBodysliderPowerRef();
-            if (bodysliderPowerRef == PrototypeId.Invalid) return Logger.WarnReturn(false, "OnReturnToHub(): bodysliderPowerRef == PrototypeId.Invalid");
+            if (!Verify.IsTrue(bodysliderPowerRef != PrototypeId.Invalid)) return;
 
             PowerActivationSettings settings = new(avatar.Id, avatar.RegionLocation.Position, avatar.RegionLocation.Position);
             avatar.ActivatePower(bodysliderPowerRef, ref settings);
-
-            return true;
         }
 
-        private bool OnRequestMissionRewards(in MailboxMessage message)
+        private void OnRequestMissionRewards(in MailboxMessage message)
         {
             var requestMissionRewards = message.As<NetMessageRequestMissionRewards>();
-            if (requestMissionRewards == null) return Logger.WarnReturn(false, $"OnRequestMissionRewards(): Failed to retrieve message");
+            if (!Verify.IsNotNull(requestMissionRewards)) return;
 
-            var missionRef = (PrototypeId)requestMissionRewards.MissionPrototypeId;
-            if (missionRef == PrototypeId.Invalid) return Logger.WarnReturn(false, $"OnRequestMissionRewards(): MissionPrototypeId == PrototypeId.Invalid");
+            PrototypeId missionRef = (PrototypeId)requestMissionRewards.MissionPrototypeId;
+            if (!Verify.IsTrue(missionRef != PrototypeId.Invalid)) return;
+
             ulong entityId = requestMissionRewards.EntityId;
 
             if (requestMissionRewards.HasConditionIndex)
-                Player.GetRegion()?.PlayerRequestMissionRewardsEvent.Invoke(new(Player, missionRef, requestMissionRewards.ConditionIndex, entityId));
+            {
+                Region region = Player.GetRegion();
+                if (!Verify.IsNotNull(region)) return;
+                region.PlayerRequestMissionRewardsEvent.Invoke(new(Player, missionRef, requestMissionRewards.ConditionIndex, entityId));
+            }
             else
-                Player.MissionManager?.OnRequestMissionRewards(missionRef, entityId);
-
-            return true;
+            {
+                MissionManager missionManager = Player.MissionManager;
+                if (!Verify.IsNotNull(missionManager)) return;
+                missionManager.OnRequestMissionRewards(missionRef, entityId);
+            }
         }
 
-        private bool OnRequestRemoveAndKillControlledAgent(in MailboxMessage message)
+        private void OnRequestRemoveAndKillControlledAgent(in MailboxMessage message)
         {
-            var request = message.As<NetMessageRequestRemoveAndKillControlledAgent>();
-            if (request == null) return Logger.WarnReturn(false, $"OnRequestRemoveAndKillControlledAgent(): Failed to retrieve message");
+            var requestRemoveAndKillControlledAgent = message.As<NetMessageRequestRemoveAndKillControlledAgent>();
+            if (!Verify.IsNotNull(requestRemoveAndKillControlledAgent)) return;
 
-            var avatar = Game.EntityManager.GetEntity<Avatar>(request.AvatarId);
-            if (avatar == null || avatar.GetOwnerOfType<Player>() != Player) return false;
+            Avatar avatar = Game.EntityManager.GetEntity<Avatar>(requestRemoveAndKillControlledAgent.AvatarId);
+            if (!Verify.IsNotNull(avatar)) return;
+            if (!Verify.IsTrue(avatar.GetOwnerOfType<Player>() == Player)) return;
 
             avatar.RemoveAndKillControlledAgent();
-            return true;
         }
 
-        private bool OnDamageMeter(in MailboxMessage message)
+        private void OnDamageMeter(in MailboxMessage message)
         {
             var damageMeter = message.As<NetMessageDamageMeter>();
-            if (damageMeter == null) return Logger.WarnReturn(false, $"OnDamageMeter(): Failed to retrieve message");
+            if (!Verify.IsNotNull(damageMeter)) return;
 
             // Dummy handler, we are currently not interested in damage meter metrics
             //Logger.Trace($"OnDamageMeter():\n{damageMeter}");
-            return true;
         }
 
-        private bool OnMetaGameUpdateNotification(in MailboxMessage message)
+        private void OnMetaGameUpdateNotification(in MailboxMessage message)
         {
-            var metaGameUpdate = message.As<NetMessageMetaGameUpdateNotification>();
-            if (metaGameUpdate == null) return Logger.WarnReturn(false, $"OnMetaGameUpdateNotification(): Failed to retrieve message");
-            var metaGame = Game.EntityManager.GetEntity<MetaGame>(metaGameUpdate.MetaGameEntityId);
-            metaGame?.UpdatePlayerNotification(Player);
-            return true;
+            var metaGameUpdateNotification = message.As<NetMessageMetaGameUpdateNotification>();
+            if (!Verify.IsNotNull(metaGameUpdateNotification)) return;
+
+            MetaGame metaGame = Game.EntityManager.GetEntity<MetaGame>(metaGameUpdateNotification.MetaGameEntityId);
+            if (!Verify.IsNotNull(metaGame)) return;
+
+            metaGame.UpdatePlayerNotification(Player);
         }
 
-        private bool OnChat(in MailboxMessage message)
+        private void OnChat(in MailboxMessage message)
         {
             var chat = message.As<NetMessageChat>();
-            if (chat == null) return Logger.WarnReturn(false, $"OnChat(): Failed to retrieve message");
+            if (!Verify.IsNotNull(chat)) return;
 
             Game.ChatManager.HandleChat(Player, chat);
-            return true;
         }
 
-        private bool OnTell(in MailboxMessage message)
+        private void OnTell(in MailboxMessage message)
         {
             var tell = message.As<NetMessageTell>();
-            if (tell == null) return Logger.WarnReturn(false, $"OnTell(): Failed to retrieve message");
+            if (!Verify.IsNotNull(tell)) return;
 
             Game.ChatManager.HandleTell(Player, tell);
-            return true;
         }
 
-        private bool OnReportPlayer(in MailboxMessage message)
+        private void OnReportPlayer(in MailboxMessage message)
         {
             var reportPlayer = message.As<NetMessageReportPlayer>();
-            if (reportPlayer == null) return Logger.WarnReturn(false, $"OnReportPlayer(): Failed to retrieve message");
+            if (!Verify.IsNotNull(reportPlayer)) return;
 
             Game.ChatManager.HandleReportPlayer(Player, reportPlayer);
-            return true;
         }
 
-        private bool OnChatBanVote(in MailboxMessage message)
+        private void OnChatBanVote(in MailboxMessage message)
         {
             var chatBanVote = message.As<NetMessageChatBanVote>();
-            if (chatBanVote == null) return Logger.WarnReturn(false, $"OnChatBanVote(): Failed to retrieve message");
+            if (!Verify.IsNotNull(chatBanVote)) return;
 
             Game.ChatManager.HandleChatBanVote(Player, chatBanVote);
-            return true;
         }
 
-        private bool OnGetCatalog(in MailboxMessage message)
+        private void OnGetCatalog(in MailboxMessage message)
         {
             var getCatalog = message.As<NetMessageGetCatalog>();
-            if (getCatalog == null) return Logger.WarnReturn(false, $"OnGetCatalog(): Failed to retrieve message");
+            if (!Verify.IsNotNull(getCatalog)) return;
 
-            return CatalogManager.Instance.OnGetCatalog(Player, getCatalog);
+            CatalogManager.Instance.OnGetCatalog(Player, getCatalog);
         }
 
-        private bool OnGetCurrencyBalance(in MailboxMessage message)
+        private void OnGetCurrencyBalance(in MailboxMessage message)
         {
             var getCurrencyBalance = message.As<NetMessageGetCurrencyBalance>();
-            if (getCurrencyBalance == null) return Logger.WarnReturn(false, $"OnGetCurrencyBalance(): Failed to retrieve message");
+            if (!Verify.IsNotNull(getCurrencyBalance)) return;
 
-            return CatalogManager.Instance.OnGetCurrencyBalance(Player);
+            CatalogManager.Instance.OnGetCurrencyBalance(Player);
         }
 
-        private bool OnBuyItemFromCatalog(in MailboxMessage message)
+        private void OnBuyItemFromCatalog(in MailboxMessage message)
         {
             var buyItemFromCatalog = message.As<NetMessageBuyItemFromCatalog>();
-            if (buyItemFromCatalog == null) return Logger.WarnReturn(false, $"OnBuyItemFromCatalog(): Failed to retrieve message");
+            if (!Verify.IsNotNull(buyItemFromCatalog)) return;
 
-            return CatalogManager.Instance.OnBuyItemFromCatalog(Player, buyItemFromCatalog);
+            CatalogManager.Instance.OnBuyItemFromCatalog(Player, buyItemFromCatalog);
         }
 
-        private bool OnBuyGiftForOtherPlayer(in MailboxMessage message)
+        private void OnBuyGiftForOtherPlayer(in MailboxMessage message)
         {
             var buyGiftForOtherPlayer = message.As<NetMessageBuyGiftForOtherPlayer>();
-            if (buyGiftForOtherPlayer == null) return Logger.WarnReturn(false, $"OnBuyGiftForOtherPlayer(): Failed to retrieve message");
+            if (!Verify.IsNotNull(buyGiftForOtherPlayer)) return;
 
-            return CatalogManager.Instance.OnBuyGiftForOtherPlayer(Player, buyGiftForOtherPlayer);
+            CatalogManager.Instance.OnBuyGiftForOtherPlayer(Player, buyGiftForOtherPlayer);
         }
 
-        private bool OnPurchaseUnlock(in MailboxMessage message)
+        private void OnPurchaseUnlock(in MailboxMessage message)
         {
             var purchaseUnlock = message.As<NetMessagePurchaseUnlock>();
-            if (purchaseUnlock == null) return Logger.WarnReturn(false, $"OnPurchaseUnlock(): Failed to retrieve message");
+            if (!Verify.IsNotNull(purchaseUnlock)) return;
 
             PurchaseUnlockResult result = Player.PurchaseUnlock((PrototypeId)purchaseUnlock.AgentPrototypeId);
 
             SendMessage(NetMessagePurchaseUnlockResponse.CreateBuilder()
                 .SetPurchaseUnlockResult((uint)result)
                 .Build());
-
-            return true;
         }
 
-        private bool OnNotifyFullscreenMovieStarted(in MailboxMessage message)
+        private void OnNotifyFullscreenMovieStarted(in MailboxMessage message)
         {
-            var movieStarted = message.As<NetMessageNotifyFullscreenMovieStarted>();
-            if (movieStarted == null) return Logger.WarnReturn(false, $"OnNotifyFullscreenMovieStarted(): Failed to retrieve message");
-            Player.OnFullscreenMovieStarted((PrototypeId)movieStarted.MoviePrototypeId);
-            return true;
+            var notifyFullscreenMovieStarted = message.As<NetMessageNotifyFullscreenMovieStarted>();
+            if (!Verify.IsNotNull(notifyFullscreenMovieStarted)) return;
+
+            Player.OnFullscreenMovieStarted((PrototypeId)notifyFullscreenMovieStarted.MoviePrototypeId);
         }
 
-        private bool OnNotifyFullscreenMovieFinished(in MailboxMessage message)
+        private void OnNotifyFullscreenMovieFinished(in MailboxMessage message)
         {
-            var movieFinished = message.As<NetMessageNotifyFullscreenMovieFinished>();
-            if (movieFinished == null) return Logger.WarnReturn(false, $"OnNotifyFullscreenMovieFinished(): Failed to retrieve message");
-            Player.OnFullscreenMovieFinished((PrototypeId)movieFinished.MoviePrototypeId, movieFinished.UserCancelled, movieFinished.SyncRequestId);
-            return true;
+            var notifyFullscreenMovieFinished = message.As<NetMessageNotifyFullscreenMovieFinished>();
+            if (!Verify.IsNotNull(notifyFullscreenMovieFinished)) return;
+
+            Player.OnFullscreenMovieFinished((PrototypeId)notifyFullscreenMovieFinished.MoviePrototypeId, notifyFullscreenMovieFinished.UserCancelled, notifyFullscreenMovieFinished.SyncRequestId);
         }
 
         private void OnNotifyLoadingScreenFinished(in MailboxMessage message)
         {
+            var notifyLoadingScreenFinished = message.As<NetMessageNotifyLoadingScreenFinished>();
+            if (!Verify.IsNotNull(notifyLoadingScreenFinished)) return;
+
             Player.OnLoadingScreenFinished();
         }
 
-        private bool OnPlayKismetSeqDone(in MailboxMessage message)
+        private void OnPlayKismetSeqDone(in MailboxMessage message)
         {
             var playKismetSeqDone = message.As<NetMessagePlayKismetSeqDone>();
-            if (playKismetSeqDone == null) return Logger.WarnReturn(false, $"OnNetMessagePlayKismetSeqDone(): Failed to retrieve message");
+            if (!Verify.IsNotNull(playKismetSeqDone)) return;
+
             Player.OnPlayKismetSeqDone((PrototypeId)playKismetSeqDone.KismetSeqPrototypeId, playKismetSeqDone.SyncRequestId);
-            return true;
         }
 
-        private bool OnGracefulDisconnect(in MailboxMessage message)
+        private void OnGracefulDisconnect(in MailboxMessage message)
         {
             Logger.Trace($"OnGracefulDisconnect(): Player=[{Player}]");
             Player.MatchQueueStatus.RemoveFromAllQueues();
             SendMessage(NetMessageGracefulDisconnectAck.DefaultInstance);
-            return true;
         }
 
-        private bool OnSetDialogTarget(in MailboxMessage message)
+        private void OnSetDialogTarget(in MailboxMessage message)
         {
             var setDialogTarget = message.As<NetMessageSetDialogTarget>();
-            if (setDialogTarget == null) return Logger.WarnReturn(false, $"OnSetDialogTarget(): Failed to retrieve message");
+            if (!Verify.IsNotNull(setDialogTarget)) return;
+
             Player.SetDialogTargetId(setDialogTarget.TargetId, setDialogTarget.InteractorId);
-            return true;
         }
 
-        private bool OnDialogResult(in MailboxMessage message)
+        private void OnDialogResult(in MailboxMessage message)
         {
             var dialogResult = message.As<NetMessageDialogResult>();
-            if (dialogResult == null) return Logger.WarnReturn(false, $"OnDialogResult(): Failed to retrieve message");
+            if (!Verify.IsNotNull(dialogResult)) return;
+
             Game.GameDialogManager.OnDialogResult(dialogResult, Player);
-            return true;
         }
 
-        private bool OnVendorRequestBuyItemFrom(in MailboxMessage message)
+        private void OnVendorRequestBuyItemFrom(in MailboxMessage message)
         {
             var vendorRequestBuyItemFrom = message.As<NetMessageVendorRequestBuyItemFrom>();
-            if (vendorRequestBuyItemFrom == null) return Logger.WarnReturn(false, $"OnVendorRequestBuyItemFrom(): Failed to retrieve message");
+            if (!Verify.IsNotNull(vendorRequestBuyItemFrom)) return;
 
-            Player?.BuyItemFromVendor(vendorRequestBuyItemFrom.AvatarIndex, vendorRequestBuyItemFrom.ItemId, vendorRequestBuyItemFrom.VendorId, vendorRequestBuyItemFrom.InventorySlot);
-            return true;
+            Player.BuyItemFromVendor(vendorRequestBuyItemFrom.AvatarIndex, vendorRequestBuyItemFrom.ItemId, vendorRequestBuyItemFrom.VendorId, vendorRequestBuyItemFrom.InventorySlot);
         }
 
-        private bool OnVendorRequestSellItemTo(in MailboxMessage message)
+        private void OnVendorRequestSellItemTo(in MailboxMessage message)
         {
             var vendorRequestSellItemTo = message.As<NetMessageVendorRequestSellItemTo>();
-            if (vendorRequestSellItemTo == null) return Logger.WarnReturn(false, $"OnVendorRequestSellItemTo(): Failed to retrieve message");
+            if (!Verify.IsNotNull(vendorRequestSellItemTo)) return;
 
             Item item = Game.EntityManager.GetEntity<Item>(vendorRequestSellItemTo.ItemId);
-            if (item == null) return false;     // Multiple request may arrive due to lag
+            if (item == null)   // Multiple request may arrive due to lag
+                return;
 
-            if (item.GetOwnerOfType<Player>() != Player)
-                return Logger.WarnReturn(false, $"OnVendorRequestSellItemTo(): [{this}] is attempting to sell item [{item}] that does not belong to them!");
+            if (!Verify.IsTrue(item.GetOwnerOfType<Player>() == Player, $"Player [{this}] is attempting to sell item [{item}] that does not belong to them!"))
+                return;
 
-            Player?.SellItemToVendor(vendorRequestSellItemTo.AvatarIndex, vendorRequestSellItemTo.ItemId, vendorRequestSellItemTo.VendorId);
-            return true;
+            Player.SellItemToVendor(vendorRequestSellItemTo.AvatarIndex, vendorRequestSellItemTo.ItemId, vendorRequestSellItemTo.VendorId);
         }
 
-        private bool OnVendorRequestDonateItemTo(in MailboxMessage message)
+        private void OnVendorRequestDonateItemTo(in MailboxMessage message)
         {
             var vendorRequestDonateItemTo = message.As<NetMessageVendorRequestDonateItemTo>();
-            if (vendorRequestDonateItemTo == null) return Logger.WarnReturn(false, $"OnVendorRequestDonateItemTo(): Failed to retrieve message");
+            if (!Verify.IsNotNull(vendorRequestDonateItemTo)) return;
 
             Item item = Game.EntityManager.GetEntity<Item>(vendorRequestDonateItemTo.ItemId);
-            if (item == null) return false;     // Multiple request may arrive due to lag
+            if (item == null)   // Multiple request may arrive due to lag
+                return;
 
-            if (item.GetOwnerOfType<Player>() != Player)
-                return Logger.WarnReturn(false, $"OnVendorRequestDonateItemTo(): [{this}] is attempting to donate item [{item}] that does not belong to them!");
+            if (!Verify.IsTrue(item.GetOwnerOfType<Player>() == Player, $"Player [{this}] is attempting to donate item [{item}] that does not belong to them!"))
+                return;
 
-            Player?.DonateItemToVendor(vendorRequestDonateItemTo.AvatarIndex, vendorRequestDonateItemTo.ItemId, vendorRequestDonateItemTo.VendorId);
-            return true;
+            Player.DonateItemToVendor(vendorRequestDonateItemTo.AvatarIndex, vendorRequestDonateItemTo.ItemId, vendorRequestDonateItemTo.VendorId);
         }
 
-        private bool OnVendorRequestRefresh(in MailboxMessage message)
+        private void OnVendorRequestRefresh(in MailboxMessage message)
         {
             var vendorRequestRefresh = message.As<NetMessageVendorRequestRefresh>();
-            if (vendorRequestRefresh == null) return Logger.WarnReturn(false, $"OnVendorRequestRefresh(): Failed to retrieve message");
+            if (!Verify.IsNotNull(vendorRequestRefresh)) return;
 
-            Player?.RefreshVendorInventory(vendorRequestRefresh.VendorId);
-            return true;
+            Player.RefreshVendorInventory(vendorRequestRefresh.VendorId);
         }
 
-        private bool OnTryModifyCommunityMemberCircle(in MailboxMessage message)
+        private void OnTryModifyCommunityMemberCircle(in MailboxMessage message)
         {
             var tryModifyCommunityMemberCircle = message.As<NetMessageTryModifyCommunityMemberCircle>();
-            if (tryModifyCommunityMemberCircle == null) return Logger.WarnReturn(false, $"OnTryModifyCommunityMemberCircle(): Failed to retrieve message");
+            if (!Verify.IsNotNull(tryModifyCommunityMemberCircle)) return;
 
-            Community community = Player?.Community;
-            if (community == null) return Logger.WarnReturn(false, "OnTryModifyCommunityMemberCircle(): community == null");
+            Community community = Player.Community;
+            if (!Verify.IsNotNull(community)) return;
 
             CircleId circleId = (CircleId)tryModifyCommunityMemberCircle.CircleId;
             string playerName = tryModifyCommunityMemberCircle.PlayerName;
             ModifyCircleOperation operation = tryModifyCommunityMemberCircle.Operation;
 
             // Do not allow players to arbitrarily modify nearby / party / guild circles
-            if (circleId != CircleId.__Friends && circleId != CircleId.__Ignore)
-                return Logger.WarnReturn(false, $"OnTryModifyCommunityMemberCircle(): Player [{Player}] is attempting to modify circle {circleId}");
+            if (!Verify.IsTrue(circleId == CircleId.__Friends || circleId == CircleId.__Ignore, $"Player [{Player}] is attempting to modify circle {circleId}"))
+                return;
 
-            return community.TryModifyCommunityMemberCircle(circleId, playerName, operation);
+            community.TryModifyCommunityMemberCircle(circleId, playerName, operation);
         }
 
-        private bool OnPullCommunityStatus(in MailboxMessage message)
+        private void OnPullCommunityStatus(in MailboxMessage message)
         {
             var pullCommunityStatus = message.As<NetMessagePullCommunityStatus>();
-            if (pullCommunityStatus == null) return Logger.WarnReturn(false, "OnPullCommunityStatus(): Failed to retrieve message");
+            if (!Verify.IsNotNull(pullCommunityStatus)) return;
 
-            Player?.Community?.PullCommunityStatus();
-            return true;
+            Player.Community?.PullCommunityStatus();
         }
 
-        private bool OnGuildMessageToPlayerManager(in MailboxMessage message)
+        private void OnGuildMessageToPlayerManager(in MailboxMessage message)
         {
             var guildMessageToPlayerManager = message.As<NetMessageGuildMessageToPlayerManager>();
-            if (guildMessageToPlayerManager == null) return Logger.WarnReturn(false, "OnGuildMessageToPlayerManager(): Failed to retrieve message");
+            if (!Verify.IsNotNull(guildMessageToPlayerManager)) return;
 
             Game.GuildManager.OnGuildMessage(Player, guildMessageToPlayerManager.Messages);
-            return true;
         }
 
-        private bool OnAkEvent(in MailboxMessage message)
+        private void OnAkEvent(in MailboxMessage message)
         {
             var akEvent = message.As<NetMessageAkEvent>();
-            if (akEvent == null) return Logger.WarnReturn(false, $"OnAkEvent(): Failed to retrieve message");
+            if (!Verify.IsNotNull(akEvent)) return;
 
             // AkEvent is a Wwise audio event, Ak stands for Audiokinetic. One thing these are used for is audio emotes.
 
-            Avatar avatar = Player?.CurrentAvatar;
+            Avatar avatar = Player.CurrentAvatar;
             if (avatar == null)
-                return false;
+                return;
 
             // Replicate this AkEvent to nearby players
             PlayerConnectionManager networkManager = Game.NetworkManager;
@@ -1789,45 +1744,41 @@ namespace MHServerEmu.Games.Network
 
                 networkManager.SendMessageToMultiple(interestedClientList, builder.Build());
             }
-
-            return true;
         }
 
-        private bool OnSetTipSeen(in MailboxMessage message)
+        private void OnSetTipSeen(in MailboxMessage message)
         {
             var setTipSeen = message.As<NetMessageSetTipSeen>();
-            if (setTipSeen == null) return Logger.WarnReturn(false, $"OnSetTipSeen(): Failed to retrieve message");
+            if (!Verify.IsNotNull(setTipSeen)) return;
+
             Player.SetTipSeen((PrototypeId)setTipSeen.TipDataRefId);
-            return true;
         }
 
-        private bool OnHUDTutorialDismissed(in MailboxMessage message)
+        private void OnHUDTutorialDismissed(in MailboxMessage message)
         {
             var hudTutorialDismissed = message.As<NetMessageHUDTutorialDismissed>();
-            if (hudTutorialDismissed == null) return Logger.WarnReturn(false, $"OnHUDTutorialDismissed(): Failed to retrieve message");
+            if (!Verify.IsNotNull(hudTutorialDismissed)) return;
 
             PrototypeId hudTutorialRef = (PrototypeId)hudTutorialDismissed.HudTutorialProtoId;
-            var currentHUDTutorial = Player.CurrentHUDTutorial;
-            if (currentHUDTutorial?.DataRef == hudTutorialRef && currentHUDTutorial.CanDismiss)
+            HUDTutorialPrototype currentHUDTutorial = Player.CurrentHUDTutorial;
+            if (currentHUDTutorial?.DataRef == hudTutorialRef && Verify.IsTrue(currentHUDTutorial.CanDismiss))
                 Player.ShowHUDTutorial(null);
-
-            return true;
         }
 
-        public bool OnTryMoveInventoryContentsToGeneral(in MailboxMessage message)
+        private void OnTryMoveInventoryContentsToGeneral(in MailboxMessage message)
         {
             var tryMoveInventoryContentsToGeneral = message.As<NetMessageTryMoveInventoryContentsToGeneral>();
-            if (tryMoveInventoryContentsToGeneral == null) return Logger.WarnReturn(false, $"OnTryMoveInventoryContentsToGeneral(): Failed to retrieve message");
+            if (!Verify.IsNotNull(tryMoveInventoryContentsToGeneral)) return;
 
             PrototypeId sourceInventoryProtoRef = (PrototypeId)tryMoveInventoryContentsToGeneral.SourceInventoryPrototype;
 
             Inventory sourceInventory = Player.GetInventoryByRef(sourceInventoryProtoRef);
-            if (sourceInventory == null)
-                return Logger.WarnReturn(false, $"OnTryMoveInventoryContentsToGeneral(): Player {Player} does not have source inventory {sourceInventoryProtoRef.GetName()}");
+            if (!Verify.IsNotNull(sourceInventory, $"Player {Player} does not have source inventory {sourceInventoryProtoRef.GetName()}"))
+                return;
 
             Inventory generalInventory = Player.GetInventory(InventoryConvenienceLabel.General);
-            if (generalInventory == null)
-                return Logger.WarnReturn(false, $"OnTryMoveInventoryContentsToGeneral(): Player {Player} does not have a general inventory??? How did this even happen???");
+            if (!Verify.IsNotNull(generalInventory, $"Player {Player} does not have a general inventory??? How did this even happen???"))
+                return;
 
             EntityManager entityManager = Game.EntityManager;
             while (sourceInventory.Count > 0)
@@ -1844,48 +1795,44 @@ namespace MHServerEmu.Games.Network
                         .SetItemID(item.Id)
                         .Build());
 
-                    return true;
+                    return;
                 }
 
                 InventoryResult result = item.ChangeInventoryLocation(generalInventory, freeSlot);
-                if (result != InventoryResult.Success)
-                    return Logger.WarnReturn(false, $"OnTryMoveInventoryContentsToGeneral(): Failed to change inventory location ({result})");
+                if (!Verify.IsTrue(result == InventoryResult.Success, $"Failed to change inventory location ({result})"))
+                    return;
             }
-
-            return true;
         }
 
-        private bool OnSetPlayerGameplayOptions(in MailboxMessage message)
+        private void OnSetPlayerGameplayOptions(in MailboxMessage message)
         {
             var setPlayerGameplayOptions = message.As<NetMessageSetPlayerGameplayOptions>();
-            if (setPlayerGameplayOptions == null) return Logger.WarnReturn(false, $"OnSetPlayerGameplayOptions(): Failed to retrieve message");
+            if (!Verify.IsNotNull(setPlayerGameplayOptions)) return;
 
             Player.SetGameplayOptions(setPlayerGameplayOptions);
-            return true;
         }
 
-        private bool OnTeleportToPartyMember(in MailboxMessage message)
+        private void OnTeleportToPartyMember(in MailboxMessage message)
         {
             var teleportToPartyMember = message.As<NetMessageTeleportToPartyMember>();
-            if (teleportToPartyMember == null) return Logger.WarnReturn(false, $"OnTeleportToPartyMember(): Failed to retrieve message");
+            if (!Verify.IsNotNull(teleportToPartyMember)) return;
 
             Party party = Player.GetParty();
-            if (party == null) return Logger.WarnReturn(false, "OnTeleportToPartyMember(): party == null");
+            if (!Verify.IsNotNull(party)) return;
 
             Avatar avatar = Player.CurrentAvatar;
-            if (avatar == null) return Logger.WarnReturn(false, "OnTeleportToPartyMember(): avatar == null");
+            if (!Verify.IsNotNull(avatar)) return;
 
             ulong memberId = party.GetMemberIdByName(teleportToPartyMember.PlayerName);
-            if (memberId == 0) return Logger.WarnReturn(false, "OnTeleportToPartyMember(): memberId == 0");
+            if (!Verify.IsTrue(memberId != 0)) return;
 
             Player.BeginTeleportToPartyMember(memberId);
-            return true;
         }
 
-        private bool OnRegionRequestQueueCommandClient(in MailboxMessage message)
+        private void OnRegionRequestQueueCommandClient(in MailboxMessage message)
         {
             var regionRequestQueueCommandClient = message.As<NetMessageRegionRequestQueueCommandClient>();
-            if (regionRequestQueueCommandClient == null) return Logger.WarnReturn(false, $"OnRegionRequestQueueCommandClient(): Failed to retrieve message");
+            if (!Verify.IsNotNull(regionRequestQueueCommandClient)) return;
 
             PrototypeId regionRef = (PrototypeId)regionRequestQueueCommandClient.RegionProtoId;
             PrototypeId difficultyTierRef = (PrototypeId)regionRequestQueueCommandClient.DifficultyTierProtoId;
@@ -1893,53 +1840,43 @@ namespace MHServerEmu.Games.Network
             RegionRequestQueueCommandVar command = regionRequestQueueCommandClient.Command;
 
             Player.MatchQueueStatus.TryRegionRequestCommand(regionRef, difficultyTierRef, groupId, command);
-            return true;
         }
 
-        private bool OnSelectAvatarSynergies(in MailboxMessage message)
+        private void OnSelectAvatarSynergies(in MailboxMessage message)
         {
             var selectAvatarSynergies = message.As<NetMessageSelectAvatarSynergies>();
-            if (selectAvatarSynergies == null) return Logger.WarnReturn(false, $"OnSelectAvatarSynergies(): Failed to retrieve message");
+            if (!Verify.IsNotNull(selectAvatarSynergies)) return;
 
             Avatar avatar = Game.EntityManager.GetEntity<Avatar>(selectAvatarSynergies.AvatarId);
-            if (avatar == null) return Logger.WarnReturn(false, "OnSelectAvatarSynergies(): avatar == null");
+            if (!Verify.IsNotNull(avatar)) return;
 
             // Validate ownership
-            Player owner = avatar.GetOwnerOfType<Player>();
-            if (owner != Player)
-                return Logger.WarnReturn(false, $"OnSelectAvatarSynergies(): Player [{Player}] is attempting to select avatar synergies for avatar [{avatar}] that belongs to another player");
+            if (!Verify.IsTrue(avatar.GetOwnerOfType<Player>() == Player, $"Player [{Player}] is attempting to select avatar synergies for avatar [{avatar}] that belongs to another player"))
+                return;
 
             // Check synergy limit
             int synergyCount = selectAvatarSynergies.AvatarPrototypesCount;
             int synergyCountLimit = GameDatabase.GlobalsPrototype.AvatarSynergyConcurrentLimit;
-            if (synergyCount > synergyCountLimit)
-                return Logger.WarnReturn(false, $"OnSelectAvatarSynergies(): Player [{Player}] is attempting to select more avatar synergies ({synergyCount}) than allowed ({synergyCountLimit})");
+            if (!Verify.IsTrue(synergyCount <= synergyCountLimit, $"Player [{Player}] is attempting to select more avatar synergies ({synergyCount}) than allowed ({synergyCountLimit})"))
+                return;
 
             // Do not allow to change synergies in combat
-            if (avatar.Properties[PropertyEnum.IsInCombat])
-                return false;
+            if (!Verify.IsTrue(avatar.Properties[PropertyEnum.IsInCombat] == false)) return;
 
             // Clean up existing synergy selections
             avatar.Properties.RemovePropertyRange(PropertyEnum.AvatarSynergySelected);
 
             // Apply new selections
-            foreach (ulong avatarProtoId in selectAvatarSynergies.AvatarPrototypesList)
+            for (int i = 0; i < selectAvatarSynergies.AvatarPrototypesCount; i++)
             {
-                PrototypeId avatarProtoRef = (PrototypeId)avatarProtoId;
+                PrototypeId avatarProtoRef = (PrototypeId)selectAvatarSynergies.AvatarPrototypesList[i];
                 AvatarPrototype avatarProto = avatarProtoRef.As<AvatarPrototype>();
-
-                if (avatarProto == null)
-                {
-                    Logger.Warn("OnSelectAvatarSynergies(): avatarProto == null");
+                if (!Verify.IsNotNull(avatarProto))
                     continue;
-                }
 
                 int maxAvatarLevel = Player.GetMaxCharacterLevelAttainedForAvatar(avatarProtoRef);
-                if (maxAvatarLevel < avatarProto.SynergyUnlockLevel)
-                {
-                    Logger.Warn("OnSelectAvatarSynergies(): maxAvatarLevel < avatarProto.SynergyUnlockLevel");
+                if (!Verify.IsTrue(maxAvatarLevel >= avatarProto.SynergyUnlockLevel))
                     continue;
-                }
 
                 avatar.Properties[PropertyEnum.AvatarSynergySelected, avatarProtoRef] = true;
                 Player.Properties.RemoveProperty(new(PropertyEnum.AvatarSynergyNewUnlock, avatarProtoRef));
@@ -1947,21 +1884,20 @@ namespace MHServerEmu.Games.Network
 
             // Update the synergy condition
             avatar.UpdateAvatarSynergyCondition();
-            return true;
         }
 
-        private bool OnRequestLegendaryMissionReroll(in MailboxMessage message)
+        private void OnRequestLegendaryMissionReroll(in MailboxMessage message)
         {
-            var requestLegendaryMissionRerol = message.As<NetMessageRequestLegendaryMissionReroll>();
-            if (requestLegendaryMissionRerol == null) return Logger.WarnReturn(false, $"OnRequestLegendaryMissionReroll(): Failed to retrieve message");
+            var requestLegendaryMissionReroll = message.As<NetMessageRequestLegendaryMissionReroll>();
+            if (!Verify.IsNotNull(requestLegendaryMissionReroll)) return;
+
             Player.RequestLegendaryMissionReroll();
-            return true;
         }
 
-        private bool OnRequestPlayerOwnsItemStatus(in MailboxMessage message)
+        private void OnRequestPlayerOwnsItemStatus(in MailboxMessage message)
         {
             var requestPlayerOwnsItemStatus = message.As<NetMessageRequestPlayerOwnsItemStatus>();
-            if (requestPlayerOwnsItemStatus == null) return Logger.WarnReturn(false, "OnRequestPlayerOwnsItemStatus(): Failed to retrieve message");
+            if (!Verify.IsNotNull(requestPlayerOwnsItemStatus)) return;
 
             PrototypeId itemProtoRef = (PrototypeId)requestPlayerOwnsItemStatus.ItemProtoId;
             bool ownsItem = Player.OwnsItem((PrototypeId)requestPlayerOwnsItemStatus.ItemProtoId);
@@ -1970,170 +1906,165 @@ namespace MHServerEmu.Games.Network
                 .SetItemProtoId((ulong)itemProtoRef)
                 .SetOwns(ownsItem)
                 .Build());
-
-            return true;
         }
 
-        private bool OnRequestInterestInInventory(in MailboxMessage message)
+        private void OnRequestInterestInInventory(in MailboxMessage message)
         {
             var requestInterestInInventory = message.As<NetMessageRequestInterestInInventory>();
-            if (requestInterestInInventory == null) return Logger.WarnReturn(false, $"OnRequestInterestInInventory(): Failed to retrieve message");
+            if (!Verify.IsNotNull(requestInterestInInventory)) return;
 
             PrototypeId inventoryProtoRef = (PrototypeId)requestInterestInInventory.InventoryProtoId;
-
-            // Validate inventory prototype
-            var inventoryProto = GameDatabase.GetPrototype<InventoryPrototype>((PrototypeId)requestInterestInInventory.InventoryProtoId);
-            if (inventoryProto == null) return Logger.WarnReturn(false, "OnRequestInterestInInventory(): inventoryProto == null");
+            InventoryPrototype inventoryProto = inventoryProtoRef.As<InventoryPrototype>();
+            if (!Verify.IsNotNull(inventoryProto)) return;
 
             // Initialize vendor inventory if needed
             if (inventoryProto.IsPlayerVendorInventory || inventoryProto.IsPlayerCraftingRecipeInventory)
                 Player.InitializeVendorInventory(inventoryProtoRef);
 
             // Reveal the inventory to the player
-            if (Player.RevealInventory(inventoryProto) == false)
-                return Logger.WarnReturn(false, $"OnRequestInterestInInventory(): Failed to reveal inventory {GameDatabase.GetPrototypeName(inventoryProtoRef)}");
+            Verify.IsTrue(Player.RevealInventory(inventoryProto), $"Failed to reveal inventory {inventoryProtoRef.GetName()}");
 
             SendMessage(NetMessageInventoryLoaded.CreateBuilder()
                 .SetInventoryProtoId(requestInterestInInventory.InventoryProtoId)
                 .SetLoadState(requestInterestInInventory.LoadState)
                 .Build());
-
-            return true;
         }
 
-        private bool OnRequestInterestInAvatarEquipment(in MailboxMessage message)
+        private void OnRequestInterestInAvatarEquipment(in MailboxMessage message)
         {
             var requestInterestInAvatarEquipment = message.As<NetMessageRequestInterestInAvatarEquipment>();
-            if (requestInterestInAvatarEquipment == null) return Logger.WarnReturn(false, $"OnRequestInterestInAvatarEquipment(): Failed to retrieve message");
+            if (!Verify.IsNotNull(requestInterestInAvatarEquipment)) return;
 
-            PrototypeId avatarProtoId = (PrototypeId)requestInterestInAvatarEquipment.AvatarProtoId;
-
-            Avatar avatar = Player.GetAvatar(avatarProtoId);
-            if (avatar == null) return Logger.WarnReturn(false, "OnRequestInterestInAvatarEquipment(): avatar == null");
+            PrototypeId avatarProtoRef = (PrototypeId)requestInterestInAvatarEquipment.AvatarProtoId;
+            Avatar avatar = Player.GetAvatar(avatarProtoRef);
+            if (!Verify.IsNotNull(avatar)) return;
 
             avatar.RevealEquipmentToOwner();
-
-            return true;
         }
 
-        private bool OnRequestInterestInTeamUpEquipment(in MailboxMessage message)
+        private void OnRequestInterestInTeamUpEquipment(in MailboxMessage message)
         {
             var requestInterestInTeamUpEquipment = message.As<NetMessageRequestInterestInTeamUpEquipment>();
-            if (requestInterestInTeamUpEquipment == null) return Logger.WarnReturn(false, $"OnRequestRequestInterestInTeamUpEquipment(): Failed to retrieve message");
+            if (!Verify.IsNotNull(requestInterestInTeamUpEquipment)) return;
 
-            PrototypeId teamUpProtoId = (PrototypeId)requestInterestInTeamUpEquipment.TeamUpProtoId;
-
-            Agent teamUpAgent = Player.GetTeamUpAgent(teamUpProtoId);
-            if (teamUpAgent == null) return Logger.WarnReturn(false, "OnRequestRequestInterestInTeamUpEquipment(): teamUpAgent == null");
+            PrototypeId teamUpProtoRef = (PrototypeId)requestInterestInTeamUpEquipment.TeamUpProtoId;
+            Agent teamUpAgent = Player.GetTeamUpAgent(teamUpProtoRef);
+            if (!Verify.IsNotNull(teamUpAgent)) return;
 
             teamUpAgent.RevealEquipmentToOwner();
-
-            return true;
         }
 
         private void OnTryTeamUpSelect(in MailboxMessage message)
         {
             var tryTeamUpSelect = message.As<NetMessageTryTeamUpSelect>();
+            if (!Verify.IsNotNull(tryTeamUpSelect)) return;
+
             Avatar avatar = Player.CurrentAvatar;
+            if (!Verify.IsNotNull(avatar)) return;
+
             avatar.SelectTeamUpAgent((PrototypeId)tryTeamUpSelect.TeamUpPrototypeId);
         }
 
         private void OnRequestTeamUpDismiss(in MailboxMessage message)
         {
+            var requestTeamUpDismiss = message.As<NetMessageRequestTeamUpDismiss>();
+            if (!Verify.IsNotNull(requestTeamUpDismiss)) return;
+
             Avatar avatar = Player.CurrentAvatar;
+            if (!Verify.IsNotNull(avatar)) return;
+
             avatar.DismissTeamUpAgent(true);
         }
 
         private void OnTryTeamUpStyleSelect(in MailboxMessage message)
         {
-            var styleSelect = message.As<NetMessageTryTeamUpStyleSelect>();
+            var tryTeamUpStyleSelect = message.As<NetMessageTryTeamUpStyleSelect>();
+            if (!Verify.IsNotNull(tryTeamUpStyleSelect)) return;
+
             Avatar avatar = Player.CurrentAvatar;
-            avatar.TryTeamUpStyleSelect(styleSelect.StyleIndex);
+            if (!Verify.IsNotNull(avatar)) return;
+
+            avatar.TryTeamUpStyleSelect(tryTeamUpStyleSelect.StyleIndex);
         }
 
-        private bool OnInfinityPointAllocationCommit(in MailboxMessage message)
+        private void OnInfinityPointAllocationCommit(in MailboxMessage message)
         {
             var infinityBonusAllocationCommit = message.As<NetMessageInfinityPointAllocationCommit>();
-            if (infinityBonusAllocationCommit == null) return Logger.WarnReturn(false, $"OnInfinityPointAllocationCommit(): Failed to retrieve message");
+            if (!Verify.IsNotNull(infinityBonusAllocationCommit)) return;
 
             Avatar avatar = Game.EntityManager.GetEntity<Avatar>(infinityBonusAllocationCommit.AvatarId);
-            if (avatar == null) return Logger.WarnReturn(false, "OnInfinityPointAllocationCommit(): avatar == null");
+            if (!Verify.IsNotNull(avatar)) return;
 
-            if (avatar.GetOwnerOfType<Player>() != Player)
-                return Logger.WarnReturn(false, $"OnInfinityPointAllocationCommit(): Player [{Player}] is attempting to allocate Infinity points for avatar [{avatar}] that belongs to another player");
+            if (!Verify.IsTrue(avatar.GetOwnerOfType<Player>() == Player, $"Player [{Player}] is attempting to allocate Infinity points for avatar [{avatar}] that belongs to another player"))
+                return;
 
-            if (avatar.IsInfinitySystemUnlocked() == false)
-                return Logger.WarnReturn(false, $"OnInfinityPointAllocationCommit(): Player [{Player}] is attempting to allocate Infinity points for avatar [{avatar}] that does not have the Infinity system unlocked");
+            if (!Verify.IsTrue(avatar.IsInfinitySystemUnlocked(), $"Player [{Player}] is attempting to allocate Infinity points for avatar [{avatar}] that does not have the Infinity system unlocked"))
+                return;
 
             avatar.InfinityPointAllocationCommit(infinityBonusAllocationCommit);
-            return true;
         }
 
-        private bool OnRespecInfinity(in MailboxMessage message)
+        private void OnRespecInfinity(in MailboxMessage message)
         {
             var respecInfinity = message.As<NetMessageRespecInfinity>();
-            if (respecInfinity == null) return Logger.WarnReturn(false, $"OnRespecInfinity(): Failed to retrieve message");
+            if (!Verify.IsNotNull(respecInfinity)) return;
 
             Avatar avatar = Game.EntityManager.GetEntity<Avatar>(respecInfinity.AvatarId);
-            if (avatar == null) return Logger.WarnReturn(false, "OnRespecInfinity(): avatar == null");
+            if (!Verify.IsNotNull(avatar)) return;
 
-            if (avatar.GetOwnerOfType<Player>() != Player)
-                return Logger.WarnReturn(false, $"OnRespecInfinity(): Player [{Player}] is attempting to respec Infinity for avatar [{avatar}] that belongs to another player");
+            if (!Verify.IsTrue(avatar.GetOwnerOfType<Player>() == Player, $"Player [{Player}] is attempting to respec Infinity for avatar [{avatar}] that belongs to another player"))
+                return;
 
-            if (avatar.IsInfinitySystemUnlocked() == false)
-                return Logger.WarnReturn(false, $"OnRespecInfinity(): Player [{Player}] is attempting to respec Infinity for avatar [{avatar}] that does not have the Infinity system unlocked");
+            if (!Verify.IsTrue(avatar.IsInfinitySystemUnlocked(), $"Player [{Player}] is attempting to respec Infinity for avatar [{avatar}] that does not have the Infinity system unlocked"))
+                return;
 
             InfinityGem infinityGem = (InfinityGem)respecInfinity.Gem;
-            if (infinityGem != InfinityGem.None && (infinityGem < 0 || infinityGem >= InfinityGem.NumGems))
-                return Logger.WarnReturn(false, $"OnRespecInfinity(): Received invalid InfinityGem {infinityGem}");
+            if (!Verify.IsTrue(infinityGem == InfinityGem.None || (infinityGem >= 0 && infinityGem < InfinityGem.NumGems))) return;
 
             avatar.RespecInfinity(infinityGem);
-            return true;
         }
 
-        private bool OnOmegaBonusAllocationCommit(in MailboxMessage message)
+        private void OnOmegaBonusAllocationCommit(in MailboxMessage message)
         {
             var omegaBonusAllocationCommit = message.As<NetMessageOmegaBonusAllocationCommit>();
-            if (omegaBonusAllocationCommit == null) return Logger.WarnReturn(false, $"OnOmegaBonusAllocationCommit(): Failed to retrieve message");
+            if (!Verify.IsNotNull(omegaBonusAllocationCommit)) return;
 
             Avatar avatar = Game.EntityManager.GetEntity<Avatar>(omegaBonusAllocationCommit.AvatarId);
-            if (avatar == null) return Logger.WarnReturn(false, "OnOmegaBonusAllocationCommit(): avatar == null");
+            if (!Verify.IsNotNull(avatar)) return;
 
-            if (avatar.GetOwnerOfType<Player>() != Player)
-                return Logger.WarnReturn(false, $"OnOmegaBonusAllocationCommit(): Player [{Player}] is attempting to allocate Omega points for avatar [{avatar}] that belongs to another player");
+            if (!Verify.IsTrue(avatar.GetOwnerOfType<Player>() == Player, $"Player [{Player}] is attempting to allocate Omega points for avatar [{avatar}] that belongs to another player"))
+                return;
 
-            if (avatar.IsOmegaSystemUnlocked() == false)
-                return Logger.WarnReturn(false, $"OnOmegaBonusAllocationCommit(): Player [{Player}] is attempting to allocate Omega points for avatar [{avatar}] that does not have the Omega system unlocked");
+            if (!Verify.IsTrue(avatar.IsOmegaSystemUnlocked(), $"Player [{Player}] is attempting to allocate Omega points for avatar [{avatar}] that does not have the Omega system unlocked"))
+                return;
 
             avatar.OmegaPointAllocationCommit(omegaBonusAllocationCommit);
-            return true;
         }
 
-        private bool OnRespecOmegaBonus(in MailboxMessage message)
+        private void OnRespecOmegaBonus(in MailboxMessage message)
         {
             var respecOmegaBonus = message.As<NetMessageRespecOmegaBonus>();
-            if (respecOmegaBonus == null) return Logger.WarnReturn(false, $"OnRespecOmegaBonus(): Failed to retrieve message");
+            if (!Verify.IsNotNull(respecOmegaBonus)) return;
 
             Avatar avatar = Game.EntityManager.GetEntity<Avatar>(respecOmegaBonus.AvatarId);
-            if (avatar == null) return Logger.WarnReturn(false, "OnRespecOmegaBonus(): avatar == null");
+            if (!Verify.IsNotNull(avatar)) return;
 
-            if (avatar.GetOwnerOfType<Player>() != Player)
-                return Logger.WarnReturn(false, $"OnRespecOmegaBonus(): Player [{Player}] is attempting to respec Omega bonus for avatar [{avatar}] that belongs to another player");
+            if (!Verify.IsTrue(avatar.GetOwnerOfType<Player>() == Player, $"Player [{Player}] is attempting to respec Omega bonus for avatar [{avatar}] that belongs to another player"))
+                return;
 
-            if (avatar.IsOmegaSystemUnlocked() == false)
-                return Logger.WarnReturn(false, $"OnRespecOmegaBonus(): Player [{Player}] is attempting to respec Omega bonus for avatar [{avatar}] that does not have the Omega system unlocked");
+            if (!Verify.IsTrue(avatar.IsOmegaSystemUnlocked(), $"Player [{Player}] is attempting to respec Omega bonus for avatar [{avatar}] that does not have the Omega system unlocked"))
+                return;
 
             avatar.RespecOmegaBonus();
-            return true;
         }
 
-        private bool OnNewItemGlintPlayed(in MailboxMessage message)
+        private void OnNewItemGlintPlayed(in MailboxMessage message)
         {
             var newItemGlintPlayed = message.As<NetMessageNewItemGlintPlayed>();
-            if (newItemGlintPlayed == null) return Logger.WarnReturn(false, $"OnNewItemGlintPlayed(): Failed to retrieve message");
+            if (!Verify.IsNotNull(newItemGlintPlayed)) return;
 
-            if (Player.Id != newItemGlintPlayed.PlayerId)
-                return Logger.WarnReturn(false, $"OnNewItemGlintPlayed(): Player entity id mismatch, expected {Player.Id}, got {newItemGlintPlayed.PlayerId}");
+            if (!Verify.IsTrue(newItemGlintPlayed.PlayerId == Player.Id, $"Player entity id mismatch, expected {Player.Id}, got {newItemGlintPlayed.PlayerId}"))
+                return;
 
             EntityManager entityManager = Game.EntityManager;
 
@@ -2141,352 +2072,323 @@ namespace MHServerEmu.Games.Network
             {
                 ulong itemId = newItemGlintPlayed.ItemIdsList[i];
                 Item item = entityManager.GetEntity<Item>(itemId);
-                if (item == null)
-                    return Logger.WarnReturn(false, "OnNewItemGlintPlayed(): item == null");
+                if (!Verify.IsNotNull(item)) return;
 
-                Player owner = item.GetOwnerOfType<Player>();
-                if (owner != Player)
-                    return Logger.WarnReturn(false, $"OnNewItemGlintPlayed(): Player [{Player}] attempted to clear glint of item [{item}] belonging to other player [{owner}]");
+                if (!Verify.IsTrue(item.GetOwnerOfType<Player>() == Player, $"Player [{Player}] attempted to clear glint of item [{item}] that belongs to another player"))
+                    return;
 
                 item.Properties.RemoveProperty(PropertyEnum.ItemRecentlyAddedGlint);
             }
-
-            return true;
         }
 
-        private bool OnNewItemHighlightCleared(in MailboxMessage message)
+        private void OnNewItemHighlightCleared(in MailboxMessage message)
         {
             var newItemHighlightCleared = message.As<NetMessageNewItemHighlightCleared>();
-            if (newItemHighlightCleared == null) return Logger.WarnReturn(false, $"OnNewItemHighlightCleared(): Failed to retrieve message");
+            if (!Verify.IsNotNull(newItemHighlightCleared)) return;
 
-            if (Player.Id != newItemHighlightCleared.PlayerId)
-                return Logger.WarnReturn(false, $"OnNewItemHighlightCleared(): Player entity id mismatch, expected {Player.Id}, got {newItemHighlightCleared.PlayerId}");
+            if (!Verify.IsTrue(newItemHighlightCleared.PlayerId == Player.Id, $"Player entity id mismatch, expected {Player.Id}, got {newItemHighlightCleared.PlayerId}"))
+                return;
 
             Item item = Game.EntityManager.GetEntity<Item>(newItemHighlightCleared.ItemId);
-            if (item == null) return Logger.WarnReturn(false, $"OnNewItemHighlightCleared(): item == null");
+            if (!Verify.IsNotNull(item)) return;
 
-            Player owner = item.GetOwnerOfType<Player>();
-            if (owner != Player)
-                return Logger.WarnReturn(false, $"OnNewItemHighlightCleared(): Player [{Player}] attempted to clear highlight of item [{item}] belonging to other player [{owner}]");
+            if (!Verify.IsTrue(item.GetOwnerOfType<Player>() == Player, $"Player [{Player}] attempted to clear highlight of item [{item}] that belongs to another player"))
+                return;
 
             item.SetRecentlyAdded(false);
-            return true;
         }
 
-        private bool OnUnassignMappedPower(in MailboxMessage message)
+        private void OnUnassignMappedPower(in MailboxMessage message)
         {
             var unassignMappedPower = message.As<NetMessageUnassignMappedPower>();
-            if (unassignMappedPower == null) return Logger.WarnReturn(false, $"OnUnassignMappedPower(): Failed to retrieve message");
+            if (!Verify.IsNotNull(unassignMappedPower)) return;
 
             Avatar avatar = Game.EntityManager.GetEntity<Avatar>(unassignMappedPower.AvatarId);
-            if (avatar == null) return Logger.WarnReturn(false, "OnUnassignMappedPower(): avatar == null");
+            if (!Verify.IsNotNull(avatar)) return;
 
-            Player owner = avatar.GetOwnerOfType<Player>();
-            if (owner != Player)
-                return Logger.WarnReturn(false, $"OnUnassignMappedPower(): Player [{Player}] is attempting to unassign mapped power for avatar [{avatar}] that belongs to another player");
+            if (!Verify.IsTrue(avatar.GetOwnerOfType<Player>() == Player, $"Player [{Player}] is attempting to unassign mapped power for avatar [{avatar}] that belongs to another player"))
+                return;
 
             avatar.UnassignMappedPower((PrototypeId)unassignMappedPower.MappedPowerProtoId);
-            return true;
         }
 
-        private bool OnAssignStolenPower(in MailboxMessage message)
+        private void OnAssignStolenPower(in MailboxMessage message)
         {
             var assignStolenPower = message.As<NetMessageAssignStolenPower>();
-            if (assignStolenPower == null) return Logger.WarnReturn(false, $"OnAssignStolenPower(): Failed to retrieve message");
+            if (!Verify.IsNotNull(assignStolenPower)) return;
 
             Avatar avatar = Game.EntityManager.GetEntity<Avatar>(assignStolenPower.AvatarId);
-            if (avatar == null) return Logger.WarnReturn(false, "OnAssignStolenPower(): avatar == null");
+            if (!Verify.IsNotNull(avatar)) return;
 
-            Player owner = avatar.GetOwnerOfType<Player>();
-            if (owner != Player)
-                return Logger.WarnReturn(false, $"OnAssignStolenPower(): Player [{Player}] is attempting to assign stolen power for avatar [{avatar}] that belongs to another player");
+            if (!Verify.IsTrue(avatar.GetOwnerOfType<Player>() == Player, $"Player [{Player}] is attempting to assign stolen power for avatar [{avatar}] that belongs to another player"))
+                return;
 
             PrototypeId stealingPowerRef = (PrototypeId)assignStolenPower.StealingPowerProtoId;
-            if (stealingPowerRef == PrototypeId.Invalid) return Logger.WarnReturn(false, "OnAssignStolenPower(): stealingPowerRef == PrototypeId.Invalid");
+            if (!Verify.IsTrue(stealingPowerRef != PrototypeId.Invalid)) return;
 
             PrototypeId stolenPowerRef = (PrototypeId)assignStolenPower.StolenPowerProtoId;
-            if (stolenPowerRef == PrototypeId.Invalid) return Logger.WarnReturn(false, "OnAssignStolenPower(): stolenPowerRef == PrototypeId.Invalid");
+            if (!Verify.IsTrue(stolenPowerRef != PrototypeId.Invalid)) return;
 
-            if (avatar.IsStolenPowerAvailable(stolenPowerRef) == false) return Logger.WarnReturn(false, "OnAssignStolenPower(): avatar.IsStolenPowerAvailable(stolenPowerRef) == false");
+            if (!Verify.IsTrue(avatar.IsStolenPowerAvailable(stolenPowerRef))) return;
 
             PrototypeId currentStolenPowerRef = avatar.GetMappedPowerFromOriginalPower(stealingPowerRef);
             if (avatar.CanAssignStolenPower(stolenPowerRef, currentStolenPowerRef) == false)
-                return false;
+                return;
 
             if (currentStolenPowerRef != PrototypeId.Invalid)
                 avatar.UnassignMappedPower(currentStolenPowerRef);
 
             avatar.MapPower(stealingPowerRef, stolenPowerRef);
-            return true;
         }
 
-        private bool OnVanityTitleSelect(in MailboxMessage message)
+        private void OnVanityTitleSelect(in MailboxMessage message)
         {
             var vanityTitleSelect = message.As<NetMessageVanityTitleSelect>();
-            if (vanityTitleSelect == null) return Logger.WarnReturn(false, $"OnVanityTitleSelect(): Failed to retrieve message");
+            if (!Verify.IsNotNull(vanityTitleSelect)) return;
 
             Avatar avatar = Player?.GetActiveAvatarByIndex(vanityTitleSelect.AvatarIndex);
-            if (avatar == null) return true;
+            if (avatar == null)
+                return;
 
             PrototypeId vanityTitleProtoRef = (PrototypeId)vanityTitleSelect.VanityTitlePrototypeId;
-            if (vanityTitleProtoRef == PrototypeId.Invalid) return Logger.WarnReturn(false, "OnVanityTitleSelect(): vanityTitleProtoRef == PrototypeId.Invalid");
+            if (!Verify.IsTrue(vanityTitleProtoRef != PrototypeId.Invalid)) return;
 
             if (vanityTitleProtoRef != GameDatabase.UIGlobalsPrototype.VanityTitleNoTitle)
-                avatar.SelectVanityTitle(vanityTitleProtoRef);
+                Verify.IsTrue(avatar.SelectVanityTitle(vanityTitleProtoRef));
             else
                 avatar.Properties.RemoveProperty(PropertyEnum.AvatarVanityTitle);
-
-            return true;
         }
 
-        private bool OnPlayerTradeStart(in MailboxMessage message)
+        private void OnPlayerTradeStart(in MailboxMessage message)
         {
             var playerTradeStart = message.As<NetMessagePlayerTradeStart>();
-            if (playerTradeStart == null) return Logger.WarnReturn(false, $"OnPlayerTradeStart(): Failed to retrieve message");
+            if (!Verify.IsNotNull(playerTradeStart)) return;
 
-            Player?.StartPlayerTrade(playerTradeStart.PartnerPlayerName);
-            return true;
+            Player.StartPlayerTrade(playerTradeStart.PartnerPlayerName);
         }
 
-        private bool OnPlayerTradeCancel(in MailboxMessage message)
+        private void OnPlayerTradeCancel(in MailboxMessage message)
         {
             var playerTradeCancel = message.As<NetMessagePlayerTradeCancel>();
-            if (playerTradeCancel == null) return Logger.WarnReturn(false, $"OnPlayerTradeCancel(): Failed to retrieve message");
+            if (!Verify.IsNotNull(playerTradeCancel)) return;
 
-            Player?.CancelPlayerTrade();
-            return true;
+            Player.CancelPlayerTrade();
         }
 
-        private bool OnPlayerTradeSetConfirmFlag(in MailboxMessage message)
+        private void OnPlayerTradeSetConfirmFlag(in MailboxMessage message)
         {
             var playerTradeSetConfirmFlag = message.As<NetMessagePlayerTradeSetConfirmFlag>();
-            if (playerTradeSetConfirmFlag == null) return Logger.WarnReturn(false, $"OnPlayerTradeSetConfirmFlag(): Failed to retrieve message");
+            if (!Verify.IsNotNull(playerTradeSetConfirmFlag)) return;
 
-            Player?.SetPlayerTradeConfirmFlag(playerTradeSetConfirmFlag.ConfirmFlag, playerTradeSetConfirmFlag.SequenceNumber);
-            return true;
+            Player.SetPlayerTradeConfirmFlag(playerTradeSetConfirmFlag.ConfirmFlag, playerTradeSetConfirmFlag.SequenceNumber);
         }
 
-        private bool OnRequestPetTechDonate(in MailboxMessage message)
+        private void OnRequestPetTechDonate(in MailboxMessage message)
         {
             var requestPetTechDonate = message.As<NetMessageRequestPetTechDonate>();
-            if (requestPetTechDonate == null) return Logger.WarnReturn(false, $"OnRequestPetTechDonate(): Failed to retrieve message");
+            if (!Verify.IsNotNull(requestPetTechDonate)) return;
 
             Item itemToDonate = Game.EntityManager.GetEntity<Item>(requestPetTechDonate.ItemId);
             if (itemToDonate == null)
-                return true;
+                return;
 
-            Player itemOwner = itemToDonate.GetOwnerOfType<Player>();
-            if (itemOwner != Player)
-                return Logger.WarnReturn(false, $"OnRequestPetTechDonate(): Player [{Player}] is attempting to donate item [{itemToDonate}] owned by player [{itemOwner}]");
+            if (!Verify.IsTrue(itemToDonate.GetOwnerOfType<Player>() == Player, $"Player [{Player}] is attempting to donate item [{itemToDonate}] that belongs to another player"))
+                return;
 
             Avatar avatar = Game.EntityManager.GetEntity<Avatar>(requestPetTechDonate.AvatarId);
             if (avatar == null)
-                return false;
-            
-            Player avatarOwner = avatar.GetOwnerOfType<Player>();
-            if (avatarOwner != Player)
-                return Logger.WarnReturn(false, $"OnRequestPetTechDonate(): Player [{Player}] is attempting to donate item [{itemToDonate}] on avatar [{avatar}] owned by player [{avatarOwner}]");
+                return;
+
+            if (!Verify.IsTrue(avatar.GetOwnerOfType<Player>() == Player, $"Player [{Player}] is attempting to donate item [{itemToDonate}] on avatar [{avatar}] that belongs to another player"))
+                return;
 
             Inventory petItemInv = avatar.GetInventory(InventoryConvenienceLabel.PetItem);
-            if (petItemInv == null) return Logger.WarnReturn(false, "OnRequestPetTechDonate(): petItemInv == null");
+            if (!Verify.IsNotNull(petItemInv)) return;
 
             Item petTechItem = Game.EntityManager.GetEntity<Item>(petItemInv.GetEntityInSlot(0));
-            if (petTechItem == null) return Logger.WarnReturn(false, "OnRequestPetTechDonate(): petTechItem == null");
+            if (!Verify.IsNotNull(petTechItem)) return;
 
-            return ItemPrototype.DonateItemToPetTech(Player, petTechItem, itemToDonate.ItemSpec, itemToDonate);
+            ItemPrototype.DonateItemToPetTech(Player, petTechItem, itemToDonate.ItemSpec, itemToDonate);
         }
 
-        private bool OnSetActivePowerSpec(in MailboxMessage message)
+        private void OnSetActivePowerSpec(in MailboxMessage message)
         {
             var setActivePowerSpec = message.As<NetMessageSetActivePowerSpec>();
-            if (setActivePowerSpec == null) return Logger.WarnReturn(false, $"OnSetActivePowerSpec(): Failed to retrieve message");
+            if (!Verify.IsNotNull(setActivePowerSpec)) return;
 
             Avatar avatar = Game.EntityManager.GetEntity<Avatar>(setActivePowerSpec.AvatarId);
-            if (avatar == null) return Logger.WarnReturn(false, "OnSetActivePowerSpec(): avatar == null");
+            if (!Verify.IsNotNull(avatar)) return;
 
-            Player avatarOwner = avatar.GetOwnerOfType<Player>();
-            if (avatarOwner != Player)
-                return Logger.WarnReturn(false, $"OnSetActivePowerSpec(): Player [{Player}] is attempting to set power spec on avatar [{avatar}] owned by player [{avatarOwner}]");
+            if (!Verify.IsTrue(avatar.GetOwnerOfType<Player>() == Player, $"Player [{Player}] is attempting to set power spec on avatar [{avatar}] that belongs to another player"))
+                return;
 
-            return avatar.SetActivePowerSpec((int)setActivePowerSpec.ActiveSpec);
+            avatar.SetActivePowerSpec((int)setActivePowerSpec.ActiveSpec);
         }
 
-        private bool OnChangeCameraSettings(in MailboxMessage message)
+        private void OnChangeCameraSettings(in MailboxMessage message)
         {
             var changeCameraSettings = message.As<NetMessageChangeCameraSettings>();
-            if (changeCameraSettings == null) return Logger.WarnReturn(false, $"OnChangeCameraSettings(): Failed to retrieve message");
+            if (!Verify.IsNotNull(changeCameraSettings)) return;
 
             AOI.InitializePlayerView((PrototypeId)changeCameraSettings.CameraSettings);
-            return true;
         }
 
-        private bool OnRequestSocketAffix(in MailboxMessage message)
+        private void OnRequestSocketAffix(in MailboxMessage message)
         {
             var requestSocketAffix = message.As<NetMessageRequestSocketAffix>();
-            if (requestSocketAffix == null) return Logger.WarnReturn(false, $"OnRequestSocketAffix(): Failed to retrieve message");
+            if (!Verify.IsNotNull(requestSocketAffix)) return;
 
             Item destItem = Game.EntityManager.GetEntity<Item>(requestSocketAffix.DestItemId);
-            if (destItem == null) return Logger.WarnReturn(false, "OnRequestSocketAffix(): destItem == null");
+            if (!Verify.IsNotNull(destItem)) return;
 
-            Player destItemOwner = destItem.GetOwnerOfType<Player>();
-            if (destItemOwner != Player)
-                return Logger.WarnReturn(false, $"OnRequestSocketAffix(): Player [{Player}] is attempting to socket affix into [{destItem}] owned by player [{destItemOwner}]");
+            if (!Verify.IsTrue(destItem.GetOwnerOfType<Player>() == Player, $"Player [{Player}] is attempting to socket affix into [{destItem}] that belongs to another player"))
+                return;
 
             Item gem = Game.EntityManager.GetEntity<Item>(requestSocketAffix.GemAffixItemId);
-            if (gem == null) return Logger.WarnReturn(false, "OnRequestSocketAffix(): destItem == null");
+            if (!Verify.IsNotNull(gem)) return;
 
-            Player gemOwner = gem.GetOwnerOfType<Player>();
-            if (gemOwner != Player)
-                return Logger.WarnReturn(false, $"OnRequestSocketAffix(): Player [{Player}] is attempting to socket gem [{gem}] owned by player [{gemOwner}]");
+            if (!Verify.IsTrue(gem.GetOwnerOfType<Player>() == Player, $"Player [{Player}] is attempting to socket gem [{gem}] that belongs to another player"))
+                return;
 
             if (destItem.CanSocketGem(gem))
                 destItem.SocketGem(gem);
-
-            return true;
         }
 
-        private bool OnUISystemLockState(in MailboxMessage message)
+        private void OnUISystemLockState(in MailboxMessage message)
         {
             var uiSystemLockState = message.As<NetMessageUISystemLockState>();
-            if (uiSystemLockState == null) return Logger.WarnReturn(false, $"OnUISystemLockState(): Failed to retrieve message");
-            var region = Player.GetRegion();
-            if (region == null) return Logger.WarnReturn(false, $"OnUISystemLockState(): Region is null");
-            PrototypeId uiSystemRef = (PrototypeId)uiSystemLockState.PrototypeId;
-            var uiSystemLockProto = GameDatabase.GetPrototype<UISystemLockPrototype>(uiSystemRef);
-            if (uiSystemLockProto == null) return Logger.WarnReturn(false, $"OnUISystemLockState(): UISystemLockPrototype is null");
-            uint state = uiSystemLockState.State;
-            Player.Properties[PropertyEnum.UISystemLock, uiSystemRef] = state;
-            return true;
+            if (!Verify.IsNotNull(uiSystemLockState)) return;
+
+            Region region = Player.GetRegion();
+            if (!Verify.IsNotNull(region)) return;
+
+            PrototypeId uiSystemLockProtoRef = (PrototypeId)uiSystemLockState.PrototypeId;
+            UISystemLockPrototype uiSystemLockProto = uiSystemLockProtoRef.As<UISystemLockPrototype>();
+            if (!Verify.IsNotNull(uiSystemLockProto)) return;
+
+            Player.Properties[PropertyEnum.UISystemLock, uiSystemLockProtoRef] = uiSystemLockState.State;
         }
 
-        private bool OnEnableTalentPower(in MailboxMessage message)
+        private void OnEnableTalentPower(in MailboxMessage message)
         {
             var enableTalentPower = message.As<NetMessageEnableTalentPower>();
-            if (enableTalentPower == null) return Logger.WarnReturn(false, $"OnEnableTalentPower(): Failed to retrieve message");
+            if (!Verify.IsNotNull(enableTalentPower)) return;
 
             Avatar avatar = Game.EntityManager.GetEntity<Avatar>(enableTalentPower.AvatarId);
-            if (avatar == null) return Logger.WarnReturn(false, "OnEnableTalentPower(): avatar == null");
+            if (!Verify.IsNotNull(avatar)) return;
 
-            Player owner = avatar.GetOwnerOfType<Player>();
-            if (owner != Player)
-                return Logger.WarnReturn(false, $"OnEnableTalentPower(): Player [{Player}] is attempting to enable talent power for avatar [{avatar}] that belongs to another player");
+            if (!Verify.IsTrue(avatar.GetOwnerOfType<Player>() == Player, $"Player [{Player}] is attempting to enable talent power for avatar [{avatar}] that belongs to another player"))
+                return;
 
             PrototypeId talentPowerRef = (PrototypeId)enableTalentPower.PrototypeId;
             int specIndex = (int)enableTalentPower.Spec;
             bool enable = enableTalentPower.Enable;
 
-            if (avatar.CanToggleTalentPower(talentPowerRef, specIndex, false, enable) != CanToggleTalentResult.Success)
-                return false;
+            if (!Verify.IsTrue(avatar.CanToggleTalentPower(talentPowerRef, specIndex, false, enable) == CanToggleTalentResult.Success))
+                return;
 
             avatar.EnableTalentPower(talentPowerRef, specIndex, enable);
-            return true;
         }
 
-        private bool OnStashInventoryViewed(in MailboxMessage message)
+        private void OnStashInventoryViewed(in MailboxMessage message)
         {
             var stashInventoryViewed = message.As<NetMessageStashInventoryViewed>();
-            if (stashInventoryViewed == null) return Logger.WarnReturn(false, $"OnStashInventoryViewed(): Failed to retrieve message");
-
-            if (Player == null) return Logger.WarnReturn(false, "OnStashInventoryViewed(): Player == null");
+            if (!Verify.IsNotNull(stashInventoryViewed)) return;
 
             Player.OnStashInventoryViewed((PrototypeId)stashInventoryViewed.PrototypeId);
-            return true;
         }
 
-        private bool OnStashCurrentlyOpen(in MailboxMessage message)
+        private void OnStashCurrentlyOpen(in MailboxMessage message)
         {
             var stashCurrentlyOpen = message.As<NetMessageStashCurrentlyOpen>();
-            if (stashCurrentlyOpen == null) return Logger.WarnReturn(false, $"OnStashCurrentlyOpen(): Failed to retrieve message");
-
-            if (Player == null) return Logger.WarnReturn(false, "OnStashCurrentlyOpen(): Player == null");
+            if (!Verify.IsNotNull(stashCurrentlyOpen)) return;
 
             Player.CurrentOpenStashPagePrototypeRef = (PrototypeId)stashCurrentlyOpen.PrototypeId;
-            return true;
         }
 
-        private bool OnWidgetButtonResult(in MailboxMessage message)
+        private void OnWidgetButtonResult(in MailboxMessage message)
         {
             var widgetButtonResult = message.As<NetMessageWidgetButtonResult>();
-            if (widgetButtonResult == null) return Logger.WarnReturn(false, $"OnWidgetButtonResult(): Failed to retrieve message");
-            var provider = Player?.GetRegion()?.UIDataProvider;
+            if (!Verify.IsNotNull(widgetButtonResult)) return;
+
+            UIDataProvider provider = Player.GetRegion()?.UIDataProvider;
             provider?.OnWidgetButtonResult(widgetButtonResult);
-            return true;
         }
 
-        private bool OnStashTabInsert(in MailboxMessage message)
+        private void OnStashTabInsert(in MailboxMessage message)
         {
             var stashTabInsert = message.As<NetMessageStashTabInsert>();
-            if (stashTabInsert == null) return Logger.WarnReturn(false, $"OnStashTabInsert(): Failed to retrieve message");
+            if (!Verify.IsNotNull(stashTabInsert)) return;
 
-            return Player.StashTabInsert((PrototypeId)stashTabInsert.InvId, (int)stashTabInsert.InsertIndex);
+            Player.StashTabInsert((PrototypeId)stashTabInsert.InvId, (int)stashTabInsert.InsertIndex);
         }
 
-        private bool OnStashTabOptions(in MailboxMessage message)
+        private void OnStashTabOptions(in MailboxMessage message)
         {
             var stashTabOptions = message.As<NetMessageStashTabOptions>();
-            if (stashTabOptions == null) return Logger.WarnReturn(false, $"OnStashTabOptions(): Failed to retrieve message");
+            if (!Verify.IsNotNull(stashTabOptions)) return;
 
-            return Player.UpdateStashTabOptions(stashTabOptions);
+            Player.UpdateStashTabOptions(stashTabOptions);
         }
 
-        private bool OnLeaderboardRequest(in MailboxMessage message)
+        private void OnLeaderboardRequest(in MailboxMessage message)
         {
             // Leaderboard details are not cached in games, so route this request to the leaderboard service.
             ServiceMessage.RouteMessage routeMessage = new(_frontendClient, typeof(ClientToGameServerMessage), message);
             ServerManager.Instance.SendMessageToService(GameServiceType.Leaderboard, routeMessage);
-            return true;
         }
 
         // NOTE: Doesn't seem like the client ever sends NetMessageLeaderboardArchivedInstanceListRequest (at least in 1.52)
 
-        private bool OnLeaderboardInitializeRequest(in MailboxMessage message)
+        private void OnLeaderboardInitializeRequest(in MailboxMessage message)
         {
             var initializeRequest = message.As<NetMessageLeaderboardInitializeRequest>();
-            if (initializeRequest == null) return Logger.WarnReturn(false, $"OnLeaderboardInitializeRequest(): Failed to retrieve message");
+            if (!Verify.IsNotNull(initializeRequest)) return;
 
             // All the data with need to handle initialize requests is cached in games, so no need to use the leaderboard service here.
             var response = LeaderboardInfoCache.Instance.BuildInitializeRequestResponse(initializeRequest);
             SendMessage(response);
-
-            return true;
         }
 
-        private bool OnPartyOperationRequest(in MailboxMessage message)
+        private void OnPartyOperationRequest(in MailboxMessage message)
         {
             var partyOperationRequest = message.As<NetMessagePartyOperationRequest>();
-            if (partyOperationRequest == null) return Logger.WarnReturn(false, $"OnPartyOperationRequest(): Failed to retrieve message");
+            if (!Verify.IsNotNull(partyOperationRequest)) return;
 
             ulong requestingPlayerDbId = partyOperationRequest.Payload.RequestingPlayerDbId;
-            if (requestingPlayerDbId != Player.DatabaseUniqueId)
-                return Logger.WarnReturn(false, $"OnPartyOperationRequest(): requestingPlayerDbId != Player.DatabaseUniqueId");
+            if (!Verify.IsTrue(requestingPlayerDbId == Player.DatabaseUniqueId)) return;
 
             Game.PartyManager.OnClientPartyOperationRequest(Player, partyOperationRequest.Payload);
-
-            return true;
         }
 
-        private bool OnMissionTrackerFiltersUpdate(in MailboxMessage message)
+        private void OnMissionTrackerFiltersUpdate(in MailboxMessage message)
         {
-            var filters = message.As<NetMessageMissionTrackerFiltersUpdate>();
-            if (filters == null) return Logger.WarnReturn(false, $"OnMissionTrackerFiltersUpdate(): Failed to retrieve message");
+            var missionTrackerFiltersUpdate = message.As<NetMessageMissionTrackerFiltersUpdate>();
+            if (!Verify.IsNotNull(missionTrackerFiltersUpdate)) return;
 
-            foreach (var filter in filters.MissionTrackerFilterChangesList)
+            for (int i = 0; i < missionTrackerFiltersUpdate.MissionTrackerFilterChangesCount; i++)
             {
-                PrototypeId filterPrototypeId = (PrototypeId)filter.FilterPrototypeId;
-                if (filterPrototypeId == PrototypeId.Invalid) continue;
-                Player.Properties[PropertyEnum.MissionTrackerFilter, filterPrototypeId] = filter.IsFiltered;
-            }
+                NetMessageMissionTrackerFilterChange missionTrackerFilterChange = missionTrackerFiltersUpdate.MissionTrackerFilterChangesList[i];
 
-            return true;
+                PrototypeId filterProtoRef = (PrototypeId)missionTrackerFilterChange.FilterPrototypeId;
+                if (!Verify.IsTrue(filterProtoRef != PrototypeId.Invalid))
+                    continue;
+
+                Player.Properties[PropertyEnum.MissionTrackerFilter, filterProtoRef] = missionTrackerFilterChange.IsFiltered;
+            }
         }
 
-        private bool OnAchievementMissionTrackerFilterChange(in MailboxMessage message)
+        private void OnAchievementMissionTrackerFilterChange(in MailboxMessage message)
         {
-            var filter = message.As<NetMessageAchievementMissionTrackerFilterChange>();
-            if (filter == null || filter.AchievementId == 0) 
-                return Logger.WarnReturn(false, $"OnAchievementMissionTrackerFilterChange(): Failed to retrieve message");
-            Player.Properties[PropertyEnum.MissionTrackerAchievements, (int)filter.AchievementId] = filter.IsFiltered;
-            return true;
+            var achievementMissionTrackerFilterChange = message.As<NetMessageAchievementMissionTrackerFilterChange>();
+            if (!Verify.IsNotNull(achievementMissionTrackerFilterChange)) return;
+
+            int achievementId = (int)achievementMissionTrackerFilterChange.AchievementId;
+            bool isFiltered = achievementMissionTrackerFilterChange.IsFiltered;
+
+            if (!Verify.IsTrue(achievementId != 0)) return;
+
+            Player.Properties[PropertyEnum.MissionTrackerAchievements, achievementId] = isFiltered;
         }
 
         #endregion
