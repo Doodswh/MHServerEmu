@@ -1,5 +1,4 @@
-﻿using System.Diagnostics;
-using Gazillion;
+﻿using Gazillion;
 using Google.ProtocolBuffers;
 using MHServerEmu.Core.Config;
 using MHServerEmu.Core.Extensions;
@@ -36,11 +35,12 @@ using MHServerEmu.Games.Social.Parties;
 
 namespace MHServerEmu.Games.Network
 {
-    // This is the equivalent of the client-side ClientServiceConnection and GameConnection implementations of the NetClient abstract class.
-
     /// <summary>
     /// Represents a remote connection to a player.
     /// </summary>
+    /// <remarks>
+    /// This is the equivalent of the client-side ClientServiceConnection and GameConnection implementations of the <see cref="NetClient"/> abstract class.
+    /// </remarks>
     public class PlayerConnection : NetClient
     {
         private const ushort MuxChannel = 1;
@@ -88,11 +88,11 @@ namespace MHServerEmu.Games.Network
 
         public bool Initialize()
         {
-            if (LoadFromDBAccount() == false)
+            if (!Verify.IsTrue(LoadFromDBAccount(), LoggingLevel.Error, $"Failed to load player data from DBAccount {_dbAccount}"))
             {
                 // Do not update DBAccount when we fail to load to avoid corrupting data
                 _doNotUpdateDBAccount = true;
-                return Logger.WarnReturn(false, $"Initialize(): Failed to load player data from DBAccount {_dbAccount}");
+                return false;
             }
 
             // Send the achievement database if this is not a transfer from another game.
@@ -118,22 +118,17 @@ namespace MHServerEmu.Games.Network
         /// <summary>
         /// Updates player data for the bound <see cref="DBAccount"/> instance and notifies the Player Manager.
         /// </summary>
-        public bool SaveWithNotification()
+        public void SaveWithNotification()
         {
             if (HasPendingRegionTransfer)
-                return false;
+                return;
 
-            if (SaveToDBAccount(false) == false)
-            {
-                Logger.Error($"SaveWithNotification(): Save failed for {this}");
-                return false;
-            }
+            if (!Verify.IsTrue(SaveToDBAccount(false), LoggingLevel.Error, $"Save failed for {this}"))
+                return;
 
             // Notify the Player Manager to trigger a database update if needed.
             ServiceMessage.PlayerDataUpdated message = new(PlayerDbId);
             ServerManager.Instance.SendMessageToService(GameServiceType.PlayerManager, message);
-
-            return true;
         }
 
         /// <summary>
@@ -141,6 +136,8 @@ namespace MHServerEmu.Games.Network
         /// </summary>
         private bool LoadFromDBAccount()
         {
+            if (!Verify.IsTrue(Player == null, LoggingLevel.Error)) return false;
+
             _doNotUpdateDBAccount = false;
 
             DataDirectory dataDirectory = GameDatabase.DataDirectory;
@@ -204,7 +201,7 @@ namespace MHServerEmu.Games.Network
 
             PersistenceUtility.RestoreInventoryEntities(Player, _dbAccount);
 
-            // Create missing avatar entities if there are any (this should happen only for new players if there are no issue).
+            // Create missing avatar entities if there are any (this should happen only for new players if there are no issues).
             foreach (PrototypeId avatarRef in dataDirectory.IteratePrototypesInHierarchy<AvatarPrototype>(PrototypeIterateFlags.NoAbstractApprovedOnly))
             {
                 if (avatarRef == (PrototypeId)6044485448390219466) //zzzBrevikOLD.prototype
@@ -214,8 +211,7 @@ namespace MHServerEmu.Games.Network
                     continue;
 
                 Avatar avatar = Player.CreateAvatar(avatarRef);
-                if (avatar == null)
-                    Logger.Warn($"LoadFromDBAccount(): Failed to create avatar {avatarRef.GetName()} for player [{Player}]");
+                Verify.IsNotNull(avatar, $"Failed to create avatar {avatarRef.GetName()} for player [{Player}]");
             }
 
             // Swap to the default avatar if the player doesn't have an in-play avatar for whatever reason.
@@ -224,7 +220,8 @@ namespace MHServerEmu.Games.Network
                 Logger.Trace($"LoadFromDBAccount(): Auto selecting default starting avatar for [{Player}]");
                 Avatar defaultAvatar = Player.GetAvatar(GameDatabase.GlobalsPrototype.DefaultStartingAvatarPrototype);
                 Inventory avatarInPlay = Player.GetInventory(InventoryConvenienceLabel.AvatarInPlay);
-                defaultAvatar.ChangeInventoryLocation(avatarInPlay);
+                InventoryResult result = defaultAvatar.ChangeInventoryLocation(avatarInPlay);
+                if (!Verify.IsTrue(result == InventoryResult.Success, LoggingLevel.Error)) return false;
             }
 
             // Restore migrated avatar data
@@ -259,11 +256,11 @@ namespace MHServerEmu.Games.Network
             if (_doNotUpdateDBAccount)
                 return true;
 
-            if (Player == null) return Logger.WarnReturn(false, "SaveToDBAccount(): Player == null");
+            if (!Verify.IsNotNull(Player)) return false;
 
             using var lockScope = _dbAccount.Lock();
-            if (lockScope.LockTaken == false)
-                return Logger.ErrorReturn(false, $"SaveToDBAccount(): Timed out acquiring lock for [{_dbAccount}]");
+            if (!Verify.IsTrue(lockScope.LockTaken, LoggingLevel.Error, $"Timed out acquiring lock for [{_dbAccount}]"))
+                return false;
 
             TimeSpan startTime = Clock.UnixTime;
 
@@ -399,16 +396,13 @@ namespace MHServerEmu.Games.Network
                     Vector3 position = exitLocation.Position;
                     Orientation orientation = exitLocation.Orientation;
 
-                    if (region.Id == regionId && avatar.EnterWorld(region, position, orientation))
+                    if (!Verify.IsTrue(region.Id == regionId && avatar.EnterWorld(region, position, orientation), $"Failed to put player [{this}] back into the game world"))
                     {
-                        Player.DequeueLoadingScreen();
-                    }
-                    else
-                    {
-                        Logger.Warn($"CancelRemoteTeleport(): Failed to put player [{this}] back into the game world");
                         Disconnect();
                         return;
                     }
+
+                    Player.DequeueLoadingScreen();
                 }
             }
 
@@ -464,16 +458,14 @@ namespace MHServerEmu.Games.Network
             Player.QueueLoadingScreen(TransferParams.DestRegionProtoRef);
 
             Region region = Game.RegionManager.GetRegion(TransferParams.DestRegionId);
-            if (region == null)
+            if (!Verify.IsNotNull(region, LoggingLevel.Error, $"Region 0x{TransferParams.DestRegionId:X} not found"))
             {
-                Logger.Error($"EnterGame(): Region 0x{TransferParams.DestRegionId:X} not found");
                 Disconnect();
                 return;
             }
 
-            if (TransferParams.FindStartLocation(out Vector3 startPosition, out Orientation startOrientation) == false)
+            if (!Verify.IsTrue(TransferParams.FindStartLocation(out Vector3 startPosition, out Orientation startOrientation), LoggingLevel.Error))
             {
-                Logger.Error($"EnterGame(): Failed to find start location");
                 Disconnect();
                 return;
             }
