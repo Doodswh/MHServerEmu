@@ -15,8 +15,6 @@ namespace MHServerEmu.Games.Network
     /// </summary>
     public class TransferParams
     {
-        private static readonly Logger Logger = LogManager.CreateLogger();
-
         public PlayerConnection PlayerConnection { get; }
 
         public ulong DestRegionId { get; set; }
@@ -57,10 +55,10 @@ namespace MHServerEmu.Games.Network
             Game game = PlayerConnection.Game;
 
             Region region = game.RegionManager.GetRegion(DestRegionId);
-            if (region == null) return Logger.WarnReturn(false, "FindStartLocation(): region == null");
+            if (!Verify.IsNotNull(region)) return false;
 
             Area startArea = region.GetStartArea();
-            if (startArea == null) return Logger.WarnReturn(false, "FindStartLocation(): startArea == null");
+            if (!Verify.IsNotNull(startArea)) return false;
 
             // Check if there is a pvp team
             if (FindStartLocationFromPvPTeam(region, ref position, ref orientation))
@@ -88,13 +86,14 @@ namespace MHServerEmu.Games.Network
 
             // Fall back to the center of the first cell in the start area if all else fails (this is very bad and should never really happen!)
             position = startArea.Cells.First().Value.RegionBounds.Center;
-            Logger.Error($"FindStartPosition(): Failed to find target location, falling back to {position} as the last resort!");
+            Verify.IsTrue(false, LoggingLevel.Error, $"Failed to find valid start location! region=[{region}], fallbackPosition=[{position}]");
             return true;
         }
 
         private bool FindStartLocationFromPvPTeam(Region region, ref Vector3 position, ref Orientation orientation)
         {
-            if (region.MetaGames.Count == 0) return false;
+            if (region.MetaGames.Count == 0)
+                return false;
 
             Game game = PlayerConnection.Game;
             EntityManager entityManager = game.EntityManager;
@@ -116,17 +115,19 @@ namespace MHServerEmu.Games.Network
                 return false;
 
             RegionConnectionTargetPrototype targetProto = startTarget.As<RegionConnectionTargetPrototype>();
-            if (targetProto == null) return Logger.WarnReturn(false, "FindStartLocationFromPvPTeam(): targetProto == null");
+            if (!Verify.IsNotNull(targetProto)) return false;
 
-            if (RegionPrototype.Equivalent(targetProto.Region.As<RegionPrototype>(), region.Prototype) == false)
-                return Logger.WarnReturn(false, $"FindStartLocationFromPvPTeam(): Target region mismatch, expected {region.PrototypeDataRef.GetName()}, got {targetProto.Region.GetName()}");
+            bool isEquivalent = RegionPrototype.Equivalent(targetProto.Region.As<RegionPrototype>(), region.Prototype);
+            if (!Verify.IsTrue(isEquivalent, $"Target region mismatch, expected {region.PrototypeDataRef.GetName()}, got {targetProto.Region.GetName()}"))
+                return false;
 
             PrototypeId areaProtoRef = targetProto.Area;
             PrototypeId cellProtoRef = GameDatabase.GetDataRefByAsset(targetProto.Cell);
             PrototypeId entityProtoRef = targetProto.Entity;
 
-            if (region.FindTargetLocation(ref position, ref orientation, areaProtoRef, cellProtoRef, entityProtoRef) == false)
-                return Logger.WarnReturn(false, $"FindStartLocationFromPvPTeam(): Failed to find location for target {targetProto}");
+            bool found = region.FindTargetLocation(ref position, ref orientation, areaProtoRef, cellProtoRef, entityProtoRef);
+            if (!Verify.IsTrue(found, $"Failed to find location for target {targetProto}"))
+                return false;
 
             return true;
         }
@@ -142,17 +143,19 @@ namespace MHServerEmu.Games.Network
                 return false;
 
             RegionConnectionTargetPrototype targetProto = startTarget.As<RegionConnectionTargetPrototype>();
-            if (targetProto == null) return Logger.WarnReturn(false, "FindStartLocationFromRegionOverride(): targetProto == null");
+            if (!Verify.IsNotNull(targetProto)) return false;
 
-            if (RegionPrototype.Equivalent(targetProto.Region.As<RegionPrototype>(), region.Prototype) == false)
-                return Logger.WarnReturn(false, $"FindStartLocationFromRegionOverride(): Target region mismatch, expected {region.PrototypeDataRef.GetName()}, got {targetProto.Region.GetName()}");
+            bool isEquivalent = RegionPrototype.Equivalent(targetProto.Region.As<RegionPrototype>(), region.Prototype);
+            if (!Verify.IsTrue(isEquivalent, $"Target region mismatch, expected {region.PrototypeDataRef.GetName()}, got {targetProto.Region.GetName()}"))
+                return false;
 
             PrototypeId areaProtoRef = targetProto.Area;
             PrototypeId cellProtoRef = GameDatabase.GetDataRefByAsset(targetProto.Cell);
             PrototypeId entityProtoRef = targetProto.Entity;
 
-            if (region.FindTargetLocation(ref position, ref orientation, areaProtoRef, cellProtoRef, entityProtoRef) == false)
-                return Logger.WarnReturn(false, $"FindStartLocationFromRegionOverride(): Failed to find location for target {targetProto}");
+            bool found = region.FindTargetLocation(ref position, ref orientation, areaProtoRef, cellProtoRef, entityProtoRef);
+            if (!Verify.IsTrue(found, $"Failed to find location for target {targetProto}"))
+                return false;
 
             return true;
         }
@@ -186,8 +189,8 @@ namespace MHServerEmu.Games.Network
             ulong regionId = DestLocation.RegionId;
             Vector3 destPosition = new(DestLocation.Position);
 
-            if (regionId != region.Id || Vector3.IsNearZero(destPosition))
-                return Logger.WarnReturn(false, $"FindStartLocation(): Invalid location provided\n{DestLocation}");
+            if (!Verify.IsTrue(regionId == region.Id && Vector3.IsNearZero(destPosition) == false, $"Invalid location provided\n{DestLocation}"))
+                return false;
 
             Avatar.AdjustStartPositionIfNeeded(region, ref destPosition);
             position = destPosition;
@@ -204,8 +207,9 @@ namespace MHServerEmu.Games.Network
             PrototypeId cellProtoRef = (PrototypeId)DestTarget.CellProtoId;
             PrototypeId entityProtoRef = (PrototypeId)DestTarget.EntityProtoId;
 
-            if (RegionPrototype.Equivalent(regionProtoRef.As<RegionPrototype>(), region.Prototype) == false)
-                return Logger.WarnReturn(false, $"FindStartLocationFromTarget(): Target region mismatch, expected {region.PrototypeDataRef.GetName()}, got {regionProtoRef.GetName()}");
+            bool isEquivalent = RegionPrototype.Equivalent(regionProtoRef.As<RegionPrototype>(), region.Prototype);
+            if (!Verify.IsTrue(isEquivalent, $"Target region mismatch, expected {region.PrototypeDataRef.GetName()}, got {regionProtoRef.GetName()}"))
+                return false;
 
             if (region.FindTargetLocation(ref position, ref orientation, areaProtoRef, cellProtoRef, entityProtoRef) == false)
                 return false;
@@ -217,7 +221,7 @@ namespace MHServerEmu.Games.Network
 
         private bool FindStartLocationFromRegionStartTarget(Region region, ref Vector3 position, ref Orientation orientation)
         {
-            Logger.Debug($"FindStartLocation(): Falling back to {region.Prototype.StartTarget.GetName()}");
+            // This is valid and can happen in the cases where the entrance portal entity is destroyed (e.g. returning from a Danger Room scenario).
             var targetProto = region.Prototype.StartTarget.As<RegionConnectionTargetPrototype>();
             if (targetProto == null)
                 return false;
