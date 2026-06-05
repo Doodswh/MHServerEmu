@@ -40,11 +40,8 @@ namespace MHServerEmu.Games.Network.InstanceManagement
             // Always have at least 1 runner thread
             int numThreads = _gis.Config.NumWorkerThreads;
 
-            if (numThreads < 1)
-            {
-                Logger.Warn("Initialize(): numThreads < 1, defaulting to 1");
+            if (!Verify.IsTrue(numThreads >= 1))
                 numThreads = 1;
-            }
 
             for (int i = 0; i < numThreads; i++)
             {
@@ -67,9 +64,7 @@ namespace MHServerEmu.Games.Network.InstanceManagement
             lock (_gameUpdateQueue)
             {
                 int gameCount = _gameUpdateQueue.Count;
-
-                if (gameCount > 0)
-                    Logger.Warn($"Shutdown(): {gameCount} games still need updating");
+                Verify.IsTrue(gameCount == 0, $"{gameCount} games still need updating");
             }
 
             foreach (GameThread thread in _gameThreads.Values)
@@ -124,8 +119,8 @@ namespace MHServerEmu.Games.Network.InstanceManagement
         /// </summary>
         private bool RemoveThread(uint threadId)
         {
-            if (_gameThreads.Remove(threadId) == false)
-                return Logger.WarnReturn(false, $"RemoveThread(): Failed to remove GameThread {threadId}");
+            if (!Verify.IsTrue(_gameThreads.Remove(threadId), $"Failed to remove GameThread {threadId}"))
+                return false;
 
             Logger.Trace($"Removed GameThread {threadId}");
             return false;

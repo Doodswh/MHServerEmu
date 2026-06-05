@@ -51,10 +51,10 @@ namespace MHServerEmu.Games.Network.InstanceManagement
         /// <summary>
         /// Starts a newly created <see cref="GameThread"/>.
         /// </summary>
-        public bool Start()
+        public void Start()
         {
-            if (State != GameThreadState.Created)
-                return Logger.WarnReturn(false, $"Start(): Invalid state [{State}] for GameThread [{this}]");
+            if (!Verify.IsTrue(State == GameThreadState.Created, $"Invalid state [{State}] for GameThread [{this}]"))
+                return;
 
             State = GameThreadState.Starting;
 
@@ -70,20 +70,17 @@ namespace MHServerEmu.Games.Network.InstanceManagement
             };
 
             _thread.Start();
-
-            return true;
         }
 
         /// <summary>
         /// Stops a <see cref="GameThread"/> that is currently in the <see cref="GameThreadState.Running"/> state.
         /// </summary>
-        public bool Stop()
+        public void Stop()
         {
-            if (State != GameThreadState.Running)
-                return Logger.WarnReturn(false, $"Stop(): Invalid state [{State}] for GameThread [{this}]");
+            if (!Verify.IsTrue(State == GameThreadState.Running, $"Invalid state [{State}] for GameThread [{this}]"))
+                return;
 
             State = GameThreadState.Stopping;
-            return true;
         }
 
         /// <summary>
@@ -128,11 +125,11 @@ namespace MHServerEmu.Games.Network.InstanceManagement
         /// <summary>
         /// Initializes <see cref="LiveTuningData"/> for this <see cref="GameThread"/>.
         /// </summary>
-        private bool InitializeLiveTuning()
+        private void InitializeLiveTuning()
         {
             LiveTuningData liveTuningData = LiveTuningData.Current;
             if (liveTuningData != null)
-                return false;
+                return;
 
             liveTuningData = new();
             LiveTuningManager.Instance.CopyLiveTuningData(liveTuningData);
@@ -141,7 +138,6 @@ namespace MHServerEmu.Games.Network.InstanceManagement
             LiveTuningData.Current = liveTuningData;
 
             Logger.Info($"Initialized LiveTuningData for worker thread [{this}]");
-            return true;
         }
 
         /// <summary>
