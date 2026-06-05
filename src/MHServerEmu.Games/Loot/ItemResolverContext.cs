@@ -482,7 +482,7 @@ namespace MHServerEmu.Games.Loot
 
             public readonly float GetCurrencyMult(PrototypeId currencyProtoRef)
             {
-                if (!Verify.IsTrue(CurrencyMultDict.TryGetValue(currencyProtoRef, out float mult), $"Invalid currency ref {currencyProtoRef.GetName()}") == false)
+                if (!Verify.IsTrue(CurrencyMultDict.TryGetValue(currencyProtoRef, out float mult), $"Invalid currency ref {currencyProtoRef.GetName()}"))
                     return 1f;
 
                 return mult;
