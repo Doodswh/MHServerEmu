@@ -111,7 +111,7 @@ namespace MHServerEmu.Core.Network
         }
 
         /// <summary>
-        /// Flushes all active <see cref="PlayerConnection"/> instances.
+        /// Flushes all active <see cref="TNetClient"/> instances.
         /// </summary>
         public void SendAllPendingMessages()
         {
@@ -124,7 +124,7 @@ namespace MHServerEmu.Core.Network
             return _netClientDict.TryAdd(netClient.FrontendClient, netClient);
         }
 
-        protected abstract bool AcceptAndRegisterNewClient(IFrontendClient tcpClient);
+        protected abstract TNetClient AcceptAndRegisterNewClient(IFrontendClient tcpClient);
 
         protected abstract void OnNetClientDisconnected(TNetClient netClient);
 
@@ -135,7 +135,11 @@ namespace MHServerEmu.Core.Network
             while (_addClientQueue.CurrentCount > 0)
             {
                 IFrontendClient frontendClient = _addClientQueue.Dequeue();
-                AcceptAndRegisterNewClient(frontendClient);
+
+                TNetClient client = AcceptAndRegisterNewClient(frontendClient);
+
+                if (client == null)
+                    frontendClient.Disconnect();
             }
         }
 

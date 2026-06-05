@@ -18,8 +18,6 @@ namespace MHServerEmu.Games.Network
     /// </summary>
     public sealed class GameServiceMailbox : ServiceMailbox
     {
-        private static readonly Logger Logger = LogManager.CreateLogger();
-
         public Game Game { get; }
 
         public GameServiceMailbox(Game game)
@@ -116,7 +114,7 @@ namespace MHServerEmu.Games.Network
                     break;
 
                 default:
-                    Logger.Warn($"Unhandled service message type {message.GetType().Name}");
+                    Verify.IsTrue(false, $"Unhandled service message type {message.GetType().Name}");
                     break;
             }
         }
@@ -135,10 +133,9 @@ namespace MHServerEmu.Games.Network
             ServerManager.Instance.SendMessageToService(GameServiceType.PlayerManager, response);
         }
 
-        private bool OnShutdownRegion(in ServiceMessage.ShutdownRegion shutdownRegion)
+        private void OnShutdownRegion(in ServiceMessage.ShutdownRegion shutdownRegion)
         {
-            Logger.Trace($"Received ShutdownRegion for region 0x{shutdownRegion.RegionId:X}");
-            return Game.RegionManager.DestroyRegion(shutdownRegion.RegionId);
+            Game.RegionManager.DestroyRegion(shutdownRegion.RegionId);
         }
 
         private void OnDestroyPortal(in ServiceMessage.DestroyPortal destroyPortal)
@@ -148,56 +145,53 @@ namespace MHServerEmu.Games.Network
             portal?.Destroy();
         }
 
-        private bool OnUnableToChangeRegion(in ServiceMessage.UnableToChangeRegion unableToChangeRegion)
+        private void OnUnableToChangeRegion(in ServiceMessage.UnableToChangeRegion unableToChangeRegion)
         {
             Player player = Game.EntityManager.GetEntityByDbGuid<Player>(unableToChangeRegion.PlayerDbId);
-            if (player == null) return Logger.WarnReturn(false, "OnUnableToChangeRegion(): player == null");
+            if (!Verify.IsNotNull(player)) return;
 
             PlayerConnection playerConnection = player.PlayerConnection;
             playerConnection.CancelRegionTransfer(unableToChangeRegion.ChangeFailed);
-            return true;
         }
 
-        private bool OnGameAndRegionForPlayer(in ServiceMessage.GameAndRegionForPlayer gameAndRegionForPlayer)
+        private void OnGameAndRegionForPlayer(in ServiceMessage.GameAndRegionForPlayer gameAndRegionForPlayer)
         {
             Player player = Game.EntityManager.GetEntityByDbGuid<Player>(gameAndRegionForPlayer.PlayerDbId);
-            if (player == null) return Logger.WarnReturn(false, "OnGameAndRegionForPlayer(): player == null");
+            if (!Verify.IsNotNull(player)) return;
 
             PlayerConnection playerConnection = player.PlayerConnection;
             playerConnection.FinishRegionTransfer(gameAndRegionForPlayer.TransferParams, gameAndRegionForPlayer.WorldViewSyncData);
-            return true;
         }
 
-        private bool OnWorldViewSync(in ServiceMessage.WorldViewSync worldViewSync)
+        private void OnWorldViewSync(in ServiceMessage.WorldViewSync worldViewSync)
         {
             Player player = Game.EntityManager.GetEntityByDbGuid<Player>(worldViewSync.PlayerDbId);
-            if (player == null) return Logger.WarnReturn(false, "OnWorldViewUpdate(): player == null");
+            if (!Verify.IsNotNull(player)) return;
 
             player.PlayerConnection.WorldView.Sync(worldViewSync.SyncData);
-            return true;
         }
 
-        private bool OnPlayerLookupByNameResult(in ServiceMessage.PlayerLookupByNameResult playerLookupByNameResult)
+        private void OnPlayerLookupByNameResult(in ServiceMessage.PlayerLookupByNameResult playerLookupByNameResult)
         {
             Player player = Game.EntityManager.GetEntityByDbGuid<Player>(playerLookupByNameResult.PlayerDbId);
-            if (player == null) return Logger.WarnReturn(false, "OnPlayerLookupByNameResult(): player == null");
+            if (!Verify.IsNotNull(player)) return;
 
             ulong remoteJobId = playerLookupByNameResult.RemoteJobId;
             ulong resultPlayerDbId = playerLookupByNameResult.ResultPlayerDbId;
             string resultPlayerName = playerLookupByNameResult.ResultPlayerName;
 
             player.Community.OnPlayerLookupByNameResult(remoteJobId, resultPlayerDbId, resultPlayerName);
-            return true;
         }
 
-        private bool OnCommunityBroadcastBatch(in ServiceMessage.CommunityBroadcastBatch communityBroadcastBatch)
+        private void OnCommunityBroadcastBatch(in ServiceMessage.CommunityBroadcastBatch communityBroadcastBatch)
         {
             if (communityBroadcastBatch.PlayerDbId != 0)
             {
                 Player player = Game.EntityManager.GetEntityByDbGuid<Player>(communityBroadcastBatch.PlayerDbId);
-                if (player == null) return Logger.WarnReturn(false, "OnPlayerLookupByNameResult(): player == null");
+                if (!Verify.IsNotNull(player)) return;
 
                 Community community = player.Community;
+                if (!Verify.IsNotNull(community)) return;
 
                 for (int i = 0; i < communityBroadcastBatch.Count; i++)
                 {
@@ -210,6 +204,8 @@ namespace MHServerEmu.Games.Network
                 foreach (Player player in new PlayerIterator(Game))
                 {
                     Community community = player.Community;
+                    if (!Verify.IsNotNull(community))
+                        continue;
 
                     for (int i = 0; i < communityBroadcastBatch.Count; i++)
                     {
@@ -218,8 +214,6 @@ namespace MHServerEmu.Games.Network
                     }
                 }
             }
-
-            return true;
         }
 
         private void OnPartyOperationRequestServerResult(in ServiceMessage.PartyOperationRequestServerResult partyOperationRequestServerResult)
@@ -318,27 +312,17 @@ namespace MHServerEmu.Games.Network
         private void OnSetLiveTuningValues(in ServiceMessage.SetLiveTuningValues setLiveTuningValues)
         {
             List<NetStructLiveTuningSettingProtoEnumValue> settings = setLiveTuningValues.Settings;
-            if (settings == null || settings.Count == 0)
-            {
-                Logger.Warn("OnSetLiveTuningValues(): settings == null || settings.Count == 0");
-                return;
-            }
+            if (!Verify.IsNotNull(settings)) return;
 
-            foreach (NetStructLiveTuningSettingProtoEnumValue setting in setLiveTuningValues.Settings)
+            foreach (NetStructLiveTuningSettingProtoEnumValue setting in settings)
             {
                 PrototypeId tuningProtoRef = GameDatabase.GetDataRefByPrototypeGuid((PrototypeGuid)setting.TuningVarProtoId);
-                if (tuningProtoRef == PrototypeId.Invalid)
-                {
-                    Logger.Warn("OnSetLiveTuningValues(): tuningProtoRef == PrototypeId.Invalid");
+                if (!Verify.IsTrue(tuningProtoRef != PrototypeId.Invalid))
                     continue;
-                }
 
                 Prototype tuningProto = GameDatabase.GetPrototype<Prototype>(tuningProtoRef);
-                if (tuningProto == null)
-                {
-                    Logger.Warn("OnSetLiveTuningValues(): tuningProto == null");
+                if (!Verify.IsNotNull(tuningProto))
                     continue;
-                }
 
                 switch (tuningProto)
                 {
@@ -378,11 +362,8 @@ namespace MHServerEmu.Games.Network
                                     continue;
 
                                 Mission mission = player.MissionManager?.MissionByDataRef(tuningProtoRef);
-                                if (mission == null)
-                                {
-                                    Logger.Warn("OnSetLiveTuningValues(): mission == null");
+                                if (!Verify.IsNotNull(mission))
                                     continue;
-                                }
 
                                 mission.RestartMission();
                             }
@@ -417,28 +398,22 @@ namespace MHServerEmu.Games.Network
                     player.LeaderboardManager.RequestRewards();
 
                 if (sendClient)
-                {
-                    //Logger.Debug($"OnLeaderboardStateChange(): Sending [{leaderboardStateChange.InstanceId}][{state}] to {player.GetName()}");
                     player.SendMessage(message);
-                }
             }
         }
 
-        private bool OnLeaderboardRewardRequestResponse(in ServiceMessage.LeaderboardRewardRequestResponse leaderboardRewardRequestResponse)
+        private void OnLeaderboardRewardRequestResponse(in ServiceMessage.LeaderboardRewardRequestResponse leaderboardRewardRequestResponse)
         {
-            ulong playerId = leaderboardRewardRequestResponse.ParticipantId;
             Player player = Game.EntityManager.GetEntityByDbGuid<Player>(leaderboardRewardRequestResponse.ParticipantId);
-            if (player == null)
-                return Logger.WarnReturn(false, $"OnLeaderboardRewardRequestResponse(): Player 0x{playerId:X} not found in game [{Game}]");
+            if (!Verify.IsNotNull(player)) return;
 
             player.LeaderboardManager.AddPendingRewards(leaderboardRewardRequestResponse.Entries);
-            return true;
         }
 
-        private bool OnMTXStoreESBalanceGameRequest(in ServiceMessage.MTXStoreESBalanceGameRequest mtxStoreESBalanceGameRequest)
+        private void OnMTXStoreESBalanceGameRequest(in ServiceMessage.MTXStoreESBalanceGameRequest mtxStoreESBalanceGameRequest)
         {
             Player player = Game.EntityManager.GetEntityByDbGuid<Player>(mtxStoreESBalanceGameRequest.PlayerDbId);
-            if (player == null) return Logger.WarnReturn(false, "OnMTXStoreESBalanceGameRequest(): player == null");
+            if (!Verify.IsNotNull(player)) return;
 
             int currentBalance = player.Properties[PropertyEnum.Currency, GameDatabase.CurrencyGlobalsPrototype.EternitySplinters];
 
@@ -448,21 +423,17 @@ namespace MHServerEmu.Games.Network
 
             ServiceMessage.MTXStoreESBalanceGameResponse response = new(mtxStoreESBalanceGameRequest.RequestId, currentBalance, conversionRatio, conversionStep);
             ServerManager.Instance.SendMessageToService(GameServiceType.PlayerManager, response);
-
-            return true;
         }
 
-        private bool OnMTXStoreESConvertGameRequest(in ServiceMessage.MTXStoreESConvertGameRequest mtxStoreESConvertGameRequest)
+        private void OnMTXStoreESConvertGameRequest(in ServiceMessage.MTXStoreESConvertGameRequest mtxStoreESConvertGameRequest)
         {
             Player player = Game.EntityManager.GetEntityByDbGuid<Player>(mtxStoreESConvertGameRequest.PlayerDbId);
-            if (player == null) return Logger.WarnReturn(false, "OnMTXStoreESConvertGameRequest(): player == null");
+            if (!Verify.IsNotNull(player)) return;
 
             int gAmount = player.ConvertEternitySplintersToGazillionite(mtxStoreESConvertGameRequest.Amount);
 
             ServiceMessage.MTXStoreESConvertGameResponse response = new(mtxStoreESConvertGameRequest.RequestId, gAmount > 0);
             ServerManager.Instance.SendMessageToService(GameServiceType.PlayerManager, response);
-
-            return true;
         }
 
         #endregion

@@ -6,8 +6,6 @@ namespace MHServerEmu.Games.Network
     {
         public const ulong InvalidReplicationId = 0;
 
-        private static readonly Logger Logger = LogManager.CreateLogger();
-
         public Game Game { get; }
         public bool CanSendArchiveMessages { get => true; }
 
@@ -18,21 +16,17 @@ namespace MHServerEmu.Games.Network
             if (replicationId == InvalidReplicationId)
                 replicationId = Game.CurrentRepId;
 
-            if (Game.MessageHandlerDict.ContainsKey(replicationId))
-                return Logger.WarnReturn(InvalidReplicationId, $"RegisterMessageHandler(): ReplicationId {replicationId} is already used by another handler");
+            if (!Verify.IsTrue(Game.MessageHandlers.ContainsKey(replicationId) == false, $"ReplicationId {replicationId} is already used by another message handler"))
+                return InvalidReplicationId;
 
-            //Logger.Debug($"RegisterMessageHandler(): Registered handler id {replicationId} for {this}");
-            Game.MessageHandlerDict.Add(replicationId, handler);
+            Game.MessageHandlers.Add(replicationId, handler);
             return replicationId;
         }
 
-        public bool UnregisterMessageHandler<T>(T handler) where T: IArchiveMessageHandler
+        public void UnregisterMessageHandler<T>(T handler) where T: IArchiveMessageHandler
         {
-            if (Game.MessageHandlerDict.Remove(handler.ReplicationId) == false)
-                return Logger.WarnReturn(false, $"UnregisterMessageHandler(): ReplicationId {handler.ReplicationId} not found");
-
-            //Logger.Debug($"RegisterMessageHandler(): Unregistered handler id {handler.ReplicationId} from {this}");
-            return true;
+            bool removed = Game.MessageHandlers.Remove(handler.ReplicationId);
+            Verify.IsTrue(removed, $"ReplicationId {handler.ReplicationId} not found");
         }
 
         public bool GetInterestedClients(List<PlayerConnection> interestedClientList, AOINetworkPolicyValues interestPolicies);

@@ -7,8 +7,6 @@ namespace MHServerEmu.Games.Network.InstanceManagement
 {
     public class GameInstanceService : IGameService
     {
-        private static readonly Logger Logger = LogManager.CreateLogger();
-
         internal GameManager GameManager { get; }
         internal GameThreadManager GameThreadManager { get; }
 
@@ -37,8 +35,7 @@ namespace MHServerEmu.Games.Network.InstanceManagement
         {
             // All game instances should be shut down by the PlayerManager before we get here
             int gameCount = GameManager.GameCount;
-            if (gameCount > 0)
-                Logger.Warn($"Shutdown(): {gameCount} games are still running");
+            Verify.IsTrue(gameCount == 0, $"{gameCount} games are still running");
 
             State = GameServiceState.Shutdown;
         }
@@ -153,7 +150,7 @@ namespace MHServerEmu.Games.Network.InstanceManagement
                     break;
 
                 default:
-                    Logger.Warn($"ReceiveServiceMessage(): Unhandled service message type {typeof(T).Name}");
+                    Verify.IsTrue(false, $"Unhandled service message type {typeof(T).Name}");
                     break;
             }
         }
@@ -164,40 +161,42 @@ namespace MHServerEmu.Games.Network.InstanceManagement
             statusDict["GisPlayers"] = GameManager.PlayerCount;
         }
 
-        private bool RouteMessageToGame<T>(ulong gameId, T message) where T: struct, IGameServiceMessage
+        private void RouteMessageToGame<T>(ulong gameId, T message) where T: struct, IGameServiceMessage
         {
-            if (GameManager.TryGetGameById(gameId, out Game game) == false)
-                return Logger.WarnReturn(false, $"RouteMessageToGame(): Game 0x{gameId:X} not found, {typeof(T).Name} will not be delivered");
+            if (!Verify.IsTrue(GameManager.TryGetGameById(gameId, out Game game), $"Game 0x{gameId:X} not found, {typeof(T).Name} will not be delivered"))
+                return;
 
             game.ReceiveServiceMessage(message);
-            return true;
         }
 
         #endregion
 
         #region Message Handling
 
-        private bool OnRouteMessageBuffer(in ServiceMessage.RouteMessageBuffer routeMessageBuffer)
+        private void OnRouteMessageBuffer(in ServiceMessage.RouteMessageBuffer routeMessageBuffer)
         {
-            return GameManager.RouteMessageBuffer(routeMessageBuffer.Client, routeMessageBuffer.MessageBuffer);
+            GameManager.RouteMessageBuffer(routeMessageBuffer.Client, routeMessageBuffer.MessageBuffer);
         }
 
-        private bool OnGameInstanceOp(in ServiceMessage.GameInstanceOp gameInstanceOp)
+        private void OnGameInstanceOp(in ServiceMessage.GameInstanceOp gameInstanceOp)
         {
             switch (gameInstanceOp.Type)
             {
                 case GameInstanceOpType.Create:
-                    return GameManager.CreateGame(gameInstanceOp.GameId);
+                    GameManager.CreateGame(gameInstanceOp.GameId);
+                    break;
 
                 case GameInstanceOpType.Shutdown:
-                    return GameManager.ShutdownGame(gameInstanceOp.GameId, GameShutdownReason.ShutdownRequested);
+                    GameManager.ShutdownGame(gameInstanceOp.GameId, GameShutdownReason.ShutdownRequested);
+                    break;
 
                 default:
-                    return Logger.WarnReturn(false, $"OnGameInstanceOp(): Unhandled operation type {gameInstanceOp.Type}");
+                    Verify.IsTrue(false, $"Unhandled operation type {gameInstanceOp.Type}");
+                    break;
             }
         }
 
-        private bool OnGameInstanceClientOp(in ServiceMessage.GameInstanceClientOp gameInstanceClientOp)
+        private void OnGameInstanceClientOp(in ServiceMessage.GameInstanceClientOp gameInstanceClientOp)
         {
             IFrontendClient client = gameInstanceClientOp.Client;
             ulong gameId = gameInstanceClientOp.GameId;
@@ -206,39 +205,34 @@ namespace MHServerEmu.Games.Network.InstanceManagement
             {
                 case GameInstanceClientOpType.Add:
                     if (GameManager.AddClientToGame(client, gameId) == false)
-                    {
-                        // Disconnect the client so that it doesn't get stuck waiting to be added to a game
-                        client.Disconnect();
-                        return false;
-                    }
-
-                    return true;
+                        client.Disconnect();    // Disconnect the client so that it doesn't get stuck waiting to be added to a game
+                    break;
 
                 case GameInstanceClientOpType.Remove:
-                    return GameManager.RemoveClientFromGame(client, gameId);
+                    GameManager.RemoveClientFromGame(client, gameId);
+                    break;
 
                 default:
-                    return Logger.WarnReturn(false, $"OnGameInstanceClientOp(): Unhandled operation type {gameInstanceClientOp.Type}");
+                    Verify.IsTrue(false, $"Unhandled operation type {gameInstanceClientOp.Type}");
+                    break;
             }
         }
 
-        private bool OnLeaderboardStateChange(in ServiceMessage.LeaderboardStateChange leaderboardStateChange)
+        private void OnLeaderboardStateChange(in ServiceMessage.LeaderboardStateChange leaderboardStateChange)
         {
             LeaderboardInfoCache.Instance.UpdateLeaderboardInstance(leaderboardStateChange);
             GameManager.BroadcastServiceMessageToGames(leaderboardStateChange);
-            return true;
         }
 
-        private bool OnLeaderboardStateChangeList(in ServiceMessage.LeaderboardStateChangeList leaderboardStateChangeList)
+        private void OnLeaderboardStateChangeList(in ServiceMessage.LeaderboardStateChangeList leaderboardStateChangeList)
         {
             LeaderboardInfoCache.Instance.UpdateLeaderboardInstances(leaderboardStateChangeList);
-            return true;
         }
 
-        private bool OnLeaderboardRewardRequestResponse(in ServiceMessage.LeaderboardRewardRequestResponse leaderboardRewardRequestResponse)
+        private void OnLeaderboardRewardRequestResponse(in ServiceMessage.LeaderboardRewardRequestResponse leaderboardRewardRequestResponse)
         {
             ulong playerDbId = leaderboardRewardRequestResponse.ParticipantId;
-            return GameManager.RouteServiceMessageToPlayer(playerDbId, leaderboardRewardRequestResponse);
+            GameManager.RouteServiceMessageToPlayer(playerDbId, leaderboardRewardRequestResponse);
         }
 
         #endregion

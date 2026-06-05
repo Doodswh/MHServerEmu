@@ -1,5 +1,4 @@
-﻿using Gazillion;
-using MHServerEmu.Core.Logging;
+﻿using MHServerEmu.Core.Logging;
 using MHServerEmu.Core.Network;
 
 namespace MHServerEmu.Games.Network.InstanceManagement
@@ -49,12 +48,12 @@ namespace MHServerEmu.Games.Network.InstanceManagement
                 return _gameByPlayerDbIdDict.TryGetValue(playerDbId, out game);
         }
 
-        public bool CreateGame(ulong gameId)
+        public void CreateGame(ulong gameId)
         {
             Logger.Info($"Received creation request for gameId=0x{gameId:X}");
 
-            if (TryGetGameById(gameId, out _))
-                return Logger.WarnReturn(false, $"CreateGame(): GameId 0x{gameId:X} is already in use by another game");
+            if (!Verify.IsTrue(TryGetGameById(gameId, out _) == false, $"GameId 0x{gameId:X} is already in use by another game"))
+                return;
 
             Game game = new(gameId, this);
 
@@ -65,33 +64,30 @@ namespace MHServerEmu.Games.Network.InstanceManagement
 
             ServiceMessage.GameInstanceOp message = new(GameInstanceOpType.CreateResponse, game.Id);
             ServerManager.Instance.SendMessageToService(GameServiceType.PlayerManager, message);
-
-            return true;
         }
 
-        public bool ShutdownGame(ulong gameId, GameShutdownReason reason)
+        public void ShutdownGame(ulong gameId, GameShutdownReason reason)
         {
             Logger.Info($"Received shutdown request for gameId=0x{gameId:X}");
 
-            if (TryGetGameById(gameId, out Game game) == false)
-                return Logger.WarnReturn(false, $"ShutdownGame(): GameId 0x{gameId:X} not found");
+            if (!Verify.IsTrue(TryGetGameById(gameId, out Game game), $"GameId 0x{gameId:X} not found"))
+                return;
 
             game.Shutdown(reason);
-            return true;
         }
 
         public bool AddClientToGame(IFrontendClient client, ulong gameId)
         {
             Logger.Info($"Received add client request for client=[{client}] gameId=0x{gameId:X}");
 
-            if (TryGetGameForClient(client, out Game game))
-                return Logger.WarnReturn(false, $"AddClientToGame(): Attempting to add client [{client}] to game 0x{gameId:X}, but the client is already in game 0x{game.Id:X}");
+            if (!Verify.IsTrue(TryGetGameForClient(client, out Game game) == false, $"Attempting to add client [{client}] to game 0x{gameId:X}, but the client is already in game 0x{game.Id:X}"))
+                return false;
 
-            if (TryGetGameForPlayerDbId(client.DbId, out game))
-                return Logger.WarnReturn(false, $"AddClientToGame(): Attempting to add client [{client}] to game 0x{gameId:X}, but the PlayerDbId is already in use in game 0x{game.Id:X}");
+            if (!Verify.IsTrue(TryGetGameForPlayerDbId(client.DbId, out game) == false, $"Attempting to add client [{client}] to game 0x{gameId:X}, but the PlayerDbId is already in use in game 0x{game.Id:X}"))
+                return false;
 
-            if (TryGetGameById(gameId, out game) == false)
-                return Logger.WarnReturn(false, $"AddClientToGame(): Attempting to add client [{client}] to game 0x{gameId:X}, but no game with this id exists");
+            if (!Verify.IsTrue(TryGetGameById(gameId, out game), $"Attempting to add client [{client}] to game 0x{gameId:X}, but no game with this id exists"))
+                return false;
 
             game.AddClient(client);
 
@@ -110,11 +106,11 @@ namespace MHServerEmu.Games.Network.InstanceManagement
         {
             Logger.Info($"Received remove request for client=[{client}] gameId=0x{gameId:X}");
 
-            if (TryGetGameForClient(client, out Game game) == false)
-                return Logger.WarnReturn(false, $"RemoveClientFromGame(): Attempting to remove client [{client}] from game 0x{gameId:X}, but the client is not in a game");
+            if (!Verify.IsTrue(TryGetGameForClient(client, out Game game), $"Attempting to remove client [{client}] from game 0x{gameId:X}, but the client is not in a game"))
+                return false;
 
-            if (game.Id != gameId)
-                return Logger.WarnReturn(false, $"RemoveClientFromGame(): Attempting to remove client [{client}] from game 0x{gameId:X}, but the client is in game 0x{game.Id:X}");
+            if (!Verify.IsTrue(game.Id == gameId, $"Attempting to remove client [{client}] from game 0x{gameId:X}, but the client is in game 0x{game.Id:X}"))
+                return false;
 
             // This request may be originating from a game instance that failed to add a client (e.g. if it disconnected while pending)
             if (isGameOriginatingRequest == false)
@@ -133,27 +129,25 @@ namespace MHServerEmu.Games.Network.InstanceManagement
 
         #region Message Routing
 
-        public bool RouteMessageBuffer(IFrontendClient client, in MessageBuffer messageBuffer)
+        public void RouteMessageBuffer(IFrontendClient client, in MessageBuffer messageBuffer)
         {
             if (TryGetGameForClient(client, out Game game) == false)
             {
                 // The player may be transferring to another game instance, in which case this message is not going to be delivered.
                 //Logger.Debug($"RouteMessageBuffer(): Cannot deliver {(ClientToGameServerMessage)messageBuffer.MessageId}, client [{client}] is not in a game");
                 messageBuffer.Destroy();
-                return false;
+                return;
             }
 
             game.ReceiveMessageBuffer(client, messageBuffer);
-            return true;
         }
 
-        public bool RouteServiceMessageToPlayer<T>(ulong playerDbId, in T message) where T: struct, IGameServiceMessage
+        public void RouteServiceMessageToPlayer<T>(ulong playerDbId, in T message) where T: struct, IGameServiceMessage
         {
-            if (TryGetGameForPlayerDbId(playerDbId, out Game game) == false)
-                return Logger.WarnReturn(false, $"RouteServiceMessageToPlayer(): Failed to route {typeof(T).Name}, player 0x{playerDbId:X} is not in a game");
+            if (!Verify.IsTrue(TryGetGameForPlayerDbId(playerDbId, out Game game), $"Failed to route {typeof(T).Name}, player 0x{playerDbId:X} is not in a game"))
+                return;
 
             game.ReceiveServiceMessage(message);
-            return true;
         }
 
         public void BroadcastServiceMessageToGames<T>(in T message) where T: struct, IGameServiceMessage

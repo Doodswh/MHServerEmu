@@ -23,9 +23,6 @@ namespace MHServerEmu.Games.Network
         // HashSet for preventing the same account from logging in multiple times
         private readonly HashSet<ulong> _playerDbIds = new();
 
-        // Queue for pending player connections (i.e. players currently loading)
-        private readonly Queue<PlayerConnection> _pendingPlayerConnectionQueue = new();
-
         /// <summary>
         /// Constructs a new <see cref="PlayerConnectionManager"/> instance for the provided <see cref="Game"/>.
         /// </summary>
@@ -52,14 +49,11 @@ namespace MHServerEmu.Games.Network
             foreach (ulong playerId in entity.InterestReferences)
             {
                 Player player = entityManager.GetEntity<Player>(playerId);
-                if (player == null)
-                {
-                    Logger.Warn("GetInterestedPlayers(): player == null");
+                if (!Verify.IsNotNull(player))
                     continue;
-                }
 
-                if (player.PlayerConnection == null)
-                    continue;  // This can happen during packet parsing
+                if (!Verify.IsNotNull(player.PlayerConnection))
+                    continue;
 
                 // Check ownership
                 if (skipOwner && entity.IsOwnedBy(playerId))
@@ -181,17 +175,15 @@ namespace MHServerEmu.Games.Network
 
         #endregion
 
-        protected override bool AcceptAndRegisterNewClient(IFrontendClient frontendClient)
+        protected override PlayerConnection AcceptAndRegisterNewClient(IFrontendClient frontendClient)
         {
             // Make sure this client is still connected (it may not be, e.g. if we are lagging hard)
-            if (frontendClient.IsConnected == false)
+            if (!Verify.IsTrue(frontendClient.IsConnected, $"Client [{frontendClient}] is no longer connected"))
             {
-                Logger.Warn($"AcceptAndRegisterNewClient(): Client [{frontendClient}] is no longer connected");
-
                 // Self-initiate a removal request
                 _game.GameManager.RemoveClientFromGame(frontendClient, _game.Id, true);
                 _game.GameManager.OnClientRemoved(_game, frontendClient);
-                return false;
+                return null;
             }
 
             // Construct a new PlayerConnection bound to this IFrontendClient
@@ -201,16 +193,11 @@ namespace MHServerEmu.Games.Network
             // We do this after constructing the connection to keep the IFrontendClient -> PlayerDbId retrieval in one place.
             ulong dbId = playerConnection.PlayerDbId;
 
-            if (_playerDbIds.Add(dbId) == false)
-            {
-                Logger.Warn($"AcceptAndRegisterNewClient(): Attempting to add client [{frontendClient}] to game [{_game}], but its account dbId 0x{dbId:X} is already in use");
-                frontendClient.Disconnect();
-                return false;
-            }
+            if (!Verify.IsTrue(_playerDbIds.Add(dbId), $"Attempting to add client [{frontendClient}] to game [{_game}], but its account dbId 0x{dbId:X} is already in use"))
+                return null;
 
             // Register the client to allow it to receive messages
-            if (RegisterNetClient(playerConnection) == false)
-                Logger.Error($"AcceptAndRegisterNewClient(): Failed to add client [{frontendClient}]");
+            Verify.IsTrue(RegisterNetClient(playerConnection), LoggingLevel.Error, $"Failed to add client [{frontendClient}]");
 
             // Send time sync straight away for the client to be able to initialize its EventScheduler (needed for loading screens).
             // This will also make the client start sending pings, so it needs to be done after we assign game id.
@@ -221,24 +208,19 @@ namespace MHServerEmu.Games.Network
 
             // Initializing a player connection loads player data and sends the achievement database if needed
             if (playerConnection.Initialize() == false)
-            {
-                playerConnection.Disconnect();
-                return false;
-            }
+                return null;
 
             // Notify the player manager. The player will be put into a region when we receive transfer params.
             _game.GameManager.OnClientAdded(_game, frontendClient);
 
             Logger.Info($"Accepted and registered client [{frontendClient}] to game [{_game}]");
-            return true;
+            return playerConnection;
         }
 
         protected override void OnNetClientDisconnected(PlayerConnection playerConnection)
         {
             ulong dbId = playerConnection.PlayerDbId;
-
-            if (_playerDbIds.Remove(dbId) == false)
-                Logger.Warn($"OnNetClientDisconnected(): Account id 0x{dbId:X} not found");
+            Verify.IsTrue(_playerDbIds.Remove(dbId), $"Account id 0x{dbId:X} not found");
         }
     }
 }
