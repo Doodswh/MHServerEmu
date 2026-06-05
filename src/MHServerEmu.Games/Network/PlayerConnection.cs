@@ -1017,7 +1017,7 @@ namespace MHServerEmu.Games.Network
                 return;
 
             // Validate ownership
-            if (!Verify.IsTrue(item.IsRootOwner, $"Player [{Player}] is attempting to pick up item [{item}] owned by another player [{item.GetOwnerOfType<Player>()}]"))
+            if (!Verify.IsTrue(item.IsRootOwner, $"Player [{Player}] is attempting to pick up item [{item}] that belongs to another player"))
                 return;
 
             if (!Verify.IsTrue(item.IsBoundToAccount == false, $"Player [{Player}] is attempting to pick up item [{item}] that is account bound"))
@@ -1300,8 +1300,7 @@ namespace MHServerEmu.Games.Network
             Avatar avatar = Game.EntityManager.GetEntity<Avatar>(refreshAbilityKeyMapping.AvatarId);
             if (!Verify.IsNotNull(avatar)) return;
 
-            Player owner = avatar.GetOwnerOfType<Player>();
-            if (!Verify.IsTrue(owner == Player, $"Player [{Player}] is attempting to refresh ability key mapping for avatar [{avatar}] that belongs to another player"))
+            if (!Verify.IsTrue(avatar.GetOwnerOfType<Player>() == Player, $"Player [{Player}] is attempting to refresh ability key mapping for avatar [{avatar}] that belongs to another player"))
                 return;
 
             avatar.RefreshAbilityKeyMapping(false);
@@ -1315,8 +1314,7 @@ namespace MHServerEmu.Games.Network
             Avatar avatar = Game.EntityManager.GetEntity<Avatar>(abilitySlotToAbilityBar.AvatarId);
             if (!Verify.IsNotNull(avatar)) return;
 
-            Player owner = avatar.GetOwnerOfType<Player>();
-            if (!Verify.IsTrue(owner == Player, $"Player [{Player}] is attempting to slot ability for avatar [{avatar}] that belongs to another player"))
+            if (!Verify.IsTrue(avatar.GetOwnerOfType<Player>() == Player, $"Player [{Player}] is attempting to slot ability for avatar [{avatar}] that belongs to another player"))
                 return;
 
             avatar.SlotAbility((PrototypeId)abilitySlotToAbilityBar.PrototypeRefId, (AbilitySlot)abilitySlotToAbilityBar.SlotNumber, false, false);
@@ -1330,8 +1328,7 @@ namespace MHServerEmu.Games.Network
             Avatar avatar = Game.EntityManager.GetEntity<Avatar>(abilityUnslotFromAbilityBar.AvatarId);
             if (!Verify.IsNotNull(avatar)) return;
 
-            Player owner = avatar.GetOwnerOfType<Player>();
-            if (!Verify.IsTrue(owner == Player, $"Player [{Player}] is attempting to unslot ability for avatar [{avatar}] that belongs to another player"))
+            if (!Verify.IsTrue(avatar.GetOwnerOfType<Player>() == Player, $"Player [{Player}] is attempting to unslot ability for avatar [{avatar}] that belongs to another player"))
                 return;
 
             avatar.UnslotAbility((AbilitySlot)abilityUnslotFromAbilityBar.SlotNumber, false);
@@ -1345,8 +1342,7 @@ namespace MHServerEmu.Games.Network
             Avatar avatar = Game.EntityManager.GetEntity<Avatar>(abilitySwapInAbilityBar.AvatarId);
             if (!Verify.IsNotNull(avatar)) return;
 
-            Player owner = avatar.GetOwnerOfType<Player>();
-            if (!Verify.IsTrue(owner == Player, $"Player [{Player}] is attempting to swap abilities for avatar [{avatar}] that belongs to another player"))
+            if (!Verify.IsTrue(avatar.GetOwnerOfType<Player>() == Player, $"Player [{Player}] is attempting to swap abilities for avatar [{avatar}] that belongs to another player"))
                 return;
 
             avatar.SwapAbilities((AbilitySlot)abilitySwapInAbilityBar.SlotNumberA, (AbilitySlot)abilitySwapInAbilityBar.SlotNumberB, false);
