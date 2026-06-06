@@ -185,8 +185,6 @@ namespace MHServerEmu.Games.Network
                 RemoveEntity(entity);
             else if (wasInterested && isInterested)
                 ModifyEntity(entity, newInterestPolicies, settings);
-
-            return;
         }
 
         /// <summary>
@@ -506,7 +504,7 @@ namespace MHServerEmu.Games.Network
             Region region = Region;
 
             // Update proximity
-            foreach (var worldEntity in region.IterateEntitiesInVolume(_entitiesVolume, new(_playerConnection.PlayerDbId)))
+            foreach (WorldEntity worldEntity in region.IterateEntitiesInVolume(_entitiesVolume, new(_playerConnection.PlayerDbId)))
             {
                 AOINetworkPolicyValues newInterestPolicies = GetNewInterestPolicies(worldEntity);
                 bool wasInterested = _trackedEntities.TryGetValue(worldEntity.Id, out EntityInterestStatus interestStatus);
@@ -539,7 +537,9 @@ namespace MHServerEmu.Games.Network
                 EntityInterestStatus interestStatus = kvp.Value;
 
                 // Skip entities we have already processed in proximity
-                if (interestStatus.LastUpdateFrame >= _currentFrame) continue;
+                if (interestStatus.LastUpdateFrame >= _currentFrame)
+                    continue;
+
                 interestStatus.LastUpdateFrame = _currentFrame;
 
                 Entity entity = entityManager.GetEntity<Entity>(entityId);
@@ -1096,7 +1096,7 @@ namespace MHServerEmu.Games.Network
         /// </summary>
         private void UpdateNearbyCommunity(Entity entity, bool isNearby)
         {
-            if (entity is not Avatar avatar)
+            if (entity is not Avatar)
                 return;
 
             Community community = _playerConnection.Player?.Community;
