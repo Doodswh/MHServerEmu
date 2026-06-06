@@ -3055,7 +3055,11 @@ namespace MHServerEmu.Games.Powers
                 {
                     float distance = Vector3.Length(targetPosition - userPosition);
                     if (distance > 0f)
-                        delay += TimeSpan.FromSeconds(distance / projectileSpeed);
+                    {
+                        float projectileDelay = distance / projectileSpeed;
+                        if (Verify.IsTrue(float.IsFinite(projectileDelay)))
+                            delay += TimeSpan.FromSeconds(projectileDelay);
+                    }
                 }
             }
 
