@@ -395,7 +395,7 @@ namespace MHServerEmu.Games.GameData.Prototypes
                 return LootRollResult.NoRoll;
 
             LiveTuningManager.GetLiveLootGroup(groupNum, out IReadOnlyList<WorldEntityPrototype> lootGroup);
-            if (lootGroup.Count == 0)
+            if (lootGroup == null || lootGroup.Count == 0)
                 return LootRollResult.NoRoll;
 
             LootRollResult result = LootRollResult.NoRoll;

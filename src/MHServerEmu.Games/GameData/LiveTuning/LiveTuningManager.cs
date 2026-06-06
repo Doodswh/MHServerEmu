@@ -30,8 +30,8 @@ namespace MHServerEmu.Games.GameData.LiveTuning
 
         public bool LoadLiveTuningData(bool sendToServices)
         {
-            if (Directory.Exists(LiveTuningDataDirectory) == false)
-                return Logger.WarnReturn(false, "LoadLiveTuningDataFromDisk(): Live Tuning data directory not found");
+            if (!Verify.IsTrue(Directory.Exists(LiveTuningDataDirectory), "Live Tuning data directory not found"))
+                return false;
 
             List<NetStructLiveTuningSettingProtoEnumValue> settings = new();
 
@@ -58,8 +58,8 @@ namespace MHServerEmu.Games.GameData.LiveTuning
             ReadOnlySpan<char> fileName = Path.GetFileName(filePath.AsSpan());
 
             LiveTuningUpdateValue[] updateValues = FileHelper.DeserializeJson<LiveTuningUpdateValue[]>(filePath);
-            if (updateValues == null)
-                return Logger.WarnReturn(false, $"LoadLiveTuningDataFromDisk(): Failed to parse {fileName}, skipping");
+            if (!Verify.IsNotNull(updateValues, $"Failed to parse {fileName.ToString()}"))
+                return false;
 
             foreach (LiveTuningUpdateValue value in updateValues)
             {
@@ -94,11 +94,8 @@ namespace MHServerEmu.Games.GameData.LiveTuning
                     continue;
 
                 Prototype tuningProto = GameDatabase.GetPrototype<Prototype>(tuningProtoRef);
-                if (tuningProto == null)
-                {
-                    Logger.Warn("SendChangedSettingsToGames(): tuningProto == null");
+                if (!Verify.IsNotNull(tuningProto))
                     continue;
-                }
 
                 bool passesFilter = tuningProto switch
                 {
@@ -154,12 +151,8 @@ namespace MHServerEmu.Games.GameData.LiveTuning
                     if (tuningVarProtoId != PrototypeGuid.Invalid)
                     {
                         PrototypeId tuningVarProtoRef = GameDatabase.GetDataRefByPrototypeGuid(tuningVarProtoId);
-
-                        if (tuningVarProtoRef == PrototypeId.Invalid)
-                        {
-                            Logger.Warn($"UpdateLiveTuningData(): Attempted to Update Live Tuning Setting for a prototype not in the GameDatabase.  Prototype: {tuningVarProtoId}");
+                        if (!Verify.IsTrue(tuningVarProtoRef != PrototypeId.Invalid, $"Attempted to Update Live Tuning Setting for a prototype not in the GameDatabase.  Prototype: {tuningVarProtoId}"))
                             continue;
-                        }
 
                         _liveTuningData.UpdateLiveTuningVar(tuningVarProtoRef, tuningVarEnum, tuningVarValue);
                         Logger.Trace($"Updated Live Tuning Setting on this GIS.  Prototype: {tuningVarProtoRef.GetName()}  Enumeration: {LiveTuningData.GetLiveTuningVarEnumName(tuningVarEnum, tuningVarProtoRef)} Value: {tuningVarValue}");
@@ -185,9 +178,7 @@ namespace MHServerEmu.Games.GameData.LiveTuning
 
             lock (_liveTuningData)
             {
-                if (_liveTuningData.ChangeNum != _lastUpdateChangeNum)
-                    Logger.Warn("CopyLiveTuningData(): _liveTuningData.ChangeNum != _lastUpdateChangeNum");
-
+                Verify.IsTrue(_liveTuningData.ChangeNum == _lastUpdateChangeNum);
                 output.Copy(_liveTuningData);
             }
 
@@ -201,7 +192,7 @@ namespace MHServerEmu.Games.GameData.LiveTuning
             if (game != null)
             {
                 LiveTuningData liveTuningData = game.LiveTuningData;
-                if (liveTuningData == null) return Logger.WarnReturn(LiveTuningData.DefaultTuningVarValue, "GetLiveGlobalTuningVar(): liveTuningData == null");
+                if (!Verify.IsNotNull(liveTuningData)) return LiveTuningData.DefaultTuningVarValue;
                 return liveTuningData.GetLiveGlobalTuningVar(tuningVarEnum);
             }
             else
@@ -217,7 +208,7 @@ namespace MHServerEmu.Games.GameData.LiveTuning
             if (game != null)
             {
                 LiveTuningData liveTuningData = game.LiveTuningData;
-                if (liveTuningData == null) return Logger.WarnReturn(LiveTuningData.DefaultTuningVarValue, "GetLiveAreaTuningVar(): liveTuningData == null");
+                if (!Verify.IsNotNull(liveTuningData)) return LiveTuningData.DefaultTuningVarValue;
                 return liveTuningData.GetLiveAreaTuningVar(areaProto, tuningVarEnum);
             }
             else
@@ -233,7 +224,7 @@ namespace MHServerEmu.Games.GameData.LiveTuning
             if (game != null)
             {
                 LiveTuningData liveTuningData = game.LiveTuningData;
-                if (liveTuningData == null) return Logger.WarnReturn(LiveTuningData.DefaultTuningVarValue, "GetLiveWorldEntityTuningVar(): liveTuningData == null");
+                if (!Verify.IsNotNull(liveTuningData)) return LiveTuningData.DefaultTuningVarValue;
                 return liveTuningData.GetLiveWorldEntityTuningVar(worldEntityProto, tuningVarEnum);
             }
             else
@@ -249,7 +240,7 @@ namespace MHServerEmu.Games.GameData.LiveTuning
             if (game != null)
             {
                 LiveTuningData liveTuningData = game.LiveTuningData;
-                if (liveTuningData == null) return Logger.WarnReturn(LiveTuningData.DefaultTuningVarValue, "GetLiveAvatarTuningVar(): liveTuningData == null");
+                if (!Verify.IsNotNull(liveTuningData)) return LiveTuningData.DefaultTuningVarValue;
                 return liveTuningData.GetLiveAvatarTuningVar(avatarProto, tuningVarEnum);
             }
             else
@@ -265,7 +256,7 @@ namespace MHServerEmu.Games.GameData.LiveTuning
             if (game != null)
             {
                 LiveTuningData liveTuningData = game.LiveTuningData;
-                if (liveTuningData == null) return Logger.WarnReturn(LiveTuningData.DefaultTuningVarValue, "GetLivePopObjTuningVar(): liveTuningData == null");
+                if (!Verify.IsNotNull(liveTuningData)) return LiveTuningData.DefaultTuningVarValue;
                 return liveTuningData.GetLivePopObjTuningVar(popObjProto, tuningVarEnum);
             }
             else
@@ -281,7 +272,7 @@ namespace MHServerEmu.Games.GameData.LiveTuning
             if (game != null)
             {
                 LiveTuningData liveTuningData = game.LiveTuningData;
-                if (liveTuningData == null) return Logger.WarnReturn(LiveTuningData.DefaultTuningVarValue, "GetLivePowerTuningVar(): liveTuningData == null");
+                if (!Verify.IsNotNull(liveTuningData)) return LiveTuningData.DefaultTuningVarValue;
                 return liveTuningData.GetLivePowerTuningVar(powerProto, tuningVarEnum);
             }
             else
@@ -297,7 +288,7 @@ namespace MHServerEmu.Games.GameData.LiveTuning
             if (game != null)
             {
                 LiveTuningData liveTuningData = game.LiveTuningData;
-                if (liveTuningData == null) return Logger.WarnReturn(LiveTuningData.DefaultTuningVarValue, "GetLiveRegionTuningVar(): liveTuningData == null");
+                if (!Verify.IsNotNull(liveTuningData)) return LiveTuningData.DefaultTuningVarValue;
                 return liveTuningData.GetLiveRegionTuningVar(regionProto, tuningVarEnum);
             }
             else
@@ -313,7 +304,7 @@ namespace MHServerEmu.Games.GameData.LiveTuning
             if (game != null)
             {
                 LiveTuningData liveTuningData = game.LiveTuningData;
-                if (liveTuningData == null) return Logger.WarnReturn(LiveTuningData.DefaultTuningVarValue, "GetLiveLootTableTuningVar(): liveTuningData == null");
+                if (!Verify.IsNotNull(liveTuningData)) return LiveTuningData.DefaultTuningVarValue;
                 return liveTuningData.GetLiveLootTableTuningVar(lootTableProto, tuningVarEnum);
             }
             else
@@ -329,7 +320,7 @@ namespace MHServerEmu.Games.GameData.LiveTuning
             if (game != null)
             {
                 LiveTuningData liveTuningData = game.LiveTuningData;
-                if (liveTuningData == null) return Logger.WarnReturn(LiveTuningData.DefaultTuningVarValue, "GetLiveMissionTuningVar(): liveTuningData == null");
+                if (!Verify.IsNotNull(liveTuningData)) return LiveTuningData.DefaultTuningVarValue;
                 return liveTuningData.GetLiveMissionTuningVar(missionProto, tuningVarEnum);
             }
             else
@@ -345,7 +336,7 @@ namespace MHServerEmu.Games.GameData.LiveTuning
             if (game != null)
             {
                 LiveTuningData liveTuningData = game.LiveTuningData;
-                if (liveTuningData == null) return Logger.WarnReturn(LiveTuningData.DefaultTuningVarValue, "GetLiveConditionTuningVar(): liveTuningData == null");
+                if (!Verify.IsNotNull(liveTuningData)) return LiveTuningData.DefaultTuningVarValue;
                 return liveTuningData.GetLiveConditionTuningVar(conditionProto, tuningVarEnum);
             }
             else
@@ -361,7 +352,7 @@ namespace MHServerEmu.Games.GameData.LiveTuning
             if (game != null)
             {
                 LiveTuningData liveTuningData = game.LiveTuningData;
-                if (liveTuningData == null) return Logger.WarnReturn(LiveTuningData.DefaultTuningVarValue, "GetLivePublicEventTuningVar(): liveTuningData == null");
+                if (!Verify.IsNotNull(liveTuningData)) return LiveTuningData.DefaultTuningVarValue;
                 return liveTuningData.GetLivePublicEventTuningVar(publicEventProto, tuningVarEnum);
             }
             else
@@ -377,7 +368,7 @@ namespace MHServerEmu.Games.GameData.LiveTuning
             if (game != null)
             {
                 LiveTuningData liveTuningData = game.LiveTuningData;
-                if (liveTuningData == null) return Logger.WarnReturn(LiveTuningData.DefaultTuningVarValue, "GetLiveMetricsFrequencyTuningVar(): liveTuningData == null");
+                if (!Verify.IsNotNull(liveTuningData)) return LiveTuningData.DefaultTuningVarValue;
                 return liveTuningData.GetLiveMetricsFrequencyTuningVar(metricsFrequencyProto, tuningVarEnum);
             }
             else
@@ -395,7 +386,7 @@ namespace MHServerEmu.Games.GameData.LiveTuning
             if (game != null)
             {
                 LiveTuningData liveTuningData = game.LiveTuningData;
-                if (liveTuningData == null) return Logger.WarnReturn(false, "GetLiveLootGroup(): liveTuningData == null");
+                if (!Verify.IsNotNull(liveTuningData)) return false;
                 return liveTuningData.GetLiveLootGroup(lootGroupNum, out lootGroup);
             }
             else
