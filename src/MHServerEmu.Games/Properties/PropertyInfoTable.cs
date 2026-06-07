@@ -243,7 +243,7 @@ namespace MHServerEmu.Games.Properties
             if (propertyInfo.PropertyMixinBlueprintRef != BlueprintId.Invalid)
             {
                 Blueprint blueprint = GameDatabase.GetBlueprint(propertyInfo.PropertyMixinBlueprintRef);
-                GameDatabase.GetPrototype<PropertyPrototype>(blueprint.DefaultPrototypeId);
+                GameDatabase.GetPrototype<PropertyPrototype>(blueprint.DefaultPrototypeRef);
             }
 
             // Load the property info prototype and assign it to the property info instance

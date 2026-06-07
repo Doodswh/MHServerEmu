@@ -5,9 +5,13 @@ namespace MHServerEmu.Games.GameData.Resources
     /// <summary>
     /// An implementation of <see cref="GameDataSerializer"/> for resource prototypes.
     /// </summary>
-    public class BinaryResourceSerializer : GameDataSerializer
+    public sealed class BinaryResourceSerializer : GameDataSerializer
     {
-        public override void Deserialize(Prototype prototype, PrototypeId dataRef, Stream stream)
+        public static BinaryResourceSerializer Instance { get; } = new();
+
+        private BinaryResourceSerializer() { }
+
+        public override bool Deserialize(Prototype prototype, PrototypeId dataRef, Stream stream)
         {
             // Set this prototype's id data ref
             prototype.DataRef = dataRef;
@@ -22,6 +26,8 @@ namespace MHServerEmu.Games.GameData.Resources
                 IBinaryResource binaryResource = (IBinaryResource)prototype;
                 binaryResource.Deserialize(reader);
             }
+
+            return true;
         }
     }
 }

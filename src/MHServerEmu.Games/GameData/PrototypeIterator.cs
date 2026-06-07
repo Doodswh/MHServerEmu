@@ -83,7 +83,7 @@ namespace MHServerEmu.Games.GameData
                         continue;
 
                     // We return PrototypeId instead of Prototype to simplify the implementation.
-                    Current = record.PrototypeId;
+                    Current = record.PrototypeRef;
                     return true;
                 }
 

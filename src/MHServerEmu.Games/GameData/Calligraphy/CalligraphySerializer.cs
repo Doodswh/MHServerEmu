@@ -10,14 +10,18 @@ namespace MHServerEmu.Games.GameData.Calligraphy
     /// <summary>
     /// An implementation of <see cref="GameDataSerializer"/> for Calligraphy prototypes.
     /// </summary>
-    public partial class CalligraphySerializer : GameDataSerializer
+    public sealed partial class CalligraphySerializer : GameDataSerializer
     {
         private static readonly Logger Logger = LogManager.CreateLogger();
+
+        public static CalligraphySerializer Instance { get; } = new();
+
+        private CalligraphySerializer() { }
 
         /// <summary>
         /// Deserializes a Calligraphy prototype from stream.
         /// </summary>
-        public override void Deserialize(Prototype prototype, PrototypeId dataRef, Stream stream)
+        public override bool Deserialize(Prototype prototype, PrototypeId dataRef, Stream stream)
         {
             string prototypeName = GameDatabase.GetPrototypeName(dataRef);
 
@@ -28,12 +32,14 @@ namespace MHServerEmu.Games.GameData.Calligraphy
 
                 // Read prototype header and check it
                 PrototypeDataHeader prototypeHeader = new(reader);
-                if (prototypeHeader.ReferenceExists == false) return;
-                if (prototypeHeader.PolymorphicData) return;
+                if (prototypeHeader.ReferenceExists == false) return true;
+                if (prototypeHeader.PolymorphicData) return true;
 
                 // Begin deserialization
                 DoDeserialize(prototype, prototypeHeader, dataRef, prototypeName, reader);
             }
+
+            return true;
         }
 
         /// <summary>
@@ -205,7 +211,7 @@ namespace MHServerEmu.Games.GameData.Calligraphy
 
             // Property mixins are used both for initializing property infos and filling prototype property collections.
             // If this isn't a default prototype, it means the field group needs to be deserialized into a property collection.
-            if (prototypeDataRef != groupBlueprint.DefaultPrototypeId)
+            if (prototypeDataRef != groupBlueprint.DefaultPrototypeRef)
             {
                 Type propertyHolderClassType = classType;
                 Prototype propertyHolderPrototype = prototype;
@@ -812,8 +818,8 @@ namespace MHServerEmu.Games.GameData.Calligraphy
             if (uniqueListElement == null)
             {
                 // Create the element we're looking for if it's not in our list
-                Prototype prototype = AllocateDynamicPrototype(elementClassType, elementBlueprint.DefaultPrototypeId, null);
-                prototype.ParentDataRef = elementBlueprint.DefaultPrototypeId;
+                Prototype prototype = AllocateDynamicPrototype(elementClassType, elementBlueprint.DefaultPrototypeRef, null);
+                prototype.ParentDataRef = elementBlueprint.DefaultPrototypeRef;
 
                 // Assign ownership of the new mixin
                 owner.SetDynamicFieldOwner(prototype);

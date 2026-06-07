@@ -6,25 +6,25 @@ using MHServerEmu.Games.GameData.Prototypes;
 namespace MHServerEmu.Games.GameData.Calligraphy
 {
     /// <summary>
-    /// Provides field group definitions for Calligraphy prototypes.
+    /// Defines field groups (data schemas) for Calligraphy prototypes.
     /// </summary>
     public class Blueprint
     {
         private static readonly Logger Logger = LogManager.CreateLogger();
 
-        private Dictionary<StringId, BlueprintMember> _memberDict;                  // Field definitions for prototypes that use this blueprint  
+        private readonly Dictionary<StringId, BlueprintMember> _members;        // Field definitions for prototypes that use this blueprint  
 
         private PrototypeId[] _enumValueToPrototypeLookup = Array.Empty<PrototypeId>();
-        private Dictionary<PrototypeId, int> _prototypeToEnumValueDict;
+        private Dictionary<PrototypeId, int> _prototypeToEnumValueLookup;
 
         public BlueprintId Id { get; }
         public BlueprintGuid Guid { get; }
 
-        public HashSet<BlueprintId> FileIdHashSet { get; } = new();                 // Contains ids of all blueprints related to this one in the hierarchy
-        public List<PrototypeDataRefRecord> PrototypeRecordList { get; } = new();   // A list of all prototype records that use this blueprint for iteration
+        public HashSet<BlueprintId> FileIds { get; } = new();                   // Contains ids of all blueprints related to this one in the hierarchy
+        public List<PrototypeDataRefRecord> PrototypeRecords { get; } = new();  // A list of all prototype records that use this blueprint for iteration
 
-        public Type RuntimeBindingClassType { get; }                                // Type of the class that handles prototypes that use this blueprint
-        public PrototypeId DefaultPrototypeId { get; }                              // .defaults prototype file id
+        public Type RuntimeBindingClassType { get; }                            // Type of the class that handles prototypes that use this blueprint
+        public PrototypeId DefaultPrototypeRef { get; }                         // .defaults prototype file id
         public BlueprintReference[] Parents { get; }
         public BlueprintReference[] ContributingBlueprints { get; }
 
@@ -49,7 +49,7 @@ namespace MHServerEmu.Games.GameData.Calligraphy
                 string runtimeBinding = reader.ReadFixedString16();
                 RuntimeBindingClassType = GameDatabase.PrototypeClassManager.GetPrototypeClassTypeByName(runtimeBinding);
                 
-                DefaultPrototypeId = (PrototypeId)reader.ReadUInt64();
+                DefaultPrototypeRef = (PrototypeId)reader.ReadUInt64();
 
                 Parents = new BlueprintReference[reader.ReadInt16()];
                 for (int i = 0; i < Parents.Length; i++)
@@ -61,16 +61,16 @@ namespace MHServerEmu.Games.GameData.Calligraphy
 
                 // Deserialize members
                 short numMembers = reader.ReadInt16();
-                _memberDict = new(numMembers);
+                _members = new(numMembers);
                 for (int i = 0; i < numMembers; i++)
                 {
                     BlueprintMember member = new(reader);
-                    _memberDict.Add(member.FieldId, member);
+                    _members.Add(member.FieldId, member);
                 }
             }
 
             // Bind non-property blueprint members to C# properties
-            foreach (var member in _memberDict.Values)
+            foreach (var member in _members.Values)
             {
                 Type classBinding = RuntimeBindingClassType;
                 while (classBinding != typeof(Prototype))
@@ -95,7 +95,7 @@ namespace MHServerEmu.Games.GameData.Calligraphy
             // to match the usual .NET naming conventions.
             
             // Check if the specified member belongs to this blueprint
-            if (_memberDict.TryGetValue(fieldId, out var member))
+            if (_members.TryGetValue(fieldId, out var member))
             {
                 memberInfo = new(this, member);
                 return true;
@@ -121,7 +121,7 @@ namespace MHServerEmu.Games.GameData.Calligraphy
         {
             // Data ref fixups happen here in the client - we don't really need those right now
 
-            PopulateFileIds(FileIdHashSet);
+            PopulateFileIds(FileIds);
         }
 
         /// <summary>
@@ -130,22 +130,22 @@ namespace MHServerEmu.Games.GameData.Calligraphy
         public void PopulateFileIds(HashSet<BlueprintId> callerFileIdHashSet)
         {
             // Begin building a new hash set if ours is empty
-            if (FileIdHashSet.Count == 0)
+            if (FileIds.Count == 0)
             {
-                FileIdHashSet.Add(Id);     // add this blueprint's id
+                FileIds.Add(Id);     // add this blueprint's id
 
                 // Add parent ids
                 foreach (BlueprintReference parentRef in Parents)
                 {
                     var parent = GameDatabase.GetBlueprint(parentRef.BlueprintId);
-                    parent.PopulateFileIds(FileIdHashSet);
+                    parent.PopulateFileIds(FileIds);
                 }
             }
 
             // Add this blueprint's hash set if it's a parent of the caller
-            if (callerFileIdHashSet != FileIdHashSet)
+            if (callerFileIdHashSet != FileIds)
             {
-                foreach (BlueprintId id in FileIdHashSet)
+                foreach (BlueprintId id in FileIds)
                     callerFileIdHashSet.Add(id);
             }
         }
@@ -153,26 +153,28 @@ namespace MHServerEmu.Games.GameData.Calligraphy
         /// <summary>
         /// Generates EnumValue -> PrototypeId and PrototypeId -> EnumValue lookups for this blueprint.
         /// </summary>
-        public bool GenerateEnumLookups()
+        public void GenerateEnumLookups()
         {
-            // Note: this method is not present in the original game where this is done
-            // within DataDirectory::initializeHierarchyCache() instead.
+            // NOTE: Not present in the client, this is likely inlined in DataDirectory::initializeHierarchyCache() instead.
 
-            if (_enumValueToPrototypeLookup.Length > 0)
-                Logger.WarnReturn(false, $"Failed to generate enum lookups for blueprint {GameDatabase.GetBlueprintName(Id)}: already generated");
+            int numRecords = PrototypeRecords.Count;
+            int numLookups = numRecords + 1;
 
             // EnumValue -> PrototypeId
-            _enumValueToPrototypeLookup = new PrototypeId[PrototypeRecordList.Count + 1];
+            _enumValueToPrototypeLookup = new PrototypeId[numLookups];
             _enumValueToPrototypeLookup[0] = PrototypeId.Invalid;
-            for (int i = 0; i < PrototypeRecordList.Count; i++)
-                _enumValueToPrototypeLookup[i + 1] = PrototypeRecordList[i].PrototypeId;
 
-            // PrototypeId -> EnumValue
-            _prototypeToEnumValueDict = new(_enumValueToPrototypeLookup.Length);
-            for (int i = 0; i < _enumValueToPrototypeLookup.Length; i++)
-                _prototypeToEnumValueDict.Add(_enumValueToPrototypeLookup[i], i);
+            _prototypeToEnumValueLookup = new(_enumValueToPrototypeLookup.Length);
+            _prototypeToEnumValueLookup.Add(PrototypeId.Invalid, 0);
 
-            return true;
+            for (int i = 0; i < numRecords; i++)
+            {
+                int enumValue = i + 1;
+                PrototypeId prototypeDataRef = PrototypeRecords[i].PrototypeRef;
+
+                _enumValueToPrototypeLookup[enumValue] = prototypeDataRef;
+                _prototypeToEnumValueLookup.Add(prototypeDataRef, enumValue);
+            }
         }
 
         /// <summary>
@@ -193,7 +195,7 @@ namespace MHServerEmu.Games.GameData.Calligraphy
         /// </summary>
         public int GetPrototypeEnumValue(PrototypeId prototypeId)
         {
-            if (_prototypeToEnumValueDict.TryGetValue(prototypeId, out int enumValue) == false)
+            if (_prototypeToEnumValueLookup.TryGetValue(prototypeId, out int enumValue) == false)
                 return Logger.WarnReturn(0, $"Failed to get enum value for prototype {GameDatabase.GetPrototypeName(prototypeId)} for blueprint {GameDatabase.GetBlueprintName(Id)}");
 
             return enumValue;
@@ -224,7 +226,7 @@ namespace MHServerEmu.Games.GameData.Calligraphy
         /// </summary>
         public bool IsA(BlueprintId blueprintId)
         {
-            return FileIdHashSet.Contains(blueprintId);
+            return FileIds.Contains(blueprintId);
         }
 
         /// <summary>

@@ -121,9 +121,9 @@ namespace MHServerEmu.Games.GameData
         /// <summary>
         /// Returns an IEnumerable of all prototype class types.
         /// </summary>
-        public IEnumerable<Type> GetEnumerator()
+        public Dictionary<string, Type>.ValueCollection.Enumerator GetEnumerator()
         {
-            return _prototypeNameToClassTypeDict.Values.AsEnumerable();
+            return _prototypeNameToClassTypeDict.Values.GetEnumerator();
         }
 
         /// <summary>

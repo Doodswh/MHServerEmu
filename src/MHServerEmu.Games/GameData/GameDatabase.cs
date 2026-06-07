@@ -79,7 +79,7 @@ namespace MHServerEmu.Games.GameData
         static GameDatabase()
         {
             Logger.Info("Initializing game database...");
-            var stopwatch = Stopwatch.StartNew();
+            Stopwatch stopwatch = Stopwatch.StartNew();
 
             var config = ConfigManager.Instance.GetConfig<GameDataConfig>();
 
@@ -125,17 +125,17 @@ namespace MHServerEmu.Games.GameData
             // Preload all prototypes if needed
             if (config.LoadAllPrototypes)
             {
-                var loadAllWatch = Stopwatch.StartNew();
+                Stopwatch loadAllWatch = Stopwatch.StartNew();
 
-                foreach (PrototypeId prototypeId in DataDirectory.IterateAllPrototypes())
-                    DataDirectory.GetPrototype<Prototype>(prototypeId);
+                foreach (PrototypeId prototypeDataRef in DataDirectory.IterateAllPrototypes())
+                    DataDirectory.GetPrototype(prototypeDataRef);
 
                 loadAllWatch.Stop();
                 Logger.Info($"Loaded all prototypes in {loadAllWatch.ElapsedMilliseconds} ms");
             }
 
             // Initialize InteractionManager
-            var loadInteraction = Stopwatch.StartNew();
+            Stopwatch loadInteraction = Stopwatch.StartNew();
             InteractionManager = new();
             InteractionManager.Initialize();
             loadInteraction.Stop();
@@ -149,8 +149,8 @@ namespace MHServerEmu.Games.GameData
             LeaderboardInfoCache.Instance.Initialize();
 
             // Initialize game data tables
-            var tablesWatch = Stopwatch.StartNew();
-            var tables = GameDataTables.Instance;
+            Stopwatch tablesWatch = Stopwatch.StartNew();
+            GameDataTables tables = GameDataTables.Instance;
             tablesWatch.Stop();
             Logger.Info($"Initialized GameDataTables in {tablesWatch.ElapsedMilliseconds} ms");
 
@@ -165,7 +165,7 @@ namespace MHServerEmu.Games.GameData
         public static AssetType GetAssetType(AssetTypeId assetTypeId) => DataDirectory.AssetDirectory.GetAssetType(assetTypeId);
         public static Curve GetCurve(CurveId curveId) => DataDirectory.CurveDirectory.GetCurve(curveId);
         public static Blueprint GetBlueprint(BlueprintId blueprintId) => DataDirectory.GetBlueprint(blueprintId);
-        public static T GetPrototype<T>(PrototypeId prototypeId) where T: Prototype => DataDirectory.GetPrototype<T>(prototypeId);
+        public static T GetPrototype<T>(PrototypeId prototypeId) where T: Prototype => DataDirectory.GetPrototype(prototypeId) as T;
 
         public static string GetAssetName(AssetId assetId) => StringRefManager.GetReferenceName(assetId);
         public static string GetAssetTypeName(AssetTypeId assetTypeId) => AssetTypeRefManager.GetReferenceName(assetTypeId);
