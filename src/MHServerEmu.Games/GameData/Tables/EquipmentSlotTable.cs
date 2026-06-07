@@ -46,8 +46,8 @@ namespace MHServerEmu.Games.GameData.Tables
             if (_equipmentSlotDict == null)
                 return FindEquipmentUISlotForAvatar(itemProto, avatarProto);
 
-            if (itemProto == null) return Logger.WarnReturn(EquipmentInvUISlot.Invalid, "EquipmentUISlotForAvatar(): itemProto == null");
-            if (avatarProto == null) return Logger.WarnReturn(EquipmentInvUISlot.Invalid, "EquipmentUISlotForAvatar(): avatarProto == null");
+            if (!Verify.IsNotNull(itemProto)) return EquipmentInvUISlot.Invalid;
+            if (!Verify.IsNotNull(avatarProto)) return EquipmentInvUISlot.Invalid;
 
             if (_equipmentSlotDict.TryGetValue((itemProto.DataRef, avatarProto.DataRef), out EquipmentInvUISlot slot) == false)
                 return EquipmentInvUISlot.Invalid;
@@ -59,8 +59,8 @@ namespace MHServerEmu.Games.GameData.Tables
         {
             // Named EquipmentSlotTable::equipmentUISlotForAvatar() in the client
 
-            if (itemProto == null) return Logger.WarnReturn(EquipmentInvUISlot.Invalid, "FindEquipmentUISlotForAvatar(): itemProto == null");
-            if (avatarProto == null) return Logger.WarnReturn(EquipmentInvUISlot.Invalid, "FindEquipmentUISlotForAvatar(): avatarProto == null");
+            if (!Verify.IsNotNull(itemProto)) return EquipmentInvUISlot.Invalid;
+            if (!Verify.IsNotNull(avatarProto)) return EquipmentInvUISlot.Invalid;
 
             foreach (AvatarEquipInventoryAssignmentPrototype assignmentProto in avatarProto.EquipmentInventories)
             {

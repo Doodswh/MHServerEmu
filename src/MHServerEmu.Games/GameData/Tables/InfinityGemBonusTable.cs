@@ -13,9 +13,9 @@ namespace MHServerEmu.Games.GameData.Tables
 
             for (int i = 0; i < advGlobalsProto.InfinityGemSets.Length; i++)
             {
-                var gemSetProto = advGlobalsProto.InfinityGemSets[i].As<InfinityGemSetPrototype>();
+                InfinityGemSetPrototype gemSetProto = advGlobalsProto.InfinityGemSets[i].As<InfinityGemSetPrototype>();
 
-                foreach (var gemSetBonusRef in gemSetProto.Bonuses)
+                foreach (PrototypeId gemSetBonusRef in gemSetProto.Bonuses)
                     _gemSetBonusDict[gemSetBonusRef] = gemSetProto.Gem;
 
                 if ((i + 1) < advGlobalsProto.InfinityGemSets.Length)

@@ -16,7 +16,7 @@ namespace MHServerEmu.Games.GameData.Tables
 
         public LootCooldownTable()
         {
-            foreach (var lootCooldownRef in GameDatabase.DataDirectory.IteratePrototypesInHierarchy<LootCooldownPrototype>(PrototypeIterateFlags.NoAbstractApprovedOnly))
+            foreach (PrototypeId lootCooldownRef in GameDatabase.DataDirectory.IteratePrototypesInHierarchy<LootCooldownPrototype>(PrototypeIterateFlags.NoAbstractApprovedOnly))
             {
                 LootCooldownPrototype cooldownProto = lootCooldownRef.As<LootCooldownPrototype>();
                 AddMapping(cooldownProto.CooldownRef, cooldownProto.Channel);
@@ -60,18 +60,12 @@ namespace MHServerEmu.Games.GameData.Tables
             foreach (var kvp in customMappings)
             {
                 PrototypeId mapKey = GameDatabase.GetPrototypeRefByName(kvp.Key);
-                if (mapKey == PrototypeId.Invalid)
-                {
-                    Logger.Warn($"LoadCustomMappings(): Invalid key {kvp.Key}");
+                if (!Verify.IsTrue(mapKey != PrototypeId.Invalid, $"Invalid key {kvp.Key}"))
                     continue;
-                }
 
                 PrototypeId channel = GameDatabase.GetPrototypeRefByName(kvp.Value);
-                if (channel == PrototypeId.Invalid)
-                {
-                    Logger.Warn($"LoadCustomMappings(): Invalid channel {kvp.Value}");
+                if (!Verify.IsTrue(channel != PrototypeId.Invalid, $"Invalid channel {kvp.Value}"))
                     continue;
-                }
 
                 if (AddMapping(mapKey, channel))
                     addedCount++;
@@ -85,23 +79,20 @@ namespace MHServerEmu.Games.GameData.Tables
             if (mapKey == PrototypeId.Invalid)
                 return false;
 
-            if (_lootToCooldownChannelDict.ContainsKey(mapKey))
-                return Logger.WarnReturn(false, $"LootCooldownTable(): Duplicate prototype encountered when caching item/cooldown channel mappings! Skipping mapping: {mapKey.GetNameFormatted()} => {channel.GetName()}");
+            if (!Verify.IsTrue(_lootToCooldownChannelDict.ContainsKey(mapKey) == false, $"Duplicate prototype encountered when caching item/cooldown channel mappings! Skipping mapping: {mapKey.GetNameFormatted()} => {channel.GetName()}"))
+                return false;
 
             LootCooldownChannelPrototype channelProto = channel.As<LootCooldownChannelPrototype>();
 
             // Find currencies related to the item
-            var mapKeyProto = mapKey.As<Prototype>();
+            Prototype mapKeyProto = mapKey.As<Prototype>();
             if (mapKeyProto is WorldEntityPrototype worldEntityProto && worldEntityProto.Properties != null)
             {
                 foreach (var kvp in worldEntityProto.Properties.IteratePropertyRange(PropertyEnum.ItemCurrency))
                 {
                     Property.FromParam(kvp.Key, 0, out PrototypeId currencyRef);
-                    if (currencyRef == PrototypeId.Invalid)
-                    {
-                        Logger.Warn("LootCooldownTable(): currencyRef == PrototypeId.Invalid");
+                    if (!Verify.IsTrue(currencyRef != PrototypeId.Invalid))
                         continue;
-                    }
 
                     _currencyToCooldownChannelDict[currencyRef] = channelProto;
                 }

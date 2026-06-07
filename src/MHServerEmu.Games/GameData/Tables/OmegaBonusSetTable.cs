@@ -1,27 +1,29 @@
-﻿using MHServerEmu.Games.GameData.Prototypes;
+﻿using MHServerEmu.Core.Logging;
+using MHServerEmu.Games.GameData.Prototypes;
 
 namespace MHServerEmu.Games.GameData.Tables
 {
     public class OmegaBonusSetTable
     {
-        private readonly Dictionary<PrototypeId, OmegaBonusSetPrototype> _omegaBonusSetDict = new();
+        private readonly Dictionary<PrototypeId, OmegaBonusSetPrototype> _omegaBonusSets = new();
 
         public OmegaBonusSetTable()
         {
             AdvancementGlobalsPrototype advGlobalsProto = GameDatabase.AdvancementGlobalsPrototype;
+            if (!Verify.IsNotNull(advGlobalsProto)) return;
 
-            foreach (var omegaBonusSetRef in advGlobalsProto.OmegaBonusSets)
+            foreach (PrototypeId omegaBonusSetRef in advGlobalsProto.OmegaBonusSets)
             {
-                var omegaBonusSetProto = omegaBonusSetRef.As<OmegaBonusSetPrototype>();
+                OmegaBonusSetPrototype omegaBonusSetProto = omegaBonusSetRef.As<OmegaBonusSetPrototype>();
 
-                foreach (var omegaBonusRef in omegaBonusSetProto.OmegaBonuses)
-                    _omegaBonusSetDict[omegaBonusRef] = omegaBonusSetProto;
+                foreach (PrototypeId omegaBonusRef in omegaBonusSetProto.OmegaBonuses)
+                    _omegaBonusSets[omegaBonusRef] = omegaBonusSetProto;
             }
         }
 
         public OmegaBonusSetPrototype GetOmegaBonusSet(PrototypeId omegaBonusRef)
         {
-            if (_omegaBonusSetDict.TryGetValue(omegaBonusRef, out OmegaBonusSetPrototype omegaBonusSet) == false)
+            if (_omegaBonusSets.TryGetValue(omegaBonusRef, out OmegaBonusSetPrototype omegaBonusSet) == false)
                 return null;
 
             return omegaBonusSet;
