@@ -11,10 +11,10 @@ namespace MHServerEmu.Games.GameData
 {
     public enum DataOrigin : byte
     {
-        Unknown,        // Default value returned by DataDirectory::GetDataOrigin()
+        Invalid,
         Calligraphy,
         Resource,
-        Dynamic         // Unused? Mentioned in DataDirectory::GetPrototypeBlueprintDataRef()
+        Dynamic,        // Unused? Mentioned in DataDirectory::GetPrototypeBlueprintDataRef()
     }
 
     /// <summary>
@@ -440,31 +440,40 @@ namespace MHServerEmu.Games.GameData
                     string filePath;
                     PakFileId pakFileId;
 
-                    if (dataRefRecord.DataOrigin == DataOrigin.Calligraphy)
+                    switch (dataRefRecord.DataOrigin)
                     {
-                        filePath = $"Calligraphy/{GameDatabase.GetPrototypeName(dataRefRecord.PrototypeRef)}";
-                        pakFileId = PakFileId.Calligraphy;
-                    }
-                    else if (dataRefRecord.DataOrigin == DataOrigin.Resource)
-                    {
-                        filePath = GameDatabase.GetPrototypeName(dataRefRecord.PrototypeRef);
-                        pakFileId = PakFileId.Default;
-                    }
-                    else
-                    {
-                        throw new NotImplementedException($"Prototype deserialization for data origin {dataRefRecord.DataOrigin} is not supported.");
+                        case DataOrigin.Calligraphy:
+                            filePath = $"Calligraphy/{GameDatabase.GetPrototypeName(dataRefRecord.PrototypeRef)}";
+                            pakFileId = PakFileId.Calligraphy;
+                            break;
+
+                        case DataOrigin.Resource:
+                            filePath = GameDatabase.GetPrototypeName(dataRefRecord.PrototypeRef);
+                            pakFileId = PakFileId.Default;
+                            break;
+
+                        default:
+                            Verify.IsTrue(false, $"Prototype deserialization for data origin {dataRefRecord.DataOrigin} is not supported");
+                            return null;
                     }
 
-                    // Deserialize and postprocess
-                    using Stream stream = LoadPakDataFile(filePath, pakFileId);
+                    // We are skipping DataDirectory::getAndCacheResource() because we don't have uncooked resource prototypes.
+                    using Stream fileStream = LoadPakDataFile(filePath, pakFileId);
+                    if (!Verify.IsNotNull(fileStream, $"Unable to open {filePath}"))
+                        return null;
 
-                    Prototype prototype = DeserializePrototypeFromStream(stream, dataRefRecord);
+                    Prototype prototype = DeserializePrototypeFromStream(fileStream, dataRefRecord);
+                    if (!Verify.IsNotNull(prototype, $"Failed to deserialize prototype {filePath}"))
+                        return null;
+
+                    // NOTE: DataRefRecord <-> Prototype binding already happens in DeserializePrototypeFromStream(), but the client does it again here.
+                    //prototype.DataRefRecord = dataRefRecord;
+                    //dataRefRecord.Prototype = prototype;
 
                     if (prototype.ShouldCacheCRC)
                         dataRefRecord.Crc = GameDatabase.PrototypeClassManager.CalculateDataCRC(prototype);
 
-                    dataRefRecord.Prototype = prototype;
-                    prototype.DataRefRecord = dataRefRecord;
+                    // We simplify this a bit compared to the client and just post-process inside the lock instead of using a separate queue.
                     prototype.PostProcess();
                 }
 
@@ -700,7 +709,7 @@ namespace MHServerEmu.Games.GameData
         public DataOrigin GetDataOrigin(PrototypeId prototypeDataRef)
         {
             PrototypeDataRefRecord record = GetPrototypeDataRefRecord(prototypeDataRef);
-            if (!Verify.IsNotNull(record)) return DataOrigin.Unknown;
+            if (!Verify.IsNotNull(record)) return DataOrigin.Invalid;
 
             return record.DataOrigin;
         }
