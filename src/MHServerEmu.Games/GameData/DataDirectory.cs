@@ -874,7 +874,9 @@ namespace MHServerEmu.Games.GameData
             string filePath = entryReader.ReadFixedString16().Replace('\\', '/');
 
             GameDatabase.CurveRefManager.AddDataRef(curveId, filePath);
+
             CurveDirectory.CurveRecord record = CurveDirectory.CreateCurveRecord(curveId, flags);
+            if (!Verify.IsNotNull(record)) return;
 
             // Load this curve
             CurveDirectory.GetCurve(curveId);
