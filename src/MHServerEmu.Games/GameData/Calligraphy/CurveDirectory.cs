@@ -15,9 +15,12 @@ namespace MHServerEmu.Games.GameData.Calligraphy
         public CurveRecord CreateCurveRecord(CurveId curveRef, CurveRecordFlags flags)
         {
             if (!Verify.IsTrue(curveRef != CurveId.Invalid)) return null;
-            if (!Verify.IsTrue(_curves.ContainsKey(curveRef) == false)) return null;
 
-            CurveRecord record = new() { Flags = flags };
+            bool recordExists = _curves.TryGetValue(curveRef, out CurveRecord record);
+            if (!Verify.IsTrue(recordExists == false, "Curve record already exists, returning existing record"))
+                return record;
+
+            record = new() { Flags = flags };
             _curves.Add(curveRef, record);
 
             return record;

@@ -15,8 +15,8 @@ namespace MHServerEmu.Games.Properties
     {
         private static readonly Logger Logger = LogManager.CreateLogger();
 
-        public static readonly (string, Type)[] AssetEnumBindings = new(string, Type)[]     // s_PropertyParamEnumLookups
-        {
+        public static readonly (string Name, Type ClassType)[] PropertyParamEnumLookups =
+        [
             ("ProcTriggerType",                 typeof(ProcTriggerType)),
             ("DamageType",                      typeof(DamageType)),
             ("TargetRestrictionType",           typeof(TargetRestrictionType)),
@@ -36,7 +36,7 @@ namespace MHServerEmu.Games.Properties
 
             // Extra bindings not present in the client here, but scattered across various asset enum lookup instances
             ("RegionBehavior",                  typeof(RegionBehavior)),
-        };
+        ];
 
         private readonly Dictionary<PrototypeId, PropertyEnum> _prototypeIdToPropertyEnumDict = new();
 

@@ -7,38 +7,29 @@ namespace MHServerEmu.Games.GameData.Calligraphy
     /// </summary>
     public sealed class AssetDirectory
     {
-        private static readonly Logger Logger = LogManager.CreateLogger();
+        private readonly Dictionary<AssetTypeId, LoadedAssetTypeRecord> _loadedAssetTypes = new();  // AssetTypeId => LoadedAssetTypeRecord
+        private readonly Dictionary<AssetId, AssetTypeId> _assetIdToTypeIdLookup = new();           // AssetId => AssetTypeId
+        private readonly Dictionary<AssetGuid, AssetId> _assetGuidToIdLookup = new();               // AssetGuid => AssetId
 
-        private readonly Dictionary<AssetTypeId, LoadedAssetTypeRecord> _assetTypeRecordDict = new();  // AssetTypeId => LoadedAssetTypeRecord
-        private readonly Dictionary<AssetId, AssetTypeId> _assetIdToTypeIdDict = new();                // AssetId => AssetTypeId
-        private readonly Dictionary<AssetGuid, AssetId> _assetGuidToIdDict = new();                    // AssetGuid => AssetId
-
-        private readonly Dictionary<AssetId, int> _assetIdToEnumValueDict = new();                     // AssetId => EnumValue
+        private readonly Dictionary<AssetId, int> _assetEnumValues = new();                         // AssetId => EnumValue
 
         public static AssetDirectory Instance { get; } = new();
 
-        public int AssetTypeCount { get => _assetTypeRecordDict.Count; }
-        public int AssetCount { get => _assetGuidToIdDict.Count; }
+        public int AssetTypeCount { get => _loadedAssetTypes.Count; }
+        public int AssetCount { get => _assetGuidToIdLookup.Count; }
 
         private AssetDirectory() { }
 
         /// <summary>
         /// Creates a new <see cref="LoadedAssetTypeRecord"/> that can hold a loaded <see cref="AssetType"/>.
         /// </summary>
-        public LoadedAssetTypeRecord CreateAssetTypeRecord(AssetTypeId id, AssetTypeRecordFlags flags)
+        public LoadedAssetTypeRecord CreateAssetTypeRecord(AssetTypeId assetTypeRef, AssetTypeRecordFlags flags)
         {
-            LoadedAssetTypeRecord record = new() { Flags = flags };
-            _assetTypeRecordDict.Add(id, record);
-            return record;
-        }
+            bool recordExists = _loadedAssetTypes.TryGetValue(assetTypeRef, out LoadedAssetTypeRecord record);
+            if (!Verify.IsTrue(recordExists == false)) return record;
 
-        /// <summary>
-        /// Gets the record that contains the <see cref="AssetType"/> with the specified id.
-        /// </summary>
-        public LoadedAssetTypeRecord GetAssetTypeRecord(AssetTypeId assetTypeId)
-        {
-            if (_assetTypeRecordDict.TryGetValue(assetTypeId, out var record) == false)
-                return null;
+            record = new() { Flags = flags };
+            _loadedAssetTypes.Add(assetTypeRef, record);
 
             return record;
         }
@@ -46,20 +37,27 @@ namespace MHServerEmu.Games.GameData.Calligraphy
         /// <summary>
         /// Returns the <see cref="AssetType"/> with the specified <see cref="AssetTypeId"/>.
         /// </summary>
-        public AssetType GetAssetType(AssetTypeId assetTypeId)
+        public AssetType GetAssetType(AssetTypeId assetTypeRef)
         {
-            return GetAssetTypeRecord(assetTypeId).AssetType;
+            if (_loadedAssetTypes.TryGetValue(assetTypeRef, out LoadedAssetTypeRecord record) == false)
+                return null;
+
+            return record.AssetType;
         }
 
         /// <summary>
         /// Returns the <see cref="AssetType"/> that the specified <see cref="AssetId"/> belongs to.
         /// </summary>
-        public AssetType GetAssetType(AssetId assetId)
+        public AssetType GetAssetType(AssetId assetRef)
         {
-            var assetTypeId = GetAssetTypeRef(assetId);
-            if (assetTypeId == AssetTypeId.Invalid) return null;
+            if (assetRef == AssetId.Invalid)
+                return null;
 
-            return GetAssetType(assetTypeId);
+            AssetTypeId assetTypeRef = GetAssetTypeRef(assetRef);
+            if (assetTypeRef == AssetTypeId.Invalid)
+                return null;
+
+            return GetAssetType(assetTypeRef);
         }
 
         /// <summary>
@@ -67,56 +65,57 @@ namespace MHServerEmu.Games.GameData.Calligraphy
         /// </summary>
         public AssetType GetAssetType(string name)  // Same as AssetDirectory::GetWritableAssetType()
         {
-            var matches = GameDatabase.SearchAssetTypes(name, DataFileSearchFlags.NoMultipleMatches);
-            if (matches.Any() == false)
-                Logger.WarnReturn<AssetType>(null, $"Failed to find AssetType by pattern {name}");
+            IEnumerable<AssetTypeId> matches = GameDatabase.SearchAssetTypes(name, DataFileSearchFlags.NoMultipleMatches);   // FIXME
+            if (!Verify.IsTrue(matches.Any(), $"No asset type matches for [{name}]"))
+                return null;
 
-            AssetTypeId id = matches.First();
-            return _assetTypeRecordDict[id].AssetType;
+            AssetTypeId assetTypeRef = matches.First();
+            return GetAssetType(assetTypeRef);
         }
 
         /// <summary>
         /// Returns the <see cref="AssetTypeId"/> of the <see cref="AssetType"/> that the specified <see cref="AssetId"/> belong to.
         /// </summary>
-        public AssetTypeId GetAssetTypeRef(AssetId assetId)
+        public AssetTypeId GetAssetTypeRef(AssetId assetRef)
         {
-            if (_assetIdToTypeIdDict.TryGetValue(assetId, out var assetTypeId) == false)
+            if (_assetIdToTypeIdLookup.TryGetValue(assetRef, out AssetTypeId assetTypeRef) == false)
                 return AssetTypeId.Invalid;
 
-            return assetTypeId;
+            return assetTypeRef;
         }
 
         public AssetId GetAssetRef(AssetGuid assetGuid)
         {
-            bool found = _assetGuidToIdDict.TryGetValue(assetGuid, out AssetId assetId);
+            bool found = _assetGuidToIdLookup.TryGetValue(assetGuid, out AssetId assetRef);
             
             while (found == false)
             {
                 ulong guidReplacement = 0;
                 
                 if (DataDirectory.Instance.GetGuidReplacement((ulong)assetGuid, ref guidReplacement) && guidReplacement != 0)
-                    found = _assetGuidToIdDict.TryGetValue((AssetGuid)guidReplacement, out assetId);
+                    found = _assetGuidToIdLookup.TryGetValue((AssetGuid)guidReplacement, out assetRef);
                 else
                     return AssetId.Invalid;
             }
 
-            return assetId;
+            return assetRef;
         }
 
         /// <summary>
         /// Returns the enum value of the specified <see cref="AssetId"/>.
         /// </summary>
-        public int GetEnumValue(AssetId assetId)
+        public int GetEnumValue(AssetId assetRef)
         {
-            if (_assetIdToEnumValueDict.TryGetValue(assetId, out int enumValue) == false)
+            if (_assetEnumValues.TryGetValue(assetRef, out int enumValue) == false)
             {
                 // Enumerate the asset type if there is no quick enum lookup for this assetId
-                AssetType assetType = GetAssetType(assetId);
+                AssetType assetType = GetAssetType(assetRef);
+                if (!Verify.IsNotNull(assetType)) return 0;
                 assetType.Enumerate();
 
                 // If there is still no lookup something must have gone wrong
-                if (_assetIdToEnumValueDict.TryGetValue(assetId, out enumValue) == false)
-                    Logger.WarnReturn(0, $"Failed to get enum value for asset id {assetId}");
+                if (!Verify.IsTrue(_assetEnumValues.TryGetValue(assetRef, out enumValue) == false))
+                    return 0;
             }
 
             return enumValue;
@@ -125,31 +124,31 @@ namespace MHServerEmu.Games.GameData.Calligraphy
         /// <summary>
         /// Adds new <see cref="AssetId"/> => <see cref="AssetTypeId"/> and <see cref="AssetGuid"/> => <see cref="AssetId"/> lookups.
         /// </summary>
-        public void AddAssetLookup(AssetTypeId assetTypeId, AssetId assetId, AssetGuid assetGuid)
+        public void AddAssetLookup(AssetTypeId assetTypeRef, AssetId assetRef, AssetGuid assetGuid)
         {
-            _assetIdToTypeIdDict.Add(assetId, assetTypeId);
-            _assetGuidToIdDict.Add(assetGuid, assetId);
+            _assetIdToTypeIdLookup.Add(assetRef, assetTypeRef);
+            _assetGuidToIdLookup.Add(assetGuid, assetRef);
         }
 
         /// <summary>
         /// Adds a new <see cref="AssetId"/> => enumValue lookup.
         /// </summary>
-        public void AddAssetEnumLookup(AssetId assetId, int enumValue)
+        public void AddAssetEnumLookup(AssetId assetRef, int enumValue)
         {
-            _assetIdToEnumValueDict.Add(assetId, enumValue);
+            _assetEnumValues.Add(assetRef, enumValue);
         }
 
         /// <summary>
         /// Binds <see cref="AssetType"/> instances to code enums.
         /// </summary>
-        public void BindAssetTypes(Dictionary<AssetType, Type> assetEnumBindingDict)
+        public void BindAssetTypes(Dictionary<AssetType, Type> assetEnumBindings)
         {
-            // Iterate through all loaded asset types
-            foreach (var record in _assetTypeRecordDict.Values)
+            foreach (LoadedAssetTypeRecord record in _loadedAssetTypes.Values)
             {
-                // Bind asset type to enum if it's in the binding dictionary
-                assetEnumBindingDict.TryGetValue(record.AssetType, out Type enumBinding);
-                record.AssetType.BindEnum(enumBinding);
+                if (assetEnumBindings.TryGetValue(record.AssetType, out Type enumBinding))
+                    record.AssetType.BindEnum(enumBinding);
+                else
+                    record.AssetType.BindEnum(null);
             }
         }
 
@@ -158,8 +157,8 @@ namespace MHServerEmu.Games.GameData.Calligraphy
         /// </summary>
         public IEnumerable<AssetType> IterateAssetTypes()
         {
-            foreach (var record in _assetTypeRecordDict.Values)
-                yield return record.AssetType;
+            foreach (var record in _loadedAssetTypes.Values)
+                yield return record.AssetType;  // FIXME
         }
 
         /// <summary>
@@ -167,7 +166,7 @@ namespace MHServerEmu.Games.GameData.Calligraphy
         /// </summary>
         public class LoadedAssetTypeRecord
         {
-            public AssetType AssetType { get; set; }
+            public AssetType AssetType { get; } = new();
             public AssetTypeRecordFlags Flags { get; set; }
         }
     }

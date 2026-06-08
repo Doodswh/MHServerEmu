@@ -150,10 +150,10 @@ namespace MHServerEmu.Games.GameData
             */
 
             // Add bindings explicitly defined in PropertyInfoTable
-            foreach (var binding in PropertyInfoTable.AssetEnumBindings)
+            foreach (var binding in PropertyInfoTable.PropertyParamEnumLookups)
             {
-                AssetType assetType = assetDirectory.GetAssetType(binding.Item1);
-                assetEnumBindingDict.Add(assetType, binding.Item2);
+                AssetType assetType = assetDirectory.GetAssetType(binding.Name);
+                assetEnumBindingDict.Add(assetType, binding.ClassType);
             }
 
             assetDirectory.BindAssetTypes(assetEnumBindingDict);

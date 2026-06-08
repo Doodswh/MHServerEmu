@@ -13,7 +13,7 @@ namespace MHServerEmu.Games.GameData.Calligraphy
         public bool AddReplacementRecord(ulong guid, ulong replacement, string name)
         {
             if (!Verify.IsTrue(guid != 0)) return false;
-            if (!Verify.IsTrue(_replacements.ContainsKey(guid) == false)) return false;
+            if (!Verify.IsTrue(_replacements.ContainsKey(guid) == false)) return false; // client message: Replacement record already exists, returning existing record
 
             ReplacementRecord record = new(guid, replacement, name);
             _replacements.Add(guid, record);

@@ -81,7 +81,7 @@ namespace MHServerEmu.Commands
             const int MaxMatches = 10;
 
             IEnumerable<PrototypeId> matches = GameDatabase.SearchPrototypes(pattern,
-                DataFileSearchFlags.SortMatchesByName | DataFileSearchFlags.CaseInsensitive, blueprintRef);
+                DataFileSearchFlags.SortMatchesByName | DataFileSearchFlags.IgnoreCase, blueprintRef);
 
             // Not enough
             if (matches.Any() == false)

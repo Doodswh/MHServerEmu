@@ -36,7 +36,7 @@ namespace MHServerEmu.Commands.Implementations
                     break;
 
                 default:
-                    var matches = GameDatabase.SearchPrototypes(@params[0], DataFileSearchFlags.SortMatchesByName | DataFileSearchFlags.CaseInsensitive, HardcodedBlueprints.Costume);
+                    var matches = GameDatabase.SearchPrototypes(@params[0], DataFileSearchFlags.SortMatchesByName | DataFileSearchFlags.IgnoreCase, HardcodedBlueprints.Costume);
 
                     if (matches.Any() == false)
                         return $"Failed to find any costumes containing {@params[0]}.";

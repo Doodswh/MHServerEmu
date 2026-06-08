@@ -857,10 +857,19 @@ namespace MHServerEmu.Games.GameData
             string filePath = entryReader.ReadFixedString16().Replace('\\', '/');
 
             GameDatabase.AssetTypeRefManager.AddDataRef(dataId, filePath);
-            AssetDirectory.LoadedAssetTypeRecord record = AssetDirectory.CreateAssetTypeRecord(dataId, flags);
 
-            using Stream stream = LoadPakDataFile($"Calligraphy/{filePath}", PakFileId.Calligraphy);
-            record.AssetType = new(stream, AssetDirectory, dataId, assetTypeGuid);
+            AssetDirectory.LoadedAssetTypeRecord assetTypeRecord = AssetDirectory.CreateAssetTypeRecord(dataId, flags);
+            if (!Verify.IsNotNull(assetTypeRecord)) return;
+
+            string assetTypeFilename = $"Calligraphy/{filePath}";
+            using Stream fileStream = LoadPakDataFile(assetTypeFilename, PakFileId.Calligraphy);
+            if (!Verify.IsNotNull(fileStream, $"Unable to open asset type file {assetTypeFilename}"))
+                return;
+
+            using BinaryReader reader = new(fileStream);
+
+            AssetType assetType = assetTypeRecord.AssetType;
+            assetType.Load(reader, AssetDirectory, dataId, assetTypeGuid, GameDatabase.StringRefManager);
         }
 
         /// <summary>

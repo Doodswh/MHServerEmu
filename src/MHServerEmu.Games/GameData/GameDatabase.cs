@@ -20,7 +20,7 @@ namespace MHServerEmu.Games.GameData
         NoMultipleMatches   = 1 << 0,
         SortMatchesByName   = 1 << 1,
         ExactMatchesOnly    = 1 << 2,
-        CaseInsensitive     = 1 << 3    // Our custom flag not present in the client
+        IgnoreCase          = 1 << 3    // Our custom flag not present in the client
     }
 
     public static class GameDatabase
@@ -257,8 +257,8 @@ namespace MHServerEmu.Games.GameData
             foreach (AssetType type in DataDirectory.IterateAssetTypes())
             {
                 // Search only the type we need if one is specified
-                if (typeId != AssetTypeId.Invalid && type.Id != typeId) continue;
-                var asset = type.FindAssetByName(pattern, searchFlags);
+                if (typeId != AssetTypeId.Invalid && type.AssetTypeRef != typeId) continue;
+                var asset = type.FindAssetByName(pattern, searchFlags.HasFlag(DataFileSearchFlags.IgnoreCase));
                 if (asset != AssetId.Invalid) matches.Add(asset);
 
                 // Early return if no multiple matches is requested and there's more than one match
@@ -335,7 +335,7 @@ namespace MHServerEmu.Games.GameData
             {
                 foreach (AssetType assetType in DataDirectory.IterateAssetTypes())
                 {
-                    AssetTypeId assetTypeId = assetType.Id;
+                    AssetTypeId assetTypeId = assetType.AssetTypeRef;
                     string assetTypeName = GetAssetTypeName(assetTypeId);
 
                     if (matchAllResults || CompareName(assetTypeName, pattern, searchFlags))
@@ -361,7 +361,7 @@ namespace MHServerEmu.Games.GameData
             if (flags.HasFlag(DataFileSearchFlags.ExactMatchesOnly))
                 return name == pattern;
 
-            if (flags.HasFlag(DataFileSearchFlags.CaseInsensitive))
+            if (flags.HasFlag(DataFileSearchFlags.IgnoreCase))
                 return name.Contains(pattern, StringComparison.InvariantCultureIgnoreCase);
 
             return name.Contains(pattern, StringComparison.InvariantCulture);

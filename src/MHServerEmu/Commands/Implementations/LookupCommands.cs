@@ -54,7 +54,7 @@ namespace MHServerEmu.Commands.Implementations
         public string Blueprint(string[] @params, NetClient client)
         {
             // Find matches for the given pattern
-            var matches = GameDatabase.SearchBlueprints(@params[0], DataFileSearchFlags.SortMatchesByName | DataFileSearchFlags.CaseInsensitive);
+            var matches = GameDatabase.SearchBlueprints(@params[0], DataFileSearchFlags.SortMatchesByName | DataFileSearchFlags.IgnoreCase);
             return OutputLookupMatches(matches.Select(match => ((ulong)match, GameDatabase.GetBlueprintName(match))), client);
         }
 
@@ -64,7 +64,7 @@ namespace MHServerEmu.Commands.Implementations
         [CommandParamCount(1)]
         public string AssetType(string[] @params, NetClient client)
         {
-            var matches = GameDatabase.SearchAssetTypes(@params[0], DataFileSearchFlags.SortMatchesByName | DataFileSearchFlags.CaseInsensitive);
+            var matches = GameDatabase.SearchAssetTypes(@params[0], DataFileSearchFlags.SortMatchesByName | DataFileSearchFlags.IgnoreCase);
             return OutputLookupMatches(matches.Select(match => ((ulong)match, GameDatabase.GetAssetTypeName(match))), client);
         }
 
@@ -74,7 +74,7 @@ namespace MHServerEmu.Commands.Implementations
         [CommandParamCount(1)]
         public string Asset(string[] @params, NetClient client)
         {
-            var matches = GameDatabase.SearchAssets(@params[0], DataFileSearchFlags.SortMatchesByName | DataFileSearchFlags.CaseInsensitive);
+            var matches = GameDatabase.SearchAssets(@params[0], DataFileSearchFlags.SortMatchesByName | DataFileSearchFlags.IgnoreCase);
             return OutputLookupMatches(matches.Select(match => ((ulong)match,
                 $"{GameDatabase.GetAssetName(match)} ({GameDatabase.GetAssetTypeName(GameDatabase.DataDirectory.AssetDirectory.GetAssetTypeRef(match))})")),
                 client);
@@ -82,7 +82,7 @@ namespace MHServerEmu.Commands.Implementations
 
         private static string LookupPrototypes(string pattern, BlueprintId blueprint, NetClient client)
         {
-            var matches = GameDatabase.SearchPrototypes(pattern, DataFileSearchFlags.SortMatchesByName | DataFileSearchFlags.CaseInsensitive, blueprint);
+            var matches = GameDatabase.SearchPrototypes(pattern, DataFileSearchFlags.SortMatchesByName | DataFileSearchFlags.IgnoreCase, blueprint);
             return OutputLookupMatches(matches.Select(match => ((ulong)match, GameDatabase.GetPrototypeName(match))), client);
         }
 
