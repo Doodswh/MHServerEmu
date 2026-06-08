@@ -243,7 +243,7 @@ namespace MHServerEmu.Games.GameData.Calligraphy
 
                     // Get the field group blueprint and make sure it is bound to a property
                     Blueprint groupBlueprint = GameDatabase.GetBlueprint(groupBlueprintId);
-                    if (groupBlueprint.IsProperty() == false)
+                    if (groupBlueprint.IsProperty == false)
                         return Logger.ErrorReturn(false, "ParsePropertyId(): Group blueprint is not bound to a property");
 
                     // Deserialize the property id and assign it to the field
@@ -262,10 +262,10 @@ namespace MHServerEmu.Games.GameData.Calligraphy
                 // If there is no data but a reference to a parent exists, get default property id from parent blueprint
                 Blueprint parentBlueprint = GameDatabase.DataDirectory.GetPrototypeBlueprint(header.ReferenceType);
 
-                if (parentBlueprint.IsProperty() == false)
+                if (parentBlueprint.IsProperty == false)
                     return Logger.ErrorReturn(false, "ParsePropertyId(): Parent blueprint is not bound to a property");
 
-                PrototypeId propertyDataRef = parentBlueprint.PropertyPrototypeRef;
+                PrototypeId propertyDataRef = parentBlueprint.PropertyDataRef;
                 PropertyEnum propertyEnum = GameDatabase.PropertyInfoTable.GetPropertyEnumFromPrototype(propertyDataRef);
 
                 if (propertyEnum == PropertyEnum.Invalid)
@@ -529,7 +529,7 @@ namespace MHServerEmu.Games.GameData.Calligraphy
 
                     // Get the field group blueprint and make sure it is bound to a property
                     Blueprint groupBlueprint = GameDatabase.GetBlueprint(groupBlueprintId);
-                    if (groupBlueprint.IsProperty() == false)
+                    if (groupBlueprint.IsProperty == false)
                         return Logger.ErrorReturn(false, "ParsePropertyList(): Group blueprint is not bound to a property");
 
                     DeserializeFieldGroupIntoProperty(propertyCollection, groupBlueprint, blueprintCopyNum, @params.FileName, reader, "PropertyList");

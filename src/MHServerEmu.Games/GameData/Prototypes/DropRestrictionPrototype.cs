@@ -163,7 +163,7 @@ namespace MHServerEmu.Games.GameData.Prototypes
                     continue;
                 }
 
-                if (dataDirectory.PrototypeIsChildOfBlueprint(itemProto.DataRef, blueprint.Id))
+                if (dataDirectory.PrototypeIsChildOfBlueprint(itemProto.DataRef, blueprint.BlueprintDataRef))
                     return true;
             }
 

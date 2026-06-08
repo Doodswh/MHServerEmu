@@ -10,102 +10,152 @@ namespace MHServerEmu.Games.GameData.Calligraphy
     /// </summary>
     public class Blueprint
     {
-        private static readonly Logger Logger = LogManager.CreateLogger();
-
-        private readonly Dictionary<StringId, BlueprintMember> _members;        // Field definitions for prototypes that use this blueprint  
+        private Dictionary<StringId, BlueprintMember> _members;        // Field definitions for prototypes that use this blueprint  
 
         private PrototypeId[] _enumValueToPrototypeLookup = Array.Empty<PrototypeId>();
         private Dictionary<PrototypeId, int> _prototypeToEnumValueLookup;
 
-        public BlueprintId Id { get; }
-        public BlueprintGuid Guid { get; }
+        public BlueprintId BlueprintDataRef { get; private set; }
+        public BlueprintGuid Guid { get; private set; }
 
-        public HashSet<BlueprintId> FileIds { get; } = new();                   // Contains ids of all blueprints related to this one in the hierarchy
-        public List<PrototypeDataRefRecord> PrototypeRecords { get; } = new();  // A list of all prototype records that use this blueprint for iteration
+        public HashSet<BlueprintId> FileIds { get; } = new();                   // Ids of all blueprints related to this one in the hierarchy
+        public List<PrototypeDataRefRecord> PrototypeRecords { get; } = new();  // Prototype records that use this blueprint
 
-        public Type RuntimeBindingClassType { get; }                            // Type of the class that handles prototypes that use this blueprint
-        public PrototypeId DefaultPrototypeRef { get; }                         // .defaults prototype file id
-        public BlueprintReference[] Parents { get; }
-        public BlueprintReference[] ContributingBlueprints { get; }
+        public Type RuntimeBindingClassType { get; private set; }               // Class that handles prototypes that use this blueprint
+        public PrototypeId DefaultPrototypeRef { get; private set; }            // .defaults prototype file id
+        public BlueprintId[] Parents { get; private set; }
+        public BlueprintId[] ContributingBlueprints { get; private set; }
 
-        public PrototypeId PropertyPrototypeRef { get; private set; } = PrototypeId.Invalid;
+        public PrototypeId PropertyDataRef { get; private set; } = PrototypeId.Invalid;
+        public bool IsProperty { get => PropertyDataRef != PrototypeId.Invalid; }
 
         public int PrototypeMaxEnumValue { get => _enumValueToPrototypeLookup.Length - 1; }
 
         /// <summary>
         /// Deserializes a new <see cref="Blueprint"/> instance from a <see cref="Stream"/>.
         /// </summary>
-        public Blueprint(Stream stream, BlueprintId id, BlueprintGuid guid)
+        public Blueprint() { }
+
+        public override string ToString()
         {
-            Id = id;
+            return GameDatabase.GetBlueprintName(BlueprintDataRef);
+        }
+
+        public bool Deserialize(BinaryReader dataReader, BlueprintGuid guid, BlueprintId blueprintRef)
+        {
+            BlueprintDataRef = blueprintRef;
             Guid = guid;
 
-            // Deserialize
-            using (BinaryReader reader = new(stream))
+            try
             {
-                CalligraphyHeader header = new(reader);
+                CalligraphyHeader header = new(dataReader); // TODO: CalligraphyReader
 
-                // Read runtime binding name and get a matching prototype class type from the prototype class manager
-                string runtimeBinding = reader.ReadFixedString16();
-                RuntimeBindingClassType = GameDatabase.PrototypeClassManager.GetPrototypeClassTypeByName(runtimeBinding);
-                
-                DefaultPrototypeRef = (PrototypeId)reader.ReadUInt64();
+                // RuntimeBinding
+                string runtimeBinding = dataReader.ReadFixedString16();
+                Type classType = GameDatabase.PrototypeClassManager.GetPrototypeClassTypeByName(runtimeBinding);
+                if (!Verify.IsNotNull(classType)) return false;
+                RuntimeBindingClassType = classType;
 
-                Parents = new BlueprintReference[reader.ReadInt16()];
-                for (int i = 0; i < Parents.Length; i++)
-                    Parents[i] = new(reader);
+                // DefaultPrototypeRef
+                DefaultPrototypeRef = (PrototypeId)dataReader.ReadUInt64();
 
-                ContributingBlueprints = new BlueprintReference[reader.ReadInt16()];
-                for (int i = 0; i < ContributingBlueprints.Length; i++)
-                    ContributingBlueprints[i] = new(reader);
+                // Parents
+                short numParents = dataReader.ReadInt16();
+                if (numParents > 0)
+                {
+                    Parents = new BlueprintId[numParents];
+                    for (int i = 0; i < numParents; i++)
+                    {
+                        Parents[i] = (BlueprintId)dataReader.ReadUInt64();
+                        byte numOfCopies = dataReader.ReadByte();   // unused
+                    }
+                }
+                else
+                {
+                    Parents = Array.Empty<BlueprintId>();
+                }
 
-                // Deserialize members
-                short numMembers = reader.ReadInt16();
+                // ContributingBlueprints
+                short numContributingBlueprints = dataReader.ReadInt16();
+                if (numContributingBlueprints > 0)
+                {
+                    ContributingBlueprints = new BlueprintId[numContributingBlueprints];
+                    for (int i = 0; i < numContributingBlueprints; i++)
+                    {
+                        ContributingBlueprints[i] = (BlueprintId)dataReader.ReadUInt64();
+                        byte numOfCopies = dataReader.ReadByte();   // unused
+                    }
+                }
+                else
+                {
+                    ContributingBlueprints = Array.Empty<BlueprintId>();
+                }
+
+                // Members
+                short numMembers = dataReader.ReadInt16();
                 _members = new(numMembers);
                 for (int i = 0; i < numMembers; i++)
                 {
-                    BlueprintMember member = new(reader);
+                    StringId fieldId = (StringId)dataReader.ReadUInt64();
+                    string fieldName = dataReader.ReadFixedString16();
+                    CalligraphyBaseType baseType = (CalligraphyBaseType)dataReader.ReadByte();
+                    CalligraphyStructureType structureType = (CalligraphyStructureType)dataReader.ReadByte();
+
+                    if (!Verify.IsTrue(IsSupportedType(baseType, structureType), $"Unsupported field type '{(char)baseType}','{(char)structureType}' for field {fieldName} in blueprint {this}"))
+                        return false;
+
+                    if (IsReferenceType(baseType))
+                    {
+                        ulong subtype = dataReader.ReadUInt64();    // unused
+                    }
+
+                    BlueprintMember member = new(fieldId, fieldName, baseType, structureType);
                     _members.Add(member.FieldId, member);
                 }
             }
-
-            // Bind non-property blueprint members to C# properties
-            foreach (var member in _members.Values)
+            catch (Exception e)
             {
-                Type classBinding = RuntimeBindingClassType;
-                while (classBinding != typeof(Prototype))
+                Verify.IsTrue(false, e.Message);
+                return false;
+            }
+
+            // Bind non-property blueprint members to C# reflection metadata
+            foreach (BlueprintMember member in _members.Values)
+            {
+                Type classType = RuntimeBindingClassType;
+                while (classType != typeof(Prototype))
                 {
                     // Try to find a matching property info in our runtime binding
-                    member.RuntimeClassFieldInfo = classBinding.GetProperty(member.FieldName, BindingFlags.DeclaredOnly | BindingFlags.Instance | BindingFlags.Public);
-                    if (member.RuntimeClassFieldInfo != null) break;
+                    member.RuntimeClassFieldInfo = classType.GetProperty(member.FieldName, BindingFlags.DeclaredOnly | BindingFlags.Instance | BindingFlags.Public);
+                    if (member.RuntimeClassFieldInfo != null)
+                        break;
 
                     // Go up in the hierarchy if we didn't find it
-                    classBinding = classBinding.BaseType;
+                    classType = classType.BaseType;
                 }
             }
+
+            return true;
         }
 
         /// <summary>
         /// Gets a struct that contains a reference to a <see cref="BlueprintMember"/> and the <see cref="Blueprint"/> it belongs to.
         /// This method searches this blueprint, as well as all of its parents recursively.
         /// </summary>
-        public bool TryGetBlueprintMemberInfo(StringId fieldId, out BlueprintMemberInfo memberInfo)
+        public bool GetBlueprintMemberInfo(StringId fieldId, out BlueprintMemberInfo memberInfo)
         {
-            // Note: this is called GetBlueprintMemberInfo in the client, but we're calling it TryGetBlueprintMemberInfo here
-            // to match the usual .NET naming conventions.
-            
             // Check if the specified member belongs to this blueprint
-            if (_members.TryGetValue(fieldId, out var member))
+            if (_members.TryGetValue(fieldId, out BlueprintMember member))
             {
                 memberInfo = new(this, member);
                 return true;
             }
 
             // Check if the specified member belongs to any of our parents
-            foreach (BlueprintReference parentRef in Parents)
+            foreach (BlueprintId parentRef in Parents)
             {
-                Blueprint parent = GameDatabase.GetBlueprint(parentRef.BlueprintId);
-                if (parent.TryGetBlueprintMemberInfo(fieldId, out memberInfo))
+                Blueprint parent = GameDatabase.GetBlueprint(parentRef);
+                if (parent.GetBlueprintMemberInfo(fieldId, out memberInfo))
                     return true;
             }
 
@@ -127,26 +177,26 @@ namespace MHServerEmu.Games.GameData.Calligraphy
         /// <summary>
         /// Populates file id hash set for this blueprint. This should be called only from this or related blueprints.
         /// </summary>
-        public void PopulateFileIds(HashSet<BlueprintId> callerFileIdHashSet)
+        public void PopulateFileIds(HashSet<BlueprintId> callerFileIds)
         {
             // Begin building a new hash set if ours is empty
             if (FileIds.Count == 0)
             {
-                FileIds.Add(Id);     // add this blueprint's id
+                FileIds.Add(BlueprintDataRef);     // add this blueprint's id
 
                 // Add parent ids
-                foreach (BlueprintReference parentRef in Parents)
+                foreach (BlueprintId parentRef in Parents)
                 {
-                    var parent = GameDatabase.GetBlueprint(parentRef.BlueprintId);
+                    Blueprint parent = GameDatabase.GetBlueprint(parentRef);
                     parent.PopulateFileIds(FileIds);
                 }
             }
 
             // Add this blueprint's hash set if it's a parent of the caller
-            if (callerFileIdHashSet != FileIds)
+            if (callerFileIds != FileIds)
             {
                 foreach (BlueprintId id in FileIds)
-                    callerFileIdHashSet.Add(id);
+                    callerFileIds.Add(id);
             }
         }
 
@@ -180,23 +230,20 @@ namespace MHServerEmu.Games.GameData.Calligraphy
         /// <summary>
         /// Gets a <see cref="PrototypeId"/> for the specified enum value. Returns 0 if the enum value is out of range.
         /// </summary>
-        /// <param name="enumValue"></param>
-        /// <returns></returns>
         public PrototypeId GetPrototypeFromEnumValue(int enumValue)
         {
-            if (enumValue < 0 || enumValue >= _enumValueToPrototypeLookup.Length)
-                return Logger.WarnReturn(PrototypeId.Invalid, $"Failed to get prototype for enumValue {enumValue} for blueprint {GameDatabase.GetBlueprintName(Id)}");
-
+            if (!Verify.IsTrue(enumValue < _enumValueToPrototypeLookup.Length)) return PrototypeId.Invalid;
             return _enumValueToPrototypeLookup[enumValue];
         }
 
         /// <summary>
         /// Gets an enum value for the specified <see cref="PrototypeId"/>. Returns 0 if the prototype does not belong to this blueprint.
         /// </summary>
-        public int GetPrototypeEnumValue(PrototypeId prototypeId)
+        public int GetPrototypeEnumValue(PrototypeId prototypeDataRef)
         {
-            if (_prototypeToEnumValueLookup.TryGetValue(prototypeId, out int enumValue) == false)
-                return Logger.WarnReturn(0, $"Failed to get enum value for prototype {GameDatabase.GetPrototypeName(prototypeId)} for blueprint {GameDatabase.GetBlueprintName(Id)}");
+            if (!Verify.IsTrue(_prototypeToEnumValueLookup.TryGetValue(prototypeDataRef, out int enumValue),
+                $"Failed to find prototype data ref {prototypeDataRef.GetName()} in enumeration of blueprint {this}.  Perhaps a prototype parameter is being used that conflicts with the blueprint type stored in the property info."))
+                return 0;
 
             return enumValue;
         }
@@ -204,21 +251,11 @@ namespace MHServerEmu.Games.GameData.Calligraphy
         /// <summary>
         /// Binds this blueprint to a property prototype.
         /// </summary>
-        public void SetPropertyPrototypeDataRef(PrototypeId propertyDataRef)
+        public void SetPropertyPrototypeRef(PrototypeId propertyDataRef)
         {
-            if (PropertyPrototypeRef != PrototypeId.Invalid)
-                Logger.Warn(string.Format("Trying to bind blueprint {0} to property {1}, but this blueprint is already bound to {2}",
-                            GameDatabase.GetBlueprint(Id), GameDatabase.GetPrototypeName(propertyDataRef), GameDatabase.GetPrototypeName(PropertyPrototypeRef)));
-
-            PropertyPrototypeRef = propertyDataRef;
-        }
-
-        /// <summary>
-        /// Returns if this blueprint is bound to a property. 
-        /// </summary>
-        public bool IsProperty()
-        {
-            return PropertyPrototypeRef != PrototypeId.Invalid;
+            Verify.IsTrue(PropertyDataRef == PrototypeId.Invalid || PropertyDataRef == propertyDataRef,
+                $"Blueprint {this} cannot be bound to more than one property, already bound to {PropertyDataRef.GetName()} and now trying to bind to {propertyDataRef.GetName()}");
+            PropertyDataRef = propertyDataRef;
         }
 
         /// <summary>
@@ -234,8 +271,8 @@ namespace MHServerEmu.Games.GameData.Calligraphy
         /// </summary>
         public bool IsA(Blueprint parent)
         {
-            if (parent == null) Logger.WarnReturn(false, "IsA() failed: parent is null");
-            return IsA(parent.Id);
+            if (!Verify.IsNotNull(parent)) return false;
+            return IsA(parent.BlueprintDataRef);
         }
 
         /// <summary>
@@ -243,10 +280,11 @@ namespace MHServerEmu.Games.GameData.Calligraphy
         /// </summary>
         public bool IsRuntimeChildOf(Blueprint parent)
         {
-            // Check against itself
-            if (parent == this) return true;
+            if (!Verify.IsNotNull(parent)) return false;
 
-            // Check runtime bindings
+            if (parent == this)
+                return true;
+
             return GameDatabase.PrototypeClassManager.PrototypeClassIsA(RuntimeBindingClassType, parent.RuntimeBindingClassType);
         }
 
@@ -255,36 +293,55 @@ namespace MHServerEmu.Games.GameData.Calligraphy
         /// </summary>
         public Blueprint FindRuntimeBindingInBlueprintHierarchy(Type classType, Blueprint parentBlueprint)
         {
-            if (RuntimeBindingClassType == classType && IsA(parentBlueprint)) return this;
+            if (RuntimeBindingClassType == classType && IsA(parentBlueprint))
+                return this;
 
-            foreach (var parentRef in Parents)
+            foreach (BlueprintId parentRef in Parents)
             {
-                Blueprint parent = GameDatabase.GetBlueprint(parentRef.BlueprintId);
+                Blueprint parent = GameDatabase.GetBlueprint(parentRef);
+                if (!Verify.IsNotNull(parent)) return null;
+
                 Blueprint result = parent.FindRuntimeBindingInBlueprintHierarchy(classType, parentBlueprint);
-                if (result != null) return result;
+                if (result != null)
+                    return result;
             }
 
             return null;
         }
 
-        public override string ToString() => GameDatabase.GetBlueprintName(Id);
-    }
-
-    /// <summary>
-    /// Contains a reference to another blueprint.
-    /// </summary>
-    public readonly struct BlueprintReference
-    {
-        public BlueprintId BlueprintId { get; }
-        public byte NumOfCopies { get; }
-
-        /// <summary>
-        /// Deserializes a <see cref="BlueprintReference"/>.
-        /// </summary>
-        public BlueprintReference(BinaryReader reader)
+        public static bool IsReferenceType(CalligraphyBaseType baseType)
         {
-            BlueprintId = (BlueprintId)reader.ReadUInt64();
-            NumOfCopies = reader.ReadByte();
+            switch (baseType)
+            {
+                case CalligraphyBaseType.Asset:
+                case CalligraphyBaseType.Curve:
+                case CalligraphyBaseType.Prototype:
+                case CalligraphyBaseType.RHStruct:
+                    return true;
+
+                default:
+                    return false;
+            }
+        }
+
+        public static bool IsSupportedType(CalligraphyBaseType baseType, CalligraphyStructureType structureType)
+        {
+            if (structureType == CalligraphyStructureType.Simple)
+                return true;
+            
+            if (structureType == CalligraphyStructureType.List)
+            {
+                switch (baseType)
+                {
+                    case CalligraphyBaseType.Asset:
+                    case CalligraphyBaseType.Prototype:
+                    case CalligraphyBaseType.RHStruct:
+                    case CalligraphyBaseType.Type:
+                        return true;
+                }
+            }
+
+            return false;
         }
     }
 
@@ -297,45 +354,24 @@ namespace MHServerEmu.Games.GameData.Calligraphy
         public string FieldName { get; }
         public CalligraphyBaseType BaseType { get; }
         public CalligraphyStructureType StructureType { get; }
-        public ulong Subtype { get; }
 
         public PropertyInfo RuntimeClassFieldInfo { get; set; }     // This is C# reflection property info, not to be confused with entity properties
 
-        /// <summary>
-        /// Deserializes a new <see cref="BlueprintMember"/> instance.
-        /// </summary>
-        public BlueprintMember(BinaryReader reader)
+        public BlueprintMember(StringId fieldId, string fieldName, CalligraphyBaseType baseType, CalligraphyStructureType structureType)
         {
-            FieldId = (StringId)reader.ReadUInt64();
-            FieldName = reader.ReadFixedString16();
-            BaseType = (CalligraphyBaseType)reader.ReadByte();
-            StructureType = (CalligraphyStructureType)reader.ReadByte();
-
-            switch (BaseType)
-            {
-                // Only these base types have subtypes
-                case CalligraphyBaseType.Asset:
-                case CalligraphyBaseType.Curve:
-                case CalligraphyBaseType.Prototype:
-                case CalligraphyBaseType.RHStruct:
-                    Subtype = reader.ReadUInt64();
-                    break;
-            }
+            FieldId = fieldId;
+            FieldName = fieldName;
+            BaseType = baseType;
+            StructureType = structureType;
         }
     }
 
     /// <summary>
     /// Container for a blueprint member reference along with the blueprint it belongs to.
     /// </summary>
-    public readonly struct BlueprintMemberInfo
+    public readonly struct BlueprintMemberInfo(Blueprint blueprint, BlueprintMember member)
     {
-        public Blueprint Blueprint { get; }
-        public BlueprintMember Member { get; }
-
-        public BlueprintMemberInfo(Blueprint blueprint, BlueprintMember member)
-        {
-            Blueprint = blueprint;
-            Member = member;
-        }
+        public Blueprint Blueprint { get; } = blueprint;
+        public BlueprintMember Member { get; } = member;
     }
 }

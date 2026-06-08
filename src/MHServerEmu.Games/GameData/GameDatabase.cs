@@ -313,7 +313,7 @@ namespace MHServerEmu.Games.GameData
             {
                 foreach (Blueprint blueprint in DataDirectory.IterateBlueprints())
                 {
-                    BlueprintId blueprintId = blueprint.Id;
+                    BlueprintId blueprintId = blueprint.BlueprintDataRef;
                     string blueprintName = GetBlueprintName(blueprintId);
 
                     if (matchAllResults || CompareName(blueprintName, pattern, searchFlags))

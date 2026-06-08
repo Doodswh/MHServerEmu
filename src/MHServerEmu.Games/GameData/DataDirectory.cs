@@ -29,10 +29,10 @@ namespace MHServerEmu.Games.GameData
 
         // Lookup dictionaries
         private readonly Dictionary<BlueprintId, LoadedBlueprintRecord> _loadedBlueprints = new();
-        private readonly Dictionary<BlueprintGuid, BlueprintId> _blueprintGuidToDataRefDict = new();
+        private readonly Dictionary<BlueprintGuid, BlueprintId> _blueprintGuidToDataRefLookup = new();
 
         private readonly Dictionary<PrototypeId, PrototypeDataRefRecord> _prototypeDataRefRecords = new();
-        private readonly Dictionary<PrototypeGuid, PrototypeId> _prototypeGuidToDataRefDict = new();
+        private readonly Dictionary<PrototypeGuid, PrototypeId> _prototypeGuidToDataRefLookup = new();
 
         private readonly Dictionary<Type, PrototypeEnumValueNode> _prototypeEnumValueLookupByClassType = new(GameDatabase.PrototypeClassManager.ClassCount);
 
@@ -127,15 +127,33 @@ namespace MHServerEmu.Games.GameData
         /// <summary>
         /// Loads a <see cref="Blueprint"/> and creates a <see cref="LoadedBlueprintRecord"/> for it.
         /// </summary>
-        private void LoadBlueprint(BlueprintId id, BlueprintGuid guid, BlueprintRecordFlags flags)
+        private Blueprint LoadBlueprint(BlueprintId blueprintRef, BlueprintGuid guid, BlueprintRecordFlags flags)
         {
-            // Add guid lookup
-            _blueprintGuidToDataRefDict[guid] = id;
+            if (!Verify.IsTrue(blueprintRef != BlueprintId.Invalid)) return null;
 
-            // Deserialize
-            using Stream stream = LoadPakDataFile($"Calligraphy/{GameDatabase.GetBlueprintName(id)}", PakFileId.Calligraphy);
-            Blueprint blueprint = new(stream, id, guid);
-            _loadedBlueprints.Add(id, new(blueprint, flags));
+            if (_loadedBlueprints.TryGetValue(blueprintRef, out LoadedBlueprintRecord blueprintRecord))
+            {
+                Verify.IsNotNull(blueprintRecord.Blueprint);
+                return blueprintRecord.Blueprint;
+            }
+
+            Blueprint blueprint = new();
+
+            string blueprintFilePath = $"Calligraphy/{GameDatabase.GetBlueprintName(blueprintRef)}";
+
+            using Stream fileStream = LoadPakDataFile(blueprintFilePath, PakFileId.Calligraphy);
+            if (!Verify.IsNotNull(fileStream, $"Unable to open pak file stream for blueprint file {blueprintFilePath}"))
+                return null;
+
+            using BinaryReader dataReader = new(fileStream);
+
+            if (!Verify.IsTrue(blueprint.Deserialize(dataReader, guid, blueprintRef))) return null;
+
+            blueprintRecord = new(blueprint, flags);
+            _loadedBlueprints.Add(blueprintRef, blueprintRecord);
+            _blueprintGuidToDataRefLookup[guid] = blueprintRef;
+
+            return blueprint;
         }
 
         /// <summary>
@@ -145,7 +163,7 @@ namespace MHServerEmu.Games.GameData
         {
             // Create a dataRef
             GameDatabase.PrototypeRefManager.AddDataRef(prototypeId, filePath);
-            _prototypeGuidToDataRefDict.Add(prototypeGuid, prototypeId);
+            _prototypeGuidToDataRefLookup.Add(prototypeGuid, prototypeId);
 
             // Get blueprint and class type
             Blueprint blueprint = GetBlueprint(blueprintId);
@@ -290,7 +308,7 @@ namespace MHServerEmu.Games.GameData
                 return PrototypeId.Invalid;
 
             // Guid found
-            if (_prototypeGuidToDataRefDict.TryGetValue(prototypeGuid, out PrototypeId id))
+            if (_prototypeGuidToDataRefLookup.TryGetValue(prototypeGuid, out PrototypeId id))
                 return id;
 
             // Guid not found, we need a replacement
@@ -301,7 +319,7 @@ namespace MHServerEmu.Games.GameData
             while (GetGuidReplacement(oldGuid, ref newGuid))
                 oldGuid = newGuid;
 
-            if (_prototypeGuidToDataRefDict.TryGetValue((PrototypeGuid)newGuid, out id))
+            if (_prototypeGuidToDataRefLookup.TryGetValue((PrototypeGuid)newGuid, out id))
                 return id;
 
             // Replacement didn't work either
@@ -366,7 +384,7 @@ namespace MHServerEmu.Games.GameData
                 return BlueprintId.Invalid;
 
             // Guid found
-            if (_blueprintGuidToDataRefDict.TryGetValue(blueprintGuid, out BlueprintId blueprintId))
+            if (_blueprintGuidToDataRefLookup.TryGetValue(blueprintGuid, out BlueprintId blueprintId))
                 return blueprintId;
 
             // Guid not found, we need a replacement
@@ -377,7 +395,7 @@ namespace MHServerEmu.Games.GameData
             while (GetGuidReplacement(oldGuid, ref newGuid))
                 oldGuid = newGuid;
 
-            if (_blueprintGuidToDataRefDict.TryGetValue((BlueprintGuid)newGuid, out blueprintId))
+            if (_blueprintGuidToDataRefLookup.TryGetValue((BlueprintGuid)newGuid, out blueprintId))
                 return blueprintId;
 
             // Replacement didn't work either
@@ -457,7 +475,7 @@ namespace MHServerEmu.Games.GameData
                             return null;
                     }
 
-                    // We are skipping DataDirectory::getAndCacheResource() because we don't have uncooked resource prototypes.
+                    // We are skipping DataDirectory::getAndCacheResource() from the client here.
                     using Stream fileStream = LoadPakDataFile(filePath, pakFileId);
                     if (!Verify.IsNotNull(fileStream, $"Unable to open {filePath}"))
                         return null;
@@ -543,7 +561,7 @@ namespace MHServerEmu.Games.GameData
         /// </summary>
         public PrototypeId GetPrototypeFromEnumValue(int enumValue, BlueprintId blueprintId)
         {
-            if (!Verify.IsTrue(_loadedBlueprints.TryGetValue(blueprintId, out var record))) return PrototypeId.Invalid;
+            if (!Verify.IsTrue(_loadedBlueprints.TryGetValue(blueprintId, out LoadedBlueprintRecord record))) return PrototypeId.Invalid;
 
             return record.Blueprint.GetPrototypeFromEnumValue(enumValue);
         }
@@ -564,7 +582,7 @@ namespace MHServerEmu.Games.GameData
         /// </summary>
         public int GetPrototypeEnumValue(PrototypeId prototypeDataRef, BlueprintId blueprintId)
         {
-            if (!Verify.IsTrue(_loadedBlueprints.TryGetValue(blueprintId, out var record))) return 0;
+            if (!Verify.IsTrue(_loadedBlueprints.TryGetValue(blueprintId, out LoadedBlueprintRecord record))) return 0;
 
             return record.Blueprint.GetPrototypeEnumValue(prototypeDataRef);
         }
@@ -949,16 +967,10 @@ namespace MHServerEmu.Games.GameData
         /// <summary>
         /// Contains a record of a loaded <see cref="Calligraphy.Blueprint"/> managed by the <see cref="DataDirectory"/>.
         /// </summary>
-        private struct LoadedBlueprintRecord
+        private readonly struct LoadedBlueprintRecord(Blueprint blueprint, BlueprintRecordFlags flags)
         {
-            public Blueprint Blueprint { get; set; }
-            public BlueprintRecordFlags Flags { get; set; }
-
-            public LoadedBlueprintRecord(Blueprint blueprint, BlueprintRecordFlags flags)
-            {
-                Blueprint = blueprint;
-                Flags = flags;
-            }
+            public Blueprint Blueprint { get; } = blueprint;
+            public BlueprintRecordFlags Flags { get; } = flags;
         }
 
         /// <summary>

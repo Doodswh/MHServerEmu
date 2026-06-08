@@ -93,14 +93,14 @@ namespace MHServerEmu.Games.Properties
             foreach (Blueprint blueprint in dataDirectory.IterateBlueprints())
             {
                 // Skip irrelevant blueprints
-                if (blueprint.Id == propertyBlueprintId)
+                if (blueprint.BlueprintDataRef == propertyBlueprintId)
                     continue;
 
                 if (blueprint.RuntimeBindingClassType != typeof(PropertyPrototype))
                     continue;
 
                 // Get property name from blueprint file path
-                string propertyBlueprintName = GameDatabase.GetBlueprintName(blueprint.Id);
+                string propertyBlueprintName = GameDatabase.GetBlueprintName(blueprint.BlueprintDataRef);
                 string propertyName = Path.GetFileNameWithoutExtension(propertyBlueprintName);
 
                 // Try to find a matching property info for this property mixin
@@ -110,8 +110,8 @@ namespace MHServerEmu.Games.Properties
                     // Property mixin blueprints are inconsistently named: most have the Prop suffix, but some do not
                     if (propertyInfo.PropertyName == propertyName || propertyInfo.PropertyInfoName == propertyName)
                     {
-                        blueprint.SetPropertyPrototypeDataRef(propertyInfo.PrototypeDataRef);
-                        propertyInfo.PropertyMixinBlueprintRef = blueprint.Id;
+                        blueprint.SetPropertyPrototypeRef(propertyInfo.PrototypeDataRef);
+                        propertyInfo.PropertyMixinBlueprintRef = blueprint.BlueprintDataRef;
                         infoFound = true;
                         break;
                     }

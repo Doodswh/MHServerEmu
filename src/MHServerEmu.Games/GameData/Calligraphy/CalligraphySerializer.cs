@@ -80,7 +80,7 @@ namespace MHServerEmu.Games.GameData.Calligraphy
                 byte blueprintCopyNum = reader.ReadByte();
                 Blueprint groupBlueprint = GameDatabase.GetBlueprint(groupBlueprintDataRef);
 
-                if (groupBlueprint.IsProperty())
+                if (groupBlueprint.IsProperty)
                 {
                     if (DeserializePropertyMixin(prototype, blueprint, groupBlueprint, blueprintCopyNum, prototypeDataRef, prototypeName, classType, reader) == false)
                         return Logger.ErrorReturn(false, $"DoDeserialize(): Failed to deserialize property mixin, file name {prototypeName}");
@@ -114,8 +114,8 @@ namespace MHServerEmu.Games.GameData.Calligraphy
                 var fieldBaseType = (CalligraphyBaseType)reader.ReadByte();
 
                 // Get blueprint member info for this field
-                if (blueprint.TryGetBlueprintMemberInfo(fieldId, out var blueprintMemberInfo) == false)
-                    return Logger.ErrorReturn(false, $"DeserializeFieldGroup(): Failed to find member id {fieldId} in blueprint {GameDatabase.GetBlueprintName(blueprint.Id)}");
+                if (blueprint.GetBlueprintMemberInfo(fieldId, out var blueprintMemberInfo) == false)
+                    return Logger.ErrorReturn(false, $"DeserializeFieldGroup(): Failed to find member id {fieldId} in blueprint {GameDatabase.GetBlueprintName(blueprint.BlueprintDataRef)}");
 
                 // Check to make sure the type matches (do we need this?)
                 if (blueprintMemberInfo.Member.BaseType != fieldBaseType)
@@ -190,7 +190,7 @@ namespace MHServerEmu.Games.GameData.Calligraphy
                 {
                     return Logger.ErrorReturn(false, string.Format("DeserializeFieldGroup(): Failed to parse field {0} of field group {1}, file name {2}",
                         blueprintMemberInfo.Member.FieldName,
-                        GameDatabase.GetBlueprintName(blueprint.Id),
+                        GameDatabase.GetBlueprintName(blueprint.BlueprintDataRef),
                         prototypeName));
                 };
             }
@@ -264,11 +264,11 @@ namespace MHServerEmu.Games.GameData.Calligraphy
         private static bool DeserializeFieldGroupIntoProperty(PrototypePropertyCollection propertyCollection, Blueprint groupBlueprint, byte blueprintCopyNum,
             string prototypeName, BinaryReader reader, string groupTag)
         {
-            if (groupBlueprint.IsProperty() == false) return false;
+            if (groupBlueprint.IsProperty == false) return false;
 
             PropertyInfoTable propertyInfoTable = GameDatabase.PropertyInfoTable;
 
-            PrototypeId propertyDataRef = groupBlueprint.PropertyPrototypeRef;
+            PrototypeId propertyDataRef = groupBlueprint.PropertyDataRef;
             PropertyEnum propertyEnum = propertyInfoTable.GetPropertyEnumFromPrototype(propertyDataRef);
             bool isInitializing = propertyCollection == null;
 
@@ -342,7 +342,7 @@ namespace MHServerEmu.Games.GameData.Calligraphy
         /// </summary>
         private static bool DeserializeFieldGroupIntoPropertyBuilder(PropertyBuilder builder, Blueprint blueprint, string prototypeName, BinaryReader reader, bool isInitializing, string groupTag)
         {
-            PrototypeId propertyDataRef = blueprint.PropertyPrototypeRef;
+            PrototypeId propertyDataRef = blueprint.PropertyDataRef;
             PropertyEnum propertyEnum = GameDatabase.PropertyInfoTable.GetPropertyEnumFromPrototype(propertyDataRef);
 
             if (propertyEnum == PropertyEnum.Invalid)
@@ -361,7 +361,7 @@ namespace MHServerEmu.Games.GameData.Calligraphy
                 if (fieldId == StringId.Invalid)
                     return Logger.ErrorReturn(false, $"DeserializeFieldGroupIntoPropertyBuilder(): Invalid field id in a property field group, file name {prototypeName}");
 
-                if (blueprint.TryGetBlueprintMemberInfo(fieldId, out var blueprintMemberInfo) == false)
+                if (blueprint.GetBlueprintMemberInfo(fieldId, out var blueprintMemberInfo) == false)
                     return Logger.ErrorReturn(false, $"DeserializeFieldGroupIntoPropertyBuilder(): Failed to get blueprint member info for field id {fieldId}, file name {prototypeName}");
 
                 // Fields with the same name can have different field ids in different property prototypes
@@ -474,7 +474,7 @@ namespace MHServerEmu.Games.GameData.Calligraphy
         {
             PropertyInfoTable propertyInfoTable = GameDatabase.PropertyInfoTable;
 
-            PrototypeId propertyPrototypeRef = blueprint.PropertyPrototypeRef;
+            PrototypeId propertyPrototypeRef = blueprint.PropertyDataRef;
             PropertyEnum propertyEnum = propertyInfoTable.GetPropertyEnumFromPrototype(propertyPrototypeRef);
             if (propertyEnum == PropertyEnum.Invalid)
                 return Logger.ErrorReturn(false, "DeserializeFieldGroupIntoPropertyId(): Invalid property enum");
@@ -808,7 +808,7 @@ namespace MHServerEmu.Games.GameData.Calligraphy
             foreach (var element in list)
             {
                 // Type check goes last because it's the most expensive one
-                if (element.BlueprintId == elementBlueprint.Id && element.BlueprintCopyNum == blueprintCopyNum && element.Prototype.GetType() == elementClassType)
+                if (element.BlueprintId == elementBlueprint.BlueprintDataRef && element.BlueprintCopyNum == blueprintCopyNum && element.Prototype.GetType() == elementClassType)
                 {
                     uniqueListElement = element;
                     break;
@@ -828,7 +828,7 @@ namespace MHServerEmu.Games.GameData.Calligraphy
                 PrototypeMixinListItem newListItem = new()
                 {
                     Prototype = prototype,
-                    BlueprintId = elementBlueprint.Id,
+                    BlueprintId = elementBlueprint.BlueprintDataRef,
                     BlueprintCopyNum = blueprintCopyNum
                 };
 
