@@ -308,19 +308,19 @@ namespace MHServerEmu.Games.GameData
                 return PrototypeId.Invalid;
 
             // Guid found
-            if (_prototypeGuidToDataRefLookup.TryGetValue(prototypeGuid, out PrototypeId id))
-                return id;
+            if (_prototypeGuidToDataRefLookup.TryGetValue(prototypeGuid, out PrototypeId prototypeRef))
+                return prototypeRef;
 
             // Guid not found, we need a replacement
-            ulong oldGuid = (ulong)prototypeGuid;
-            ulong newGuid = 0;
+            ulong guid = (ulong)prototypeGuid;
+            ulong replacement = 0;
 
             // Loop until we get all potential replacements (if a replacement was replaced)
-            while (GetGuidReplacement(oldGuid, ref newGuid))
-                oldGuid = newGuid;
+            while (GetGuidReplacement(guid, ref replacement))
+                guid = replacement;
 
-            if (_prototypeGuidToDataRefLookup.TryGetValue((PrototypeGuid)newGuid, out id))
-                return id;
+            if (_prototypeGuidToDataRefLookup.TryGetValue((PrototypeGuid)replacement, out prototypeRef))
+                return prototypeRef;
 
             // Replacement didn't work either
             return PrototypeId.Invalid;
@@ -345,13 +345,13 @@ namespace MHServerEmu.Games.GameData
         /// <summary>
         /// Retrieves a potential replacement for a GUID. Returns <see langword="true"/> if replacement found.
         /// </summary>
-        public bool GetGuidReplacement(ulong guid, ref ulong newGuid)
+        public bool GetGuidReplacement(ulong guid, ref ulong replacement)
         {
             ReplacementDirectory.ReplacementRecord record = ReplacementDirectory.GetReplacementRecord(guid);
             if (record == null)
                 return false;
 
-            newGuid = record.NewGuid;
+            replacement = record.Replacement;
             return true;
         }
 
@@ -360,8 +360,8 @@ namespace MHServerEmu.Games.GameData
         /// </summary>
         public bool GuidIsDeprecated(ulong guid)
         {
-            ulong newGuid = 0;
-            return GetGuidReplacement(guid, ref newGuid);
+            ulong replacement = 0;
+            return GetGuidReplacement(guid, ref replacement);
         }
 
         /// <summary>
@@ -384,19 +384,19 @@ namespace MHServerEmu.Games.GameData
                 return BlueprintId.Invalid;
 
             // Guid found
-            if (_blueprintGuidToDataRefLookup.TryGetValue(blueprintGuid, out BlueprintId blueprintId))
-                return blueprintId;
+            if (_blueprintGuidToDataRefLookup.TryGetValue(blueprintGuid, out BlueprintId blueprintRef))
+                return blueprintRef;
 
             // Guid not found, we need a replacement
-            ulong oldGuid = (ulong)blueprintGuid;
-            ulong newGuid = 0;
+            ulong guid = (ulong)blueprintGuid;
+            ulong replacement = 0;
 
             // Loop until we get all potential replacements (if a replacement was replaced)
-            while (GetGuidReplacement(oldGuid, ref newGuid))
-                oldGuid = newGuid;
+            while (GetGuidReplacement(guid, ref replacement))
+                guid = replacement;
 
-            if (_blueprintGuidToDataRefLookup.TryGetValue((BlueprintGuid)newGuid, out blueprintId))
-                return blueprintId;
+            if (_blueprintGuidToDataRefLookup.TryGetValue((BlueprintGuid)replacement, out blueprintRef))
+                return blueprintRef;
 
             // Replacement didn't work either
             return BlueprintId.Invalid;
@@ -866,12 +866,12 @@ namespace MHServerEmu.Games.GameData
         /// <summary>
         /// Helper method for deserializing <see cref="Calligraphy.CurveDirectory"/> entries.
         /// </summary>
-        private void ReadCurveDirectoryEntry(BinaryReader reader)
+        private void ReadCurveDirectoryEntry(BinaryReader entryReader)
         {
-            CurveId curveId = (CurveId)reader.ReadUInt64();
-            CurveGuid guid = (CurveGuid)reader.ReadUInt64();                // Doesn't seem to be used at all
-            CurveRecordFlags flags = (CurveRecordFlags)reader.ReadByte();   // Neither is this, none of the curve records have any flags set
-            string filePath = reader.ReadFixedString16().Replace('\\', '/');
+            CurveId curveId = (CurveId)entryReader.ReadUInt64();
+            CurveGuid guid = (CurveGuid)entryReader.ReadUInt64();                // Doesn't seem to be used at all
+            CurveRecordFlags flags = (CurveRecordFlags)entryReader.ReadByte();   // Neither is this, none of the curve records have any flags set
+            string filePath = entryReader.ReadFixedString16().Replace('\\', '/');
 
             GameDatabase.CurveRefManager.AddDataRef(curveId, filePath);
             CurveDirectory.CurveRecord record = CurveDirectory.CreateCurveRecord(curveId, flags);
@@ -883,12 +883,12 @@ namespace MHServerEmu.Games.GameData
         /// <summary>
         /// Helper method for deserializing <see cref="Blueprint"/> directory entries.
         /// </summary>
-        private void ReadBlueprintDirectoryEntry(BinaryReader reader)
+        private void ReadBlueprintDirectoryEntry(BinaryReader entryReader)
         {
-            BlueprintId dataId = (BlueprintId)reader.ReadUInt64();
-            BlueprintGuid guid = (BlueprintGuid)reader.ReadUInt64();
-            BlueprintRecordFlags flags = (BlueprintRecordFlags)reader.ReadByte();
-            string filePath = reader.ReadFixedString16().Replace('\\', '/');
+            BlueprintId dataId = (BlueprintId)entryReader.ReadUInt64();
+            BlueprintGuid guid = (BlueprintGuid)entryReader.ReadUInt64();
+            BlueprintRecordFlags flags = (BlueprintRecordFlags)entryReader.ReadByte();
+            string filePath = entryReader.ReadFixedString16().Replace('\\', '/');
 
             GameDatabase.BlueprintRefManager.AddDataRef(dataId, filePath);
             LoadBlueprint(dataId, guid, flags);
@@ -897,13 +897,13 @@ namespace MHServerEmu.Games.GameData
         /// <summary>
         /// Helper method for deserializing <see cref="Prototype"/> directory entries.
         /// </summary>
-        private void ReadPrototypeDirectoryEntry(BinaryReader reader)
+        private void ReadPrototypeDirectoryEntry(BinaryReader entryReader)
         {
-            PrototypeId prototypeId = (PrototypeId)reader.ReadUInt64();
-            PrototypeGuid prototypeGuid = (PrototypeGuid)reader.ReadUInt64();
-            BlueprintId blueprintId = (BlueprintId)reader.ReadUInt64();
-            PrototypeRecordFlags flags = (PrototypeRecordFlags)reader.ReadByte();
-            string filePath = reader.ReadFixedString16().Replace('\\', '/');
+            PrototypeId prototypeId = (PrototypeId)entryReader.ReadUInt64();
+            PrototypeGuid prototypeGuid = (PrototypeGuid)entryReader.ReadUInt64();
+            BlueprintId blueprintId = (BlueprintId)entryReader.ReadUInt64();
+            PrototypeRecordFlags flags = (PrototypeRecordFlags)entryReader.ReadByte();
+            string filePath = entryReader.ReadFixedString16().Replace('\\', '/');
 
             AddCalligraphyPrototype(prototypeId, prototypeGuid, blueprintId, flags, filePath);
         }
@@ -911,13 +911,14 @@ namespace MHServerEmu.Games.GameData
         /// <summary>
         /// Helper method for deserializing replacement directory entries.
         /// </summary>
-        private void ReadReplacementDirectoryEntry(BinaryReader reader)
+        private void ReadReplacementDirectoryEntry(BinaryReader entryReader)
         {
-            ulong guid = reader.ReadUInt64();
-            ulong replacement = reader.ReadUInt64();
-            string name = reader.ReadFixedString16();
+            ulong guid = entryReader.ReadUInt64();
+            ulong replacement = entryReader.ReadUInt64();
+            string name = entryReader.ReadFixedString16();
 
-            ReplacementDirectory.AddReplacementRecord(guid, replacement, name);
+            if (guid != 0)
+                ReplacementDirectory.AddReplacementRecord(guid, replacement, name);
         }
 
         /// <summary>
