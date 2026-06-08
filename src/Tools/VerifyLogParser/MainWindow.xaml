@@ -1,0 +1,69 @@
+﻿<Window x:Class="VerifyLogParser.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        xmlns:local="clr-namespace:VerifyLogParser"
+        mc:Ignorable="d"
+        Title="Verify Log Parser" Height="600" Width="800" WindowState="Maximized">
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="auto" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="2*" />
+        </Grid.RowDefinitions>
+
+        <Menu Grid.Row="0">
+            <MenuItem Header="File">
+                <MenuItem Header="Open..." x:Name="FileOpenMenuItem" Click="FileOpenMenuItem_Click" />
+            </MenuItem>
+        </Menu>
+
+        <ListBox Grid.Row="1" Margin="4" x:Name="VerifyEntryListBox" SelectionChanged="VerifyEntryListBox_SelectionChanged" />
+
+        <GroupBox Grid.Row="2" Margin="4" Header="Verify Entry">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="2*" />
+                    <ColumnDefinition Width="auto" />
+                    <ColumnDefinition Width="*" />
+                </Grid.ColumnDefinitions>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="auto" />
+                    <RowDefinition Height="*" />
+                </Grid.RowDefinitions>
+
+                <Grid Grid.Column="0" Grid.Row="0" Grid.ColumnSpan="3">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="auto" />
+                        <ColumnDefinition Width="*" />
+                    </Grid.ColumnDefinitions>
+                    
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="auto"/>
+                        <RowDefinition Height="auto"/>
+                        <RowDefinition Height="auto"/>
+                        <RowDefinition Height="auto"/>
+                    </Grid.RowDefinitions>
+
+                    <Label Grid.Column="0" Grid.Row="0" Content="File:" />
+                    <TextBox Grid.Column="1" Grid.Row="0" IsReadOnly="True" x:Name="VerifyFileTextBox" />
+
+                    <Label Grid.Column="0" Grid.Row="1" Content="Line:" />
+                    <TextBox Grid.Column="1" Grid.Row="1" IsReadOnly="True" x:Name="VerifyLineTextBox" />
+
+                    <Label Grid.Column="0" Grid.Row="2" Content="Member:" />
+                    <TextBox Grid.Column="1" Grid.Row="2" IsReadOnly="True" x:Name="VerifyMemberTextBox" />
+
+                    <Label Grid.Column="0" Grid.Row="3" Content="Count:" />
+                    <TextBox Grid.Column="1" Grid.Row="3" IsReadOnly="True" x:Name="VerifyCountTextBox" />
+
+                </Grid>
+
+                <TextBox Grid.Column="0" Grid.Row="1" IsReadOnly="True" x:Name="VerifyMessageLogTextBox" TextWrapping="Wrap" VerticalScrollBarVisibility="Auto" FontFamily="Consolas" />
+                <GridSplitter Grid.Column="1" Grid.Row="1" ResizeBehavior="PreviousAndNext" Width="4" Margin="0 2 0 2" />
+                <TextBox Grid.Column="2" Grid.Row="1" IsReadOnly="True" x:Name="VerifyStackTraceTextBox" TextWrapping="Wrap" VerticalScrollBarVisibility="Auto" FontFamily="Consolas" />
+            </Grid>
+        </GroupBox>
+    </Grid>
+</Window>
