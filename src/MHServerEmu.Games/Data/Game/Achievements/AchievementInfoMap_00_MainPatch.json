@@ -338,6 +338,49 @@
     }
   },
   {
+    "Id": 419,
+    "Enabled": true,
+    "ParentId": 0,
+    "Name": 12778093575309568604,
+    "InProgressStr": 15178878539564115729,
+    "CompletedStr": 0,
+    "RewardStr": 3744605448536499142,
+    "IconPathAssetId": 2633600142750979127,
+    "Score": 10,
+    "CategoryStr": 381167243532220514,
+    "SubCategoryStr": 13212333571939416896,
+    "DisplayOrder": 7,
+    "VisibleState": 1,
+    "EvaluationType": 1,
+    "EventType": 9,
+    "Threshold": 1,
+    "DependentAchievementId": 0,
+    "UIProgressDisplayOption": 1,
+    "PublishedDateUS": 14400192400000000,
+    "PartyVisible": false,
+    "Context": {
+      "RewardPrototype": -5125583918845848951,
+      "EventData": [
+        {
+          "Prototype": 5673538882106044918,
+          "IncludeChildren": false
+        }
+      ],
+      "EventContext": [
+        {
+          "ContextType": 0,
+          "Prototype": -5524206421574351373,
+          "IncludeChildren": false
+        },
+        {
+          "ContextType": 4,
+          "Prototype": -7860401961405566723,
+          "IncludeChildren": true
+        }
+      ]
+    }
+  },
+  {
     "Id": 422,
     "Enabled": true,
     "ParentId": 2034,
@@ -472,6 +515,49 @@
         {
           "ContextType": 0,
           "Prototype": 2377920137563211242,
+          "IncludeChildren": false
+        }
+      ]
+    }
+  },
+  {
+    "Id": 434,
+    "Enabled": true,
+    "ParentId": 0,
+    "Name": 7068342582517178451,
+    "InProgressStr": 9469127546771725576,
+    "CompletedStr": 0,
+    "RewardStr": 16481598529453660605,
+    "IconPathAssetId": 6006418960803173865,
+    "Score": 10,
+    "CategoryStr": 18185610191731718597,
+    "SubCategoryStr": 9152122064958649135,
+    "DisplayOrder": 0,
+    "VisibleState": 1,
+    "EvaluationType": 1,
+    "EventType": 9,
+    "Threshold": 20,
+    "DependentAchievementId": 0,
+    "UIProgressDisplayOption": 3,
+    "PublishedDateUS": 14338872220000000,
+    "PartyVisible": false,
+    "Context": {
+      "RewardPrototype": 4695833918982594250,
+      "EventData": [
+        {
+          "Prototype": -6501057273064073715,
+          "IncludeChildren": false
+        }
+      ],
+      "EventContext": [
+        {
+          "ContextType": 0,
+          "Prototype": -5524206421574351373,
+          "IncludeChildren": false
+        },
+        {
+          "ContextType": 3,
+          "Prototype": -5993709219828456187,
           "IncludeChildren": false
         }
       ]
