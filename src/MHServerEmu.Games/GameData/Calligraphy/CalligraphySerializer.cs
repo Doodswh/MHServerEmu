@@ -152,7 +152,7 @@ namespace MHServerEmu.Games.GameData.Calligraphy
                         if (fieldOwnerPrototype == null)
                         {
                             fieldOwnerPrototype = GameDatabase.PrototypeClassManager.AllocatePrototype(mixinType);
-                            mixinFieldInfo.SetValue(prototype, fieldOwnerPrototype);
+                            mixinFieldInfo.SetValueFast(prototype, fieldOwnerPrototype);
                         }
 
                         // Get the field info from our mixin
@@ -519,7 +519,7 @@ namespace MHServerEmu.Games.GameData.Calligraphy
             {
                 // Copy parent collection if there is one, otherwise start with a blank one
                 collection = collection == null ? new() : collection.ShallowCopy();
-                fieldInfo.SetValue(prototype, collection);
+                fieldInfo.SetValueFast(prototype, collection);
                 prototype.SetDynamicFieldOwner(collection);
             }
 
@@ -657,9 +657,9 @@ namespace MHServerEmu.Games.GameData.Calligraphy
             if (sourceData == null) return;
 
             int numItems = sourceData.Length;
-            var destData = Array.CreateInstance(fieldInfo.PropertyType.GetElementType(), numItems);
+            Array destData = Array.CreateInstance(fieldInfo.PropertyType.GetElementType(), numItems);
             Array.Copy(sourceData, destData, numItems);
-            fieldInfo.SetValue(destPrototype, destData);
+            fieldInfo.SetValue(destPrototype, destData);    // use standard reflection instead of SetValueFast() to pass Array without casting it to concrete type
         }
 
         /// <summary>
@@ -672,7 +672,7 @@ namespace MHServerEmu.Games.GameData.Calligraphy
 
             // Create the mixin instance on the destination prototype if there is something to copy and copy data to it
             var destMixin = GameDatabase.PrototypeClassManager.AllocatePrototype(fieldInfo.PropertyType);
-            fieldInfo.SetValue(destPrototype, destMixin);
+            fieldInfo.SetValueFast(destPrototype, destMixin);
 
             CopyPrototypeFields(destMixin, sourceMixin);
         }
@@ -687,7 +687,7 @@ namespace MHServerEmu.Games.GameData.Calligraphy
 
             // Create a new list mixin on the destination prototype and take ownership of it
             PrototypeMixinList destList = new();
-            fieldInfo.SetValue(destPrototype, destList);
+            fieldInfo.SetValueFast(destPrototype, destList);
             destPrototype.SetDynamicFieldOwner(destList);
 
             // Copy all items from the old list
@@ -718,7 +718,7 @@ namespace MHServerEmu.Games.GameData.Calligraphy
 
             // Create a copy of the source property collection and take ownership of it
             var destPropertyCollection = sourcePropertyCollection.ShallowCopy();
-            fieldInfo.SetValue(destPrototype, destPropertyCollection);
+            fieldInfo.SetValueFast(destPrototype, destPropertyCollection);
             destPrototype.SetDynamicFieldOwner(destPropertyCollection);
         }
 
@@ -739,7 +739,7 @@ namespace MHServerEmu.Games.GameData.Calligraphy
                 if (element == null)
                 {
                     element = GameDatabase.PrototypeClassManager.AllocatePrototype(mixinFieldInfo.PropertyType);
-                    mixinFieldInfo.SetValue(ownerPrototype, element);
+                    mixinFieldInfo.SetValueFast(ownerPrototype, element);
                 }
 
                 return element;
@@ -787,7 +787,7 @@ namespace MHServerEmu.Games.GameData.Calligraphy
                 }
 
                 // Assign the new list to the field and take ownership of it
-                mixinFieldInfo.SetValue(prototype, newList);
+                mixinFieldInfo.SetValueFast(prototype, newList);
                 prototype.SetDynamicFieldOwner(newList);
 
                 list = newList;
@@ -949,7 +949,7 @@ namespace MHServerEmu.Games.GameData.Calligraphy
         private static bool ParseBool(in FieldParserParams @params)
         {
             long rawValue = @params.Reader.ReadInt64();
-            @params.FieldInfo.SetValue(@params.OwnerPrototype, rawValue != 0);
+            @params.FieldInfo.SetValueFast(@params.OwnerPrototype, rawValue != 0);
             return true;
         }
 
@@ -959,7 +959,7 @@ namespace MHServerEmu.Games.GameData.Calligraphy
         private static bool ParseInt8(in FieldParserParams @params)
         {
             long rawValue = @params.Reader.ReadInt64();
-            @params.FieldInfo.SetValue(@params.OwnerPrototype, (sbyte)rawValue);
+            @params.FieldInfo.SetValueFast(@params.OwnerPrototype, (sbyte)rawValue);
             return true;
         }
 
@@ -969,7 +969,7 @@ namespace MHServerEmu.Games.GameData.Calligraphy
         private static bool ParseInt16(in FieldParserParams @params)
         {
             long rawValue = @params.Reader.ReadInt64();
-            @params.FieldInfo.SetValue(@params.OwnerPrototype, (short)rawValue);
+            @params.FieldInfo.SetValueFast(@params.OwnerPrototype, (short)rawValue);
             return true;
         }
 
@@ -990,7 +990,7 @@ namespace MHServerEmu.Games.GameData.Calligraphy
                 rawValue = int.MaxValue;
             }
 
-            @params.FieldInfo.SetValue(@params.OwnerPrototype, (int)rawValue);
+            @params.FieldInfo.SetValueFast(@params.OwnerPrototype, (int)rawValue);
             return true;
         }
 
@@ -1000,7 +1000,7 @@ namespace MHServerEmu.Games.GameData.Calligraphy
         private static bool ParseInt64(in FieldParserParams @params)
         {
             long rawValue = @params.Reader.ReadInt64();
-            @params.FieldInfo.SetValue(@params.OwnerPrototype, rawValue);
+            @params.FieldInfo.SetValueFast(@params.OwnerPrototype, rawValue);
             return true;
         }
 
@@ -1010,7 +1010,7 @@ namespace MHServerEmu.Games.GameData.Calligraphy
         private static bool ParseFloat32(in FieldParserParams @params)
         {
             double rawValue = @params.Reader.ReadDouble();
-            @params.FieldInfo.SetValue(@params.OwnerPrototype, (float)rawValue);
+            @params.FieldInfo.SetValueFast(@params.OwnerPrototype, (float)rawValue);
             return true;
         }
 
@@ -1020,7 +1020,7 @@ namespace MHServerEmu.Games.GameData.Calligraphy
         private static bool ParseFloat64(in FieldParserParams @params)
         {
             double rawValue = @params.Reader.ReadDouble();
-            @params.FieldInfo.SetValue(@params.OwnerPrototype, rawValue);
+            @params.FieldInfo.SetValueFast(@params.OwnerPrototype, rawValue);
             return true;
         }
 
@@ -1050,12 +1050,12 @@ namespace MHServerEmu.Games.GameData.Calligraphy
 
                 // Set value to default for enums we can't parse
                 AssetEnumAttribute attribute = @params.FieldInfo.PropertyType.GetCustomAttribute<AssetEnumAttribute>();
-                @params.FieldInfo.SetValue(@params.OwnerPrototype, attribute.DefaultValue);
+                @params.FieldInfo.SetValueFast(@params.OwnerPrototype, attribute.DefaultValue);
                 return true;
             }
 
             // Set value to what we parsed if everything is okay
-            @params.FieldInfo.SetValue(@params.OwnerPrototype, value);
+            @params.FieldInfo.SetValueFast(@params.OwnerPrototype, (int)value);
             return true;
         }
 
@@ -1067,7 +1067,7 @@ namespace MHServerEmu.Games.GameData.Calligraphy
             // Data refs can be StringId, AssetTypeId, CurveId, PrototypeId, or LocaleStringId.
             // C# enums are not picky when assigning values with reflection, so we can reuse the same code for all of them.
             ulong value = @params.Reader.ReadUInt64();
-            @params.FieldInfo.SetValue(@params.OwnerPrototype, value);
+            @params.FieldInfo.SetValueFast(@params.OwnerPrototype, value);
             return true;
         }
 
@@ -1080,7 +1080,7 @@ namespace MHServerEmu.Games.GameData.Calligraphy
             // ParsePrototypePtr -> deserializePrototypePtr -> deserializePrototypePtrNoTemplate
             // We combine deserializePrototypePtr and deserializePrototypePtrNoTemplate in a single method.
             DeserializePrototypePtr(@params, false, out var prototype);
-            @params.FieldInfo.SetValue(@params.OwnerPrototype, prototype);
+            @params.FieldInfo.SetValueFast(@params.OwnerPrototype, prototype);
             return true;
         }
 
@@ -1140,7 +1140,7 @@ namespace MHServerEmu.Games.GameData.Calligraphy
                     // Deserialize the property id and assign it to the field
                     PropertyId propertyId = PropertyId.Invalid;
                     DeserializeFieldGroupIntoPropertyId(ref propertyId, groupBlueprint, @params.FileName, reader, "Property List");
-                    @params.FieldInfo.SetValue(@params.OwnerPrototype, propertyId);
+                    @params.FieldInfo.SetValueFast(@params.OwnerPrototype, propertyId);
 
                     // Same as in DeserializePropertyMixin(), there should be no list fields
                     short numListFields = reader.ReadInt16();
@@ -1164,7 +1164,7 @@ namespace MHServerEmu.Games.GameData.Calligraphy
 
                 Properties.PropertyInfo info = GameDatabase.PropertyInfoTable.LookupPropertyInfo(propertyEnum);
                 PropertyId defaultId = new(propertyEnum, info.DefaultParamValues);
-                @params.FieldInfo.SetValue(@params.OwnerPrototype, defaultId);
+                @params.FieldInfo.SetValueFast(@params.OwnerPrototype, defaultId);
             }
 
             return true;
@@ -1184,7 +1184,7 @@ namespace MHServerEmu.Games.GameData.Calligraphy
                 values[i] = rawValue != 0;
             }
 
-            @params.FieldInfo.SetValue(@params.OwnerPrototype, values);
+            @params.FieldInfo.SetValueFast(@params.OwnerPrototype, values);
             return true;
         }
 
@@ -1202,7 +1202,7 @@ namespace MHServerEmu.Games.GameData.Calligraphy
                 values[i] = (sbyte)rawValue;
             }
 
-            @params.FieldInfo.SetValue(@params.OwnerPrototype, values);
+            @params.FieldInfo.SetValueFast(@params.OwnerPrototype, values);
             return true;
         }
 
@@ -1220,7 +1220,7 @@ namespace MHServerEmu.Games.GameData.Calligraphy
                 values[i] = (short)rawValue;
             }
 
-            @params.FieldInfo.SetValue(@params.OwnerPrototype, values);
+            @params.FieldInfo.SetValueFast(@params.OwnerPrototype, values);
             return true;
         }
 
@@ -1238,7 +1238,7 @@ namespace MHServerEmu.Games.GameData.Calligraphy
                 values[i] = (int)rawValue;
             }
 
-            @params.FieldInfo.SetValue(@params.OwnerPrototype, values);
+            @params.FieldInfo.SetValueFast(@params.OwnerPrototype, values);
             return true;
         }
 
@@ -1256,7 +1256,7 @@ namespace MHServerEmu.Games.GameData.Calligraphy
                 values[i] = rawValue;
             }
 
-            @params.FieldInfo.SetValue(@params.OwnerPrototype, values);
+            @params.FieldInfo.SetValueFast(@params.OwnerPrototype, values);
             return true;
         }
 
@@ -1274,7 +1274,7 @@ namespace MHServerEmu.Games.GameData.Calligraphy
                 values[i] = (float)rawValue;
             }
 
-            @params.FieldInfo.SetValue(@params.OwnerPrototype, values);
+            @params.FieldInfo.SetValueFast(@params.OwnerPrototype, values);
             return true;
         }
 
@@ -1292,7 +1292,7 @@ namespace MHServerEmu.Games.GameData.Calligraphy
                 values[i] = rawValue;
             }
 
-            @params.FieldInfo.SetValue(@params.OwnerPrototype, values);
+            @params.FieldInfo.SetValueFast(@params.OwnerPrototype, values);
             return true;
         }
 
@@ -1318,7 +1318,7 @@ namespace MHServerEmu.Games.GameData.Calligraphy
                 values.SetValue(value, i);
             }
 
-            @params.FieldInfo.SetValue(@params.OwnerPrototype, values);
+            @params.FieldInfo.SetValueFast(@params.OwnerPrototype, values);
             return true;
         }
 
@@ -1336,7 +1336,7 @@ namespace MHServerEmu.Games.GameData.Calligraphy
                 values[i] = (AssetId)rawValue;
             }
 
-            @params.FieldInfo.SetValue(@params.OwnerPrototype, values);
+            @params.FieldInfo.SetValueFast(@params.OwnerPrototype, values);
             return true;
         }
 
@@ -1354,7 +1354,7 @@ namespace MHServerEmu.Games.GameData.Calligraphy
                 values[i] = (AssetTypeId)rawValue;
             }
 
-            @params.FieldInfo.SetValue(@params.OwnerPrototype, values);
+            @params.FieldInfo.SetValueFast(@params.OwnerPrototype, values);
             return true;
         }
 
@@ -1372,7 +1372,7 @@ namespace MHServerEmu.Games.GameData.Calligraphy
                 values[i] = (PrototypeId)rawValue;
             }
 
-            @params.FieldInfo.SetValue(@params.OwnerPrototype, values);
+            @params.FieldInfo.SetValueFast(@params.OwnerPrototype, values);
             return true;
         }
 
@@ -1390,7 +1390,7 @@ namespace MHServerEmu.Games.GameData.Calligraphy
                 values.SetValue(prototype, i);
             }
 
-            @params.FieldInfo.SetValue(@params.OwnerPrototype, values);
+            @params.FieldInfo.SetValueFast(@params.OwnerPrototype, values);
             return true;
         }
 

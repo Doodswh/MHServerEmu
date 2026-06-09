@@ -1,44 +1,85 @@
-﻿using System.Reflection;
+﻿using System.Diagnostics;
+using System.Reflection;
 using System.Reflection.Emit;
 
 namespace MHServerEmu.Core.Extensions
 {
     public static class ReflectionExtensions
     {
-        private static readonly Type[] CopyValueArgs = new Type[] { typeof(object), typeof(object) }; 
+        private static readonly Dictionary<PropertyInfo, FieldInfo> PropertyBackingFields = new();
+        private static readonly Dictionary<PropertyInfo, Delegate> SetPropertyValueDelegates = new();
+        private static readonly Dictionary<PropertyInfo, Delegate> CopyPropertyValueDelegates = new();
 
-        private static readonly Dictionary<PropertyInfo, Delegate> CopyPropertyValueDelegateDict = new();
-
-        private delegate void CopyValueDelegate(object source, object destination);
+        // Notes:
+        // - Reflection.Emit is faster than expression trees.
+        // - Get/set using FieldInfo is faster than PropertyInfo.
+        // - Use generic delegates to avoid value type boxing.
+        // - Reflection is expensive, so cache everything.
 
         /// <summary>
-        /// Copies the value of a property from one instance to another. Both instances need to be of the same type.
+        /// Returns the <see cref="FieldInfo"/> for the backing field of the auto property represented by this <see cref="PropertyInfo"/>.
+        /// </summary>
+        public static FieldInfo GetBackingField(this PropertyInfo propertyInfo)
+        {
+            if (PropertyBackingFields.TryGetValue(propertyInfo, out FieldInfo fieldInfo) == false)
+            {
+                string backingFieldName = $"<{propertyInfo.Name}>k__BackingField";
+                fieldInfo = propertyInfo.DeclaringType.GetField(backingFieldName, BindingFlags.Instance | BindingFlags.NonPublic);
+                Debug.Assert(fieldInfo != null);
+                PropertyBackingFields.Add(propertyInfo, fieldInfo);
+            }
+
+            return fieldInfo;
+        }
+
+        /// <summary>
+        /// Sets the value of the auto property represented by this <see cref="PropertyInfo"/> avoiding boxing.
+        /// </summary>
+        public static void SetValueFast<TInstance, TValue>(this PropertyInfo propertyInfo, TInstance instance, TValue value)
+        {
+            if (SetPropertyValueDelegates.TryGetValue(propertyInfo, out Delegate setDelegate) == false)
+            {
+                FieldInfo fieldInfo = propertyInfo.GetBackingField();
+
+                DynamicMethod dm = new("SetValue", null, [typeof(TInstance), typeof(TValue)]);
+                ILGenerator il = dm.GetILGenerator();
+
+                il.Emit(OpCodes.Ldarg_0);
+                il.Emit(OpCodes.Ldarg_1);
+                il.Emit(OpCodes.Stfld, fieldInfo);
+                il.Emit(OpCodes.Ret);
+
+                setDelegate = dm.CreateDelegate<Action<TInstance, TValue>>();
+                SetPropertyValueDelegates.Add(propertyInfo, setDelegate);
+            }
+
+            Action<TInstance, TValue> set = (Action<TInstance, TValue>)setDelegate;
+            set(instance, value);
+        }
+
+        /// <summary>
+        /// Copies the value of the auto property represented by this <see cref="PropertyInfo"/> from one instance to another.
         /// </summary>
         public static void CopyValue<T>(this PropertyInfo propertyInfo, T source, T destination)
         {
-            // Cache copy delegates to avoid expensive reflection every time.
-            // Emit IL directly because it's faster than doing expression trees.
-            if (CopyPropertyValueDelegateDict.TryGetValue(propertyInfo, out Delegate copyValueDelegate) == false)
+            if (CopyPropertyValueDelegates.TryGetValue(propertyInfo, out Delegate copyDelegate) == false)
             {
-                // We assume source and destination are going to be the same type
-                Type type = propertyInfo.DeclaringType;
+                FieldInfo fieldInfo = propertyInfo.GetBackingField();
 
-                DynamicMethod dm = new("CopyValue", null, CopyValueArgs);
+                DynamicMethod dm = new("CopyValue", null, [typeof(T), typeof(T)]);
                 ILGenerator il = dm.GetILGenerator();
 
                 il.Emit(OpCodes.Ldarg_1);
-                il.Emit(OpCodes.Castclass, type);
                 il.Emit(OpCodes.Ldarg_0);
-                il.Emit(OpCodes.Castclass, type);
-                il.Emit(OpCodes.Callvirt, propertyInfo.GetGetMethod());
-                il.Emit(OpCodes.Callvirt, propertyInfo.GetSetMethod(true));
+                il.Emit(OpCodes.Ldfld, fieldInfo);
+                il.Emit(OpCodes.Stfld, fieldInfo);
                 il.Emit(OpCodes.Ret);
 
-                copyValueDelegate = dm.CreateDelegate<CopyValueDelegate>();
-                CopyPropertyValueDelegateDict.Add(propertyInfo, copyValueDelegate);
+                copyDelegate = dm.CreateDelegate<Action<T, T>>();
+                CopyPropertyValueDelegates.Add(propertyInfo, copyDelegate);
             }
 
-            var copy = (CopyValueDelegate)copyValueDelegate;
+            Action<T, T> copy = (Action<T, T>)copyDelegate;
             copy(source, destination);
         }
     }
