@@ -16,12 +16,12 @@ namespace MHServerEmu.Games.GameData
     {
         private static readonly Logger Logger = LogManager.CreateLogger();
 
-        private readonly Dictionary<string, Type> _prototypeNameToClassTypeDict = new();
-        private readonly Dictionary<Type, Func<Prototype>> _prototypeConstructorDict;
-        private readonly Dictionary<System.Reflection.PropertyInfo, PrototypeFieldType> _prototypeFieldTypeDict = new();
+        private readonly Dictionary<string, Type> _prototypeTypes = new();
+        private readonly Dictionary<Type, Func<Prototype>> _prototypeConstructors;
+        private readonly Dictionary<System.Reflection.PropertyInfo, PrototypeFieldType> _prototypeFieldTypes = new();
 
-        private readonly Dictionary<Type, CachedPrototypeField[]> _copyableFieldDict = new();
-        private readonly Dictionary<Type, CachedPrototypeField[]> _postProcessableFieldDict = new();
+        private readonly Dictionary<Type, List<CachedPrototypeField>> _copyableFields = new();
+        private readonly Dictionary<Type, List<CachedPrototypeField>> _postProcessableFields = new();
 
         private static readonly Dictionary<Type, PrototypeFieldType> TypeToPrototypeFieldTypeEnumDict = new()
         {
@@ -56,22 +56,22 @@ namespace MHServerEmu.Games.GameData
             { typeof(PrototypePropertyCollection),  PrototypeFieldType.PropertyCollection }   // FIXME: Separate PropertyCollection from PropertyList somehow?
         };
 
-        public int ClassCount { get => _prototypeNameToClassTypeDict.Count; }
+        public int ClassCount { get => _prototypeTypes.Count; }
 
         public PrototypeClassManager()
         {
-            var stopwatch = Stopwatch.StartNew();
+            Stopwatch stopwatch = Stopwatch.StartNew();
 
             foreach (Type type in Assembly.GetExecutingAssembly().GetTypes())
             {
-                if (PrototypeClassIsA(type, typeof(Prototype)) == false) continue;  // Skip non-prototype classes
-                _prototypeNameToClassTypeDict.Add(type.Name, type);
+                if (PrototypeClassIsA(type, typeof(Prototype)))
+                    _prototypeTypes.Add(type.Name, type);
             }
 
-            _prototypeConstructorDict = new(ClassCount);
+            _prototypeConstructors = new(_prototypeTypes.Count);
 
             stopwatch.Stop();
-            Logger.Info($"Initialized {ClassCount} prototype classes in {stopwatch.ElapsedMilliseconds} ms");
+            Logger.Info($"Initialized {_prototypeTypes.Count} prototype classes in {stopwatch.ElapsedMilliseconds} ms");
         }
 
         /// <summary>
@@ -80,7 +80,7 @@ namespace MHServerEmu.Games.GameData
         public Prototype AllocatePrototype(Type type)
         {
             // Check if we already have a cached constructor delegate
-            if (_prototypeConstructorDict.TryGetValue(type, out var constructorDelegate) == false)
+            if (_prototypeConstructors.TryGetValue(type, out Func<Prototype> constructor) == false)
             {
                 // Cache constructor delegate for future use
                 DynamicMethod dm = new("ConstructPrototype", typeof(Prototype), null);
@@ -89,11 +89,11 @@ namespace MHServerEmu.Games.GameData
                 il.Emit(OpCodes.Newobj, type.GetConstructor(Type.EmptyTypes));
                 il.Emit(OpCodes.Ret);
 
-                constructorDelegate = dm.CreateDelegate<Func<Prototype>>();
-                _prototypeConstructorDict.Add(type, constructorDelegate);
+                constructor = dm.CreateDelegate<Func<Prototype>>();
+                _prototypeConstructors.Add(type, constructor);
             }
 
-            return constructorDelegate();
+            return constructor();
         }
 
         /// <summary>
@@ -101,11 +101,8 @@ namespace MHServerEmu.Games.GameData
         /// </summary>
         public Type GetPrototypeClassTypeByName(string name)
         {
-            if (_prototypeNameToClassTypeDict.TryGetValue(name, out Type type) == false)
-            {
-                Logger.Warn($"Prototype class {name} not found");
+            if (_prototypeTypes.TryGetValue(name, out Type type) == false)
                 return null;
-            }
 
             return type;
         }
@@ -123,7 +120,7 @@ namespace MHServerEmu.Games.GameData
         /// </summary>
         public Dictionary<string, Type>.ValueCollection.Enumerator GetEnumerator()
         {
-            return _prototypeNameToClassTypeDict.Values.GetEnumerator();
+            return _prototypeTypes.Values.GetEnumerator();
         }
 
         /// <summary>
@@ -131,32 +128,19 @@ namespace MHServerEmu.Games.GameData
         /// </summary>
         public void BindAssetTypesToEnums(AssetDirectory assetDirectory)
         {
-            Dictionary<AssetType, Type> assetEnumBindingDict = new();
+            Dictionary<AssetType, Type> assetEnumBindings = new();
 
-            // TODO: determine what assets to bind to what enums here
-
-            // Iterate through all fields in all prototype classes and find enums
-            /*
-            foreach (Type classType in _prototypeNameToClassTypeDict.Values)
-            {
-                foreach (var property in classType.GetProperties())
-                {
-                    if (property.PropertyType.IsEnum && property.PropertyType.IsDefined(typeof(AssetEnumAttribute)) == false)
-                    {
-                        Logger.Debug(property.PropertyType.Name);
-                    }
-                }
-            }
-            */
+            // The client iterates all prototype types here to find symbolic enum bindings,
+            // we just have everything we actually need in PropertyParamEnumLookups instead.
 
             // Add bindings explicitly defined in PropertyInfoTable
             foreach (var binding in PropertyInfoTable.PropertyParamEnumLookups)
             {
                 AssetType assetType = assetDirectory.GetAssetType(binding.Name);
-                assetEnumBindingDict.Add(assetType, binding.ClassType);
+                assetEnumBindings.Add(assetType, binding.ClassType);
             }
 
-            assetDirectory.BindAssetTypes(assetEnumBindingDict);
+            assetDirectory.BindAssetTypes(assetEnumBindings);
         }
 
         /// <summary>
@@ -188,23 +172,27 @@ namespace MHServerEmu.Games.GameData
             while (ownerClassType != typeof(Prototype))
             {
                 // We do what PrototypeFieldSet::GetMixinFieldInfo() does right here using reflection
-                foreach (var property in ownerClassType.GetProperties())
+                foreach (System.Reflection.PropertyInfo property in ownerClassType.GetProperties())
                 {
                     if (fieldType == PrototypeFieldType.Mixin)
                     {
                         // For simple mixins we just return the property if it matches our field type and has the correct attribute
-                        if (property.PropertyType != fieldClassType) continue;
-                        if (property.IsDefined(typeof(MixinAttribute))) return property;
+                        if (property.PropertyType != fieldClassType)
+                            continue;
+
+                        if (property.IsDefined(typeof(MixinAttribute)))
+                            return property;
                     }
                     else if (fieldType == PrototypeFieldType.ListMixin)
                     {
                         // For list mixins we look for a list that is compatible with our requested field type
-                        if (property.PropertyType != typeof(PrototypeMixinList)) continue;
+                        if (property.PropertyType != typeof(PrototypeMixinList))
+                            continue;
 
                         // NOTE: While we check if the field type defined in the attribute matches our field class type argument exactly,
                         // the client checks if the argument type is derived from the type defined in the field info.
                         // This doesn't seem to cause any issues in 1.52, but may need to be changed if we run into issues with other versions.
-                        var attribute = property.GetCustomAttribute<ListMixinAttribute>();
+                        ListMixinAttribute attribute = property.GetCustomAttribute<ListMixinAttribute>();
                         if (attribute.FieldType == fieldClassType)
                             return property;
                     }
@@ -228,12 +216,12 @@ namespace MHServerEmu.Games.GameData
             // This relies on reflection, which is slow, so we cache the results in a dictionary.
 
             // Retrieve an already matched enum value if we have one for this property
-            if (_prototypeFieldTypeDict.TryGetValue(fieldInfo, out var prototypeFieldTypeEnumValue) == false)
+            if (_prototypeFieldTypes.TryGetValue(fieldInfo, out PrototypeFieldType prototypeFieldTypeEnumValue) == false)
             {
                 // There is an issue with using PropertyInfo as a key: PropertyInfos for inherited properties are different on each
                 // level of inheritance (because they contain ReflectedType), which causes this code to be called more often than necessary.
                 prototypeFieldTypeEnumValue = DeterminePrototypeFieldType(fieldInfo);
-                _prototypeFieldTypeDict.Add(fieldInfo, prototypeFieldTypeEnumValue);
+                _prototypeFieldTypes.Add(fieldInfo, prototypeFieldTypeEnumValue);
             }
 
             return prototypeFieldTypeEnumValue;
@@ -242,31 +230,26 @@ namespace MHServerEmu.Games.GameData
         /// <summary>
         /// Returns copyable fields for a given prototype type.
         /// </summary>
-        public CachedPrototypeField[] GetCopyablePrototypeFields(Type type)
+        public List<CachedPrototypeField> GetCopyablePrototypeFields(Type type)
         {
-            // Cache copyable fields for reuse
-            if (_copyableFieldDict.TryGetValue(type, out CachedPrototypeField[] copyableFields) == false)
+            // Cache reflection metadata for reuse
+            if (_copyableFields.TryGetValue(type, out List<CachedPrototypeField> copyableFields) == false)
             {
-                List<CachedPrototypeField> copyableFieldList = new();
+                copyableFields = new();
 
-                // Populate the the new list
-                foreach (var fieldInfo in type.GetProperties())
+                foreach (System.Reflection.PropertyInfo fieldInfo in type.GetProperties())
                 {
-                    // Skip base prototype properties
                     if (fieldInfo.DeclaringType == typeof(Prototype))
                         continue;
 
-                    // Skip uncopyable fields (e.g. DoNotCopy)
                     PrototypeFieldType fieldType = GetPrototypeFieldTypeEnumValue(fieldInfo);
                     if (fieldType == PrototypeFieldType.Invalid)
                         continue;
 
-                    copyableFieldList.Add(new(fieldInfo, fieldType));
+                    copyableFields.Add(new(fieldInfo, fieldType));
                 }
 
-                // Convert to array to avoid boxing while iterating
-                copyableFields = copyableFieldList.ToArray();
-                _copyableFieldDict.Add(type, copyableFields);
+                _copyableFields.Add(type, copyableFields);
             }
 
             return copyableFields;
@@ -294,7 +277,7 @@ namespace MHServerEmu.Games.GameData
                     case PrototypeFieldType.PrototypePtr:
                     case PrototypeFieldType.Mixin:
                         // Simple embedded prototypes
-                        var embeddedPrototype = (Prototype)fieldInfo.GetValue(prototype);
+                        Prototype embeddedPrototype = (Prototype)fieldInfo.GetValue(prototype);
                         if (embeddedPrototype != null)
                         {
                             if (hasPatch) PrototypePatchManager.Instance.SetPath(prototype, embeddedPrototype, fieldInfo.Name);
@@ -304,12 +287,13 @@ namespace MHServerEmu.Games.GameData
 
                     case PrototypeFieldType.ListPrototypePtr:
                         // List / vector collections of embedded prototypes (that we implemented as arrays)
-                        var prototypeCollection = (IEnumerable<Prototype>)fieldInfo.GetValue(prototype);
+                        IReadOnlyList<Prototype> prototypeCollection = (IReadOnlyList<Prototype>)fieldInfo.GetValue(prototype);
                         if (prototypeCollection == null) continue;
 
                         int index = 0;
-                        foreach (Prototype element in prototypeCollection)
+                        for (int i = 0; i < prototypeCollection.Count; i++)
                         {
+                            Prototype element = prototypeCollection[i];
                             if (hasPatch) PrototypePatchManager.Instance.SetPathIndex(prototype, element, fieldInfo.Name, index++);
                             element.PostProcess();
                         }
@@ -317,8 +301,9 @@ namespace MHServerEmu.Games.GameData
                         break;
 
                     case PrototypeFieldType.ListMixin:
-                        var mixinList = (PrototypeMixinList)fieldInfo.GetValue(prototype);
-                        if (mixinList == null) continue;
+                        PrototypeMixinList mixinList = (PrototypeMixinList)fieldInfo.GetValue(prototype);
+                        if (mixinList == null)
+                            continue;
 
                         foreach (PrototypeMixinListItem mixin in mixinList)
                             mixin.Prototype.PostProcess();
@@ -339,21 +324,18 @@ namespace MHServerEmu.Games.GameData
             if (hasPatch) PrototypePatchManager.Instance.PostOverride(prototype);
         }
 
-        private CachedPrototypeField[] GetPostProcessablePrototypeFields(Type type)
+        private List<CachedPrototypeField> GetPostProcessablePrototypeFields(Type type)
         {
-            // Cache post-processable fields for reuse
-            if (_postProcessableFieldDict.TryGetValue(type, out CachedPrototypeField[] postProcessableFields) == false)
+            // Cache reflection metadata for reuse
+            if (_postProcessableFields.TryGetValue(type, out List<CachedPrototypeField> postProcessableFields) == false)
             {
-                List<CachedPrototypeField> postProcessableFieldList = new();
+                postProcessableFields = new();
 
-                // Populate the the new list
-                foreach (var fieldInfo in type.GetProperties())
+                foreach (System.Reflection.PropertyInfo fieldInfo in type.GetProperties())
                 {
-                    // Skip base prototype properties
                     if (fieldInfo.DeclaringType == typeof(Prototype))
                         continue;
 
-                    // Add approrite fields
                     PrototypeFieldType fieldType = GetPrototypeFieldTypeEnumValue(fieldInfo);
 
                     switch (fieldType)
@@ -362,14 +344,12 @@ namespace MHServerEmu.Games.GameData
                         case PrototypeFieldType.Mixin:
                         case PrototypeFieldType.ListPrototypePtr:
                         case PrototypeFieldType.ListMixin:
-                            postProcessableFieldList.Add(new(fieldInfo, fieldType));
+                            postProcessableFields.Add(new(fieldInfo, fieldType));
                             break;
                     }
                 }
 
-                // Convert to array to avoid boxing while iterating
-                postProcessableFields = postProcessableFieldList.ToArray();
-                _postProcessableFieldDict.Add(type, postProcessableFields);
+                _postProcessableFields.Add(type, postProcessableFields);
             }
 
             return postProcessableFields;
@@ -384,7 +364,7 @@ namespace MHServerEmu.Games.GameData
             if (fieldInfo.IsDefined(typeof(DoNotCopyAttribute)))
                 return PrototypeFieldType.Invalid;
 
-            var fieldType = fieldInfo.PropertyType;
+            Type fieldType = fieldInfo.PropertyType;
 
             // Manually determine some of non-primitive types
             if (fieldType.IsPrimitive == false)
@@ -410,7 +390,7 @@ namespace MHServerEmu.Games.GameData
                 else
                 {
                     // Check element type instead if it's a collection
-                    var elementType = fieldType.GetElementType();
+                    Type elementType = fieldType.GetElementType();
 
                     if (elementType.IsSubclassOf(typeof(Prototype)))
                         return PrototypeFieldType.ListPrototypePtr;
@@ -420,22 +400,16 @@ namespace MHServerEmu.Games.GameData
             }
 
             // Try to match a C# type to a prototype field type enum value using a lookup dict
-            if (TypeToPrototypeFieldTypeEnumDict.TryGetValue(fieldType, out var prototypeFieldTypeEnumValue) == false)
+            if (TypeToPrototypeFieldTypeEnumDict.TryGetValue(fieldType, out PrototypeFieldType prototypeFieldTypeEnumValue) == false)
                 return PrototypeFieldType.Invalid;
 
             return prototypeFieldTypeEnumValue;
         }
 
-        public readonly struct CachedPrototypeField
+        public readonly struct CachedPrototypeField(System.Reflection.PropertyInfo fieldInfo, PrototypeFieldType fieldType)
         {
-            public readonly System.Reflection.PropertyInfo FieldInfo;
-            public readonly PrototypeFieldType FieldType;
-
-            public CachedPrototypeField(System.Reflection.PropertyInfo fieldInfo, PrototypeFieldType fieldType)
-            {
-                FieldInfo = fieldInfo;
-                FieldType = fieldType;
-            }
+            public readonly System.Reflection.PropertyInfo FieldInfo = fieldInfo;
+            public readonly PrototypeFieldType FieldType = fieldType;
         }
     }
 }
