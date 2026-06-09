@@ -275,8 +275,8 @@ namespace MHServerEmu.Games.GameData.LiveTuning
 
                 for (int j = 0; j < (int)WorldEntityTuningVar.eWETV_NumWorldEntityTuningVars; j++)
                 {
-                    // Only these two world entity tuning vars are sent to the client
-                    if (j != (int)WorldEntityTuningVar.eWETV_Enabled && j != (int)WorldEntityTuningVar.eWETV_Visible)
+                    // Not all world entity tuning vars are sent to the client
+                    if (ShouldSendTuningVarToClient((WorldEntityTuningVar)j) == false)
                         continue;
 
                     float tuningVarValue = GetLiveWorldEntityTuningVar(i, (WorldEntityTuningVar)j);
@@ -382,6 +382,22 @@ namespace MHServerEmu.Games.GameData.LiveTuning
             if (prototype is MetricsFrequencyPrototype) return ((MetricsFrequencyTuningVar)tuningVarEnum).ToString();
 
             return tuningVarEnum.ToString();
+        }
+
+        private static bool ShouldSendTuningVarToClient(WorldEntityTuningVar tuningVarEnum)
+        {
+            // This is a more straightforward replacement for LiveTuningData::initClientWhitelistBits() and bit arrays from client code.
+
+            switch (tuningVarEnum)
+            {
+                case WorldEntityTuningVar.eWETV_Enabled:
+                case WorldEntityTuningVar.eWETV_EternitySplinterPrice:  // NOTE: EternitySplinterPrice is excluded in client code.
+                case WorldEntityTuningVar.eWETV_Visible:
+                    return true;
+
+                default:
+                    return false;
+            }
         }
 
         #region Tuning Var Accesors
@@ -809,7 +825,7 @@ namespace MHServerEmu.Games.GameData.LiveTuning
             if (!Verify.IsTrue(worldEntityEnumVal >= 0 && worldEntityEnumVal < _perWorldEntityTuningVars.Count)) return;
 
             _perWorldEntityTuningVars[worldEntityEnumVal][(int)tuningVarEnum] = tuningVarValue;
-            // No update protobuf invalidation?
+            _updateProtobufOutOfDate |= ShouldSendTuningVarToClient(tuningVarEnum); // NOTE: No invalidation in client code here
         }
 
         private void UpdateLivePowerTuningVar(PrototypeId powerProtoRef, PowerTuningVar tuningVarEnum, float tuningVarValue)
