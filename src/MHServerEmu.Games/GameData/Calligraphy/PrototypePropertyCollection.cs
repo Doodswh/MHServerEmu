@@ -1,5 +1,4 @@
-﻿using MHServerEmu.Core;
-using MHServerEmu.Core.Logging;
+﻿using MHServerEmu.Core.Logging;
 using MHServerEmu.Games.Properties;
 
 namespace MHServerEmu.Games.GameData.Calligraphy
@@ -9,8 +8,6 @@ namespace MHServerEmu.Games.GameData.Calligraphy
     /// </summary>
     public class PrototypePropertyCollection : PropertyCollection
     {
-        private static readonly Logger Logger = LogManager.CreateLogger();
-
         // Child prototypes may override params of properties of their parents, so PrototypePropertyCollection has to
         // keep track of how contained property ids correspond to blueprints. For that purpose it uses a dictionary with
         // composite values made from blueprint copy number and property enum as keys.
@@ -62,7 +59,7 @@ namespace MHServerEmu.Games.GameData.Calligraphy
 
             // If the id got updated we need to reassign the existing value to the new id
             if (SetKeyToPropertyId(ref newPropertyId, blueprintCopyNum, paramsSetMask, ref existingValueRef))
-                SetPropertyValue(newPropertyId, (PropertyValue)existingValueRef);
+                SetPropertyValue(newPropertyId, existingValueRef.Value);
         }
 
         /// <summary>
@@ -72,19 +69,15 @@ namespace MHServerEmu.Games.GameData.Calligraphy
         {
             CurveProperty oldCurve = new();
 
-            bool replaced = SetKeyToPropertyId(ref propertyId, blueprintCopyNum, 0xff, ref oldCurve, (PropertyId?)indexProperty);
+            bool replaced = SetKeyToPropertyId(ref propertyId, blueprintCopyNum, 0xff, ref oldCurve, indexProperty);
 
             // There must be a valid index property
             if (indexProperty == PropertyId.Invalid)
             {
                 if (replaced)
                 {
-                    if (oldCurve.IndexPropertyId == PropertyId.Invalid)
-                    {
-                        // Nothing to fall back on
-                        Logger.Error("Prototype property read error: trying to replace a curve property that has an invalid curve index");
+                    if (!Verify.IsTrue(oldCurve.IndexPropertyId != PropertyId.Invalid, "Prototype property read error: trying to replace a curve property that has an invalid curve index"))
                         return;
-                    }
 
                     // If we are replacing a valid existing curve property, get the index property from it
                     indexProperty = oldCurve.IndexPropertyId;
@@ -106,7 +99,7 @@ namespace MHServerEmu.Games.GameData.Calligraphy
         {
             CurveProperty oldCurve = new();
 
-            if (SetKeyToPropertyId(ref propertyId, blueprintCopyNum, paramsSetMask, ref oldCurve, (PropertyId?)indexProperty))
+            if (SetKeyToPropertyId(ref propertyId, blueprintCopyNum, paramsSetMask, ref oldCurve, indexProperty))
                 SetCurveProperty(propertyId, oldCurve.CurveId, indexProperty, info, SetPropertyFlags.None, true);  
         }
 
@@ -132,19 +125,16 @@ namespace MHServerEmu.Games.GameData.Calligraphy
             // If the lookup dict already has this key it means we are modifying an existing property rather than adding a new one
             if (_mixinPropertyLookup.TryGetValue(key, out PropertyId existingPropertyId))
             {
-                if (HasMatchingParams(propertyIdRef, existingPropertyId, 0xff) == false)
+                if (HasMatchingParams(propertyIdRef, existingPropertyId, 0xFF) == false)
                 {
                     valueIsReplaced = true;
 
                     // If existingValueRef is not a null ref it means we are replacing an existing property id,
                     // and we need to output existing PropertyValue to this ref so it can be reassigned to the new id.
-                    //
-                    // For null comparison we need to cast null to one of the supported PropertyValue types
-                    // for this check because of all the implicit casting we are doing.
-                    if (existingValueRef != (bool?)null)
+                    if (existingValueRef is not null)
                         existingValueRef = GetPropertyValue(existingPropertyId);
 
-                    SetOverridenParams(ref propertyIdRef, existingPropertyId, paramsSetMask);
+                    SetOverriddenParams(ref propertyIdRef, existingPropertyId, paramsSetMask);
                     RemoveProperty(existingPropertyId);
                 }
             }
@@ -164,15 +154,12 @@ namespace MHServerEmu.Games.GameData.Calligraphy
             // If the lookup dict already has this key it means we are modifying an existing property rather than adding a new one
             if (_mixinPropertyLookup.TryGetValue(key, out PropertyId existingPropertyId))
             {
-                if (HasMatchingParams(propertyIdRef, existingPropertyId, 0xff) == false || curveIndex != null)
+                if (HasMatchingParams(propertyIdRef, existingPropertyId, 0xFF) == false || curveIndex != null)
                 {
                     // If there is an existing CurveProperty assigned to this id and we are actually making changes,
                     // we need to output this CurveProperty to be reassigned to the new id.
-                    CurveProperty? nullableExistingCurveProp = GetCurveProperty(existingPropertyId);
-                    if (nullableExistingCurveProp != null)
+                    if (GetCurveProperty(existingPropertyId) is CurveProperty existingCurveProp)
                     {
-                        var existingCurveProp = (CurveProperty)nullableExistingCurveProp;
-
                         if (curveIndex != null && propertyIdRef == existingPropertyId && existingCurveProp.IndexPropertyId == curveIndex)
                             return false;   // No need to change anything
 
@@ -180,7 +167,7 @@ namespace MHServerEmu.Games.GameData.Calligraphy
                         valueIsReplaced = true;
                     }
 
-                    SetOverridenParams(ref propertyIdRef, existingPropertyId, paramsSetMask);
+                    SetOverriddenParams(ref propertyIdRef, existingPropertyId, paramsSetMask);
                     RemoveProperty(existingPropertyId);
                 }
             }
@@ -194,7 +181,8 @@ namespace MHServerEmu.Games.GameData.Calligraphy
         /// </summary>
         private bool HasMatchingParams(PropertyId left, PropertyId right, byte paramsSetMask)
         {
-            if (paramsSetMask == 0xff) return left == right;
+            if (paramsSetMask == 0xFF)
+                return left == right;
 
             Span<PropertyParam> leftParams = stackalloc PropertyParam[Property.MaxParamCount];
             Span<PropertyParam> rightParams = stackalloc PropertyParam[Property.MaxParamCount];
@@ -216,9 +204,10 @@ namespace MHServerEmu.Games.GameData.Calligraphy
         /// <summary>
         /// Overrides <see cref="PropertyParam"/> values of a <see cref="PropertyId"/>. The provided mask defines params that need to be overriden.
         /// </summary>
-        private void SetOverridenParams(ref PropertyId destId, PropertyId sourceId, byte paramsSetMask)
+        private void SetOverriddenParams(ref PropertyId destId, PropertyId sourceId, byte paramsSetMask)
         {
-            if (paramsSetMask == 0xff) return;
+            if (paramsSetMask == 0xFF)
+                return;
 
             Span<PropertyParam> destParams = stackalloc PropertyParam[Property.MaxParamCount];
             Span<PropertyParam> sourceParams = stackalloc PropertyParam[Property.MaxParamCount];
