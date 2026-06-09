@@ -273,7 +273,7 @@ namespace MHServerEmu.Games.GameData.Calligraphy
             bool isInitializing = propertyCollection == null;
 
             PropertyBuilder propertyBuilder = new(propertyEnum, propertyInfoTable, isInitializing);
-            if (DeserializeFieldGroupIntoPropertyBuilder(propertyBuilder, groupBlueprint, prototypeName, reader, isInitializing, groupTag) == false)
+            if (DeserializeFieldGroupIntoPropertyBuilder(ref propertyBuilder, groupBlueprint, prototypeName, reader, isInitializing, groupTag) == false)
                 return Logger.ErrorReturn(false, $"DeserializeFieldGroupIntoProperty(): Failed to deserialize field group into property builder");
 
             if (isInitializing)
@@ -340,7 +340,7 @@ namespace MHServerEmu.Games.GameData.Calligraphy
         /// <summary>
         /// Deserializes a property field group into a <see cref="PropertyBuilder"/> instance.
         /// </summary>
-        private static bool DeserializeFieldGroupIntoPropertyBuilder(PropertyBuilder builder, Blueprint blueprint, string prototypeName, BinaryReader reader, bool isInitializing, string groupTag)
+        private static bool DeserializeFieldGroupIntoPropertyBuilder(ref PropertyBuilder builder, Blueprint blueprint, string prototypeName, BinaryReader reader, bool isInitializing, string groupTag)
         {
             PrototypeId propertyDataRef = blueprint.PropertyDataRef;
             PropertyEnum propertyEnum = GameDatabase.PropertyInfoTable.GetPropertyEnumFromPrototype(propertyDataRef);
@@ -400,7 +400,7 @@ namespace MHServerEmu.Games.GameData.Calligraphy
                     if (paramIndex >= Property.MaxParamCount)
                         return Logger.ErrorReturn(false, $"DeserializeFieldGroupIntoPropertyBuilder(): Property param index {paramIndex} out of range");
 
-                    if (DeserializePropertyParam(blueprintMemberInfo, prototypeName, reader, paramIndex, builder) == false)
+                    if (DeserializePropertyParam(blueprintMemberInfo, prototypeName, reader, paramIndex, ref builder) == false)
                         return Logger.ErrorReturn(false, $"DeserializeFieldGroupIntoPropertyBuilder(): Failed to deserialize property param field, file name {prototypeName}");
                 }
                 else
@@ -435,7 +435,7 @@ namespace MHServerEmu.Games.GameData.Calligraphy
         /// <summary>
         /// Deserializes a <see cref="PropertyParam"/> from a field group and sets it in the provided <see cref="PropertyBuilder"/> instance.
         /// </summary>
-        private static bool DeserializePropertyParam(BlueprintMemberInfo blueprintMemberInfo, string prototypeName, BinaryReader reader, int paramIndex, PropertyBuilder builder)
+        private static bool DeserializePropertyParam(BlueprintMemberInfo blueprintMemberInfo, string prototypeName, BinaryReader reader, int paramIndex, ref PropertyBuilder builder)
         {
             if (blueprintMemberInfo.Member.StructureType == CalligraphyStructureType.List)
                 return Logger.ErrorReturn(false, $"DeserializePropertyParam(): Unhandled structure type for property param");
@@ -480,7 +480,7 @@ namespace MHServerEmu.Games.GameData.Calligraphy
                 return Logger.ErrorReturn(false, "DeserializeFieldGroupIntoPropertyId(): Invalid property enum");
 
             PropertyBuilder propertyBuilder = new(propertyEnum, propertyInfoTable, false);
-            if (DeserializeFieldGroupIntoPropertyBuilder(propertyBuilder, blueprint, prototypeName, reader, false, groupTag) == false)
+            if (DeserializeFieldGroupIntoPropertyBuilder(ref propertyBuilder, blueprint, prototypeName, reader, false, groupTag) == false)
                 return Logger.ErrorReturn(false, "DeserializeFieldGroupIntoPropertyId(): Failed to deserialize field group into property builder");
 
             propertyId = propertyBuilder.GetPropertyId();

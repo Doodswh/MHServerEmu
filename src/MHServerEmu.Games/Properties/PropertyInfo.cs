@@ -17,6 +17,7 @@ namespace MHServerEmu.Games.Properties
         private InlineArray4<BlueprintId> _paramPrototypeBlueprints;
         private InlineArray4<int> _paramBitCounts;
         private InlineArray4<int> _paramOffsets;
+        private InlineArray4<PropertyParam> _defaultParamValues;
         private InlineArray4<PropertyParam> _paramMaxValues;
 
         private bool _updatedInfo = false;
@@ -35,7 +36,7 @@ namespace MHServerEmu.Games.Properties
         public int ParamCount { get; private set; }
 
         public PropertyValue DefaultValue { get; private set; }
-        public PropertyParam[] DefaultParamValues { get; private set; }
+        public ReadOnlySpan<PropertyParam> DefaultParamValues { get => _defaultParamValues; }
         public PropertyId DefaultCurveIndex { get; set; }
 
         public PropertyDataType DataType { get; private set; }
@@ -280,7 +281,7 @@ namespace MHServerEmu.Games.Properties
         /// <summary>
         /// Validates params and calculates their bit offsets.
         /// </summary>
-        public void SetPropertyInfo(PropertyValue defaultValue, int paramCount, PropertyParam[] paramDefaultValues)
+        public void SetPropertyInfo(PropertyValue defaultValue, int paramCount, ReadOnlySpan<PropertyParam> paramDefaultValues)
         {
             if (!Verify.IsTrue(_updatedInfo == false)) return;
             if (!Verify.IsTrue(paramCount <= Property.MaxParamCount)) return;
@@ -301,7 +302,7 @@ namespace MHServerEmu.Games.Properties
             // Set default values
             DefaultValue = defaultValue;
             ParamCount = paramCount;
-            DefaultParamValues = paramDefaultValues;
+            paramDefaultValues.CopyTo(_defaultParamValues);
 
             // Calculate bit offsets for params
             int bitOffset = Property.ParamBitCount;

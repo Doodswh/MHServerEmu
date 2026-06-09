@@ -39,16 +39,7 @@ namespace MHServerEmu.Games.Properties
         /// <summary>
         /// Constructs a <see cref="PropertyId"/> with the provided params
         /// </summary>
-        public PropertyId(PropertyEnum propertyEnum, PropertyParam[] @params)
-        {
-            PropertyInfo info = GameDatabase.PropertyInfoTable.LookupPropertyInfo(propertyEnum);
-            Raw = info.EncodeParameters(propertyEnum, @params.AsSpan()).Raw;
-        }
-
-        /// <summary>
-        /// Constructs a <see cref="PropertyId"/> with the provided params
-        /// </summary>
-        public PropertyId(PropertyEnum propertyEnum, in ReadOnlySpan<PropertyParam> @params)
+        public PropertyId(PropertyEnum propertyEnum, ReadOnlySpan<PropertyParam> @params)
         {
             PropertyInfo info = GameDatabase.PropertyInfoTable.LookupPropertyInfo(propertyEnum);
             Raw = info.EncodeParameters(propertyEnum, @params).Raw;
