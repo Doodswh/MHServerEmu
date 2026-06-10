@@ -28,7 +28,7 @@ namespace MHServerEmu.Games.GameData.Calligraphy
             return GameDatabase.GetAssetTypeName(AssetTypeRef);
         }
 
-        public bool Load(BinaryReader reader, AssetDirectory assetDirectory, AssetTypeId assetTypeRef, AssetTypeGuid assetTypeGuid, DataRefManager<AssetId> stringRefManager)
+        public bool Load(CalligraphyReader reader, AssetDirectory assetDirectory, AssetTypeId assetTypeRef, AssetTypeGuid assetTypeGuid, DataRefManager<AssetId> stringRefManager)
         {
             if (!Verify.IsNotNull(stringRefManager)) return false;
             if (!Verify.IsTrue(assetTypeRef != AssetTypeId.Invalid)) return false;
@@ -39,30 +39,35 @@ namespace MHServerEmu.Games.GameData.Calligraphy
             AssetTypeRef = assetTypeRef;
             Guid = assetTypeGuid;
 
-            try
-            {
-                CalligraphyHeader header = new(reader); // TODO: CalligraphyReader
+            if (!Verify.IsTrue(reader.ReadHeader("TYP"))) return false;
 
-                short numAssets = reader.ReadInt16();
-                _assets = new AssetValue[numAssets];
-                for (int i = 0; i < _assets.Length; i++)
-                {
-                    AssetId assetId = (AssetId)reader.ReadUInt64();
-                    AssetGuid assetGuid = (AssetGuid)reader.ReadUInt64();
-                    AssetValueFlags flags = (AssetValueFlags)reader.ReadByte();
-                    string name = reader.ReadFixedString16();
-
-                    stringRefManager.AddDataRef(assetId, name);
-
-                    _assets[i] = new(assetId, assetGuid, flags);
-
-                    assetDirectory.AddAssetLookup(assetTypeRef, assetId, assetGuid);
-                }
-            }
-            catch (Exception e)
-            {
-                Verify.IsTrue(false, e.Message);
+            if (!Verify.IsTrue(reader.Read(out short numAssets), $"Unable to read num assets in {reader.SectionName}"))
                 return false;
+
+            _assets = new AssetValue[numAssets];
+
+            const int MaxAssetLength = 1024;
+            Span<byte> assetValueBuffer = stackalloc byte[MaxAssetLength];
+
+            for (int i = 0; i < _assets.Length; i++)
+            {
+                if (!Verify.IsTrue(reader.Read(out AssetId assetId), $"Unable to read asset id #{i} in {reader.SectionName}"))
+                    return false;
+
+                if (!Verify.IsTrue(reader.Read(out AssetGuid assetGuid), $"Unable to read asset guid #{i} in {reader.SectionName}"))
+                    return false;
+
+                if (!Verify.IsTrue(reader.Read(out AssetValueFlags flags), $"Unable to read asset flags in {reader.SectionName}"))
+                    return false;
+
+                if (!Verify.IsTrue(reader.ReadStringUTF8(assetValueBuffer, MaxAssetLength - 1))) return false;
+                string name = assetValueBuffer.GetCString();
+
+                stringRefManager.AddDataRef(assetId, name);
+
+                _assets[i] = new(assetId, assetGuid, flags);
+
+                assetDirectory.AddAssetLookup(assetTypeRef, assetId, assetGuid);
             }
 
             return true;

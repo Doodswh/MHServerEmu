@@ -41,97 +41,132 @@ namespace MHServerEmu.Games.GameData.Calligraphy
             return GameDatabase.GetBlueprintName(BlueprintDataRef);
         }
 
-        public bool Deserialize(BinaryReader dataReader, BlueprintGuid guid, BlueprintId blueprintRef)
+        public bool Deserialize(CalligraphyReader dataReader, BlueprintGuid guid, BlueprintId blueprintRef)
         {
+            string filename = dataReader.SectionName;
+
             BlueprintDataRef = blueprintRef;
             Guid = guid;
 
-            try
+            if (!Verify.IsTrue(dataReader.ReadHeader("BPT"))) return false;
+
+            // RuntimeBinding
+            const int RuntimeBindingMax = 1024;
+            Span<byte> runtimeBindingBuffer = stackalloc byte[RuntimeBindingMax];
+
+            if (!Verify.IsTrue(dataReader.ReadStringUTF8(runtimeBindingBuffer, RuntimeBindingMax - 1), $"Unable to read runtime binding in {filename}"))
+                return false;
+
+            string runtimeBinding = runtimeBindingBuffer.GetCString();
+
+            Type classType = GameDatabase.PrototypeClassManager.GetPrototypeClassTypeByName(runtimeBinding);
+            if (!Verify.IsNotNull(classType, $"Could not match runtime binding: {runtimeBinding}\nFor Filename: {filename}"))
+                return false;
+
+            RuntimeBindingClassType = classType;
+
+            // DefaultPrototypeRef
+            if (!Verify.IsTrue(dataReader.Read(out PrototypeId defaultPrototypeId), $"Unable to read default prototype id from {filename}"))
+                return false;
+
+            DefaultPrototypeRef = defaultPrototypeId;
+
+            // Parents
+            if (!Verify.IsTrue(dataReader.Read(out short numParents), $"Unable to read number of parents for {filename}"))
+                return false;
+
+            if (numParents > 0)
             {
-                CalligraphyHeader header = new(dataReader); // TODO: CalligraphyReader
-
-                // RuntimeBinding
-                string runtimeBinding = dataReader.ReadFixedString16();
-                Type classType = GameDatabase.PrototypeClassManager.GetPrototypeClassTypeByName(runtimeBinding);
-                if (!Verify.IsNotNull(classType)) return false;
-                RuntimeBindingClassType = classType;
-
-                // DefaultPrototypeRef
-                DefaultPrototypeRef = (PrototypeId)dataReader.ReadUInt64();
-
-                // Parents
-                short numParents = dataReader.ReadInt16();
-                if (numParents > 0)
+                Parents = new BlueprintId[numParents];
+                for (int i = 0; i < numParents; i++)
                 {
-                    Parents = new BlueprintId[numParents];
-                    for (int i = 0; i < numParents; i++)
-                    {
-                        Parents[i] = (BlueprintId)dataReader.ReadUInt64();
-                        byte numOfCopies = dataReader.ReadByte();   // unused
-                    }
-                }
-                else
-                {
-                    Parents = Array.Empty<BlueprintId>();
-                }
-
-                // ContributingBlueprints
-                short numContributingBlueprints = dataReader.ReadInt16();
-                if (numContributingBlueprints > 0)
-                {
-                    ContributingBlueprints = new BlueprintId[numContributingBlueprints];
-                    for (int i = 0; i < numContributingBlueprints; i++)
-                    {
-                        ContributingBlueprints[i] = (BlueprintId)dataReader.ReadUInt64();
-                        byte numOfCopies = dataReader.ReadByte();   // unused
-                    }
-                }
-                else
-                {
-                    ContributingBlueprints = Array.Empty<BlueprintId>();
-                }
-
-                // Members
-                short numMembers = dataReader.ReadInt16();
-                _members = new(numMembers);
-                for (int i = 0; i < numMembers; i++)
-                {
-                    StringId fieldId = (StringId)dataReader.ReadUInt64();
-                    string fieldName = dataReader.ReadFixedString16();
-                    CalligraphyBaseType baseType = (CalligraphyBaseType)dataReader.ReadByte();
-                    CalligraphyStructureType structureType = (CalligraphyStructureType)dataReader.ReadByte();
-
-                    if (!Verify.IsTrue(IsSupportedType(baseType, structureType), $"Unsupported field type '{(char)baseType}','{(char)structureType}' for field {fieldName} in blueprint {this}"))
+                    if (!Verify.IsTrue(dataReader.Read(out Parents[i]), $"Error reading {i} parent blueprint id from {filename}"))
                         return false;
 
-                    if (IsReferenceType(baseType))
-                    {
-                        ulong subtype = dataReader.ReadUInt64();    // unused
-                    }
-
-                    BlueprintMember member = new(fieldId, fieldName, baseType, structureType);
-                    _members.Add(member.FieldId, member);
+                    // numOfCopies is unused
+                    if (!Verify.IsTrue(dataReader.Read(out byte numOfCopies), $"Error reading {i} parent blueprint num copies from {filename}"))
+                        return false;
                 }
             }
-            catch (Exception e)
+            else
             {
-                Verify.IsTrue(false, e.Message);
+                Parents = Array.Empty<BlueprintId>();
+            }
+
+            // ContributingBlueprints
+            if (!Verify.IsTrue(dataReader.Read(out short numContributingBlueprints), $"Unable to read number of contributing blueprints for {filename}"))
                 return false;
+
+            if (numContributingBlueprints > 0)
+            {
+                ContributingBlueprints = new BlueprintId[numContributingBlueprints];
+                for (int i = 0; i < numContributingBlueprints; i++)
+                {
+                    if (!Verify.IsTrue(dataReader.Read(out ContributingBlueprints[i]), $"Error reading {i} contributing blueprint id from {filename}"))
+                        return false;
+
+                    // numOfCopies is unused
+                    if (!Verify.IsTrue(dataReader.Read(out byte numOfCopies), $"Error reading {i} contributing blueprint num copies from {filename}"))
+                        return false;
+                }
+            }
+            else
+            {
+                ContributingBlueprints = Array.Empty<BlueprintId>();
+            }
+
+            // Members
+            if (!Verify.IsTrue(dataReader.Read(out short numMembers), $"Unable to read number of members for {filename}"))
+                return false;
+
+            _members = new(numMembers);
+
+            const int MaxFieldName = 1024;
+            Span<byte> fieldNameBuffer = stackalloc byte[MaxFieldName];
+
+            for (int i = 0; i < numMembers; i++)
+            {
+                if (!Verify.IsTrue(dataReader.Read(out StringId fieldId), $"Error reading field id #{i} of blueprint {filename}"))
+                    return false;
+
+                if (!Verify.IsTrue(dataReader.ReadStringUTF8(fieldNameBuffer, MaxFieldName - 1), $"Error reading field name #{i} in blueprint {filename}"))
+                    return false;
+
+                string fieldName = fieldNameBuffer.GetCString();
+
+                if (!Verify.IsTrue(dataReader.Read(out CalligraphyBaseType baseType), $"Error reading base type for field {fieldName} in blueprint {filename}"))
+                    return false;
+
+                if (!Verify.IsTrue(dataReader.Read(out CalligraphyStructureType structureType), $"Error reading structure type for field {fieldName} in blueprint {filename}"))
+                    return false;
+
+                if (!Verify.IsTrue(IsSupportedType(baseType, structureType), $"Unsupported field type '{(char)baseType}','{(char)structureType}' for field {fieldName} in blueprint {filename}"))
+                    return false;
+
+                if (IsReferenceType(baseType))
+                {
+                    // subtype is unused
+                    if (!Verify.IsTrue(dataReader.Read(out ulong subtype), $"Error reading subtype for field {fieldName} in blueprint {filename}"))
+                        return false;
+                }
+
+                BlueprintMember member = new(fieldId, fieldName, baseType, structureType);
+                _members.Add(member.FieldId, member);
             }
 
             // Bind non-property blueprint members to C# reflection metadata
             foreach (BlueprintMember member in _members.Values)
             {
-                Type classType = RuntimeBindingClassType;
-                while (classType != typeof(Prototype))
+                Type currentClassType = RuntimeBindingClassType;
+                while (currentClassType != typeof(Prototype))
                 {
                     // Try to find a matching property info in our runtime binding
-                    member.RuntimeClassFieldInfo = classType.GetProperty(member.FieldName, BindingFlags.DeclaredOnly | BindingFlags.Instance | BindingFlags.Public);
+                    member.RuntimeClassFieldInfo = currentClassType.GetProperty(member.FieldName, BindingFlags.DeclaredOnly | BindingFlags.Instance | BindingFlags.Public);
                     if (member.RuntimeClassFieldInfo != null)
                         break;
 
                     // Go up in the hierarchy if we didn't find it
-                    classType = classType.BaseType;
+                    currentClassType = currentClassType.BaseType;
                 }
             }
 

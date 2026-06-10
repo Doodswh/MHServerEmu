@@ -47,7 +47,7 @@ namespace MHServerEmu.Games.GameData.Calligraphy
                 if (!Verify.IsNotNull(fileStream, $"Unable to open file %s"))
                     return null;
 
-                using BinaryReader curveReader = new(fileStream);
+                using CalligraphyReader curveReader = new(fileStream, curveFilename);
 
                 record.Curve = new();
                 Verify.IsTrue(record.Curve.Load(curveReader, curveRef));

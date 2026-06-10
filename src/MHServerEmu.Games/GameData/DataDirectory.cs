@@ -9,6 +9,15 @@ using MHServerEmu.Games.GameData.Resources;
 
 namespace MHServerEmu.Games.GameData
 {
+    public enum DirectoryId
+    {
+        Curve,
+        Type,
+        Blueprint,
+        Prototype,
+        Replacement,
+    }
+
     public enum DataOrigin : byte
     {
         Invalid,
@@ -22,7 +31,19 @@ namespace MHServerEmu.Games.GameData
     /// </summary>
     public sealed class DataDirectory
     {
+        public const byte CalligraphyExportVersion = 11;     // 10 for versions 1.9-1.17, 11 for 1.18+
+        public const byte CalligraphyStringVersion = 2;
+
         private static readonly Logger Logger = LogManager.CreateLogger();
+
+        private static readonly DataDirectoryEntry[] DataDirectoryLookup =
+        [
+            new("Curve.directory",        "CDR",  ReadCurveDirectoryEntry,          DirectoryId.Curve),
+            new("Type.directory",         "TDR",  ReadTypeDirectoryEntry,           DirectoryId.Type),
+            new("Blueprint.directory",    "BDR",  ReadBlueprintDirectoryEntry,      DirectoryId.Blueprint),
+            new("Prototype.directory",    "PDR",  ReadPrototypeDirectoryEntry,      DirectoryId.Prototype),
+            new("Replacement.directory",  "RDR",  ReadReplacementDirectoryEntry,    DirectoryId.Replacement),
+        ];
 
         // Lock for GetPrototype() thread safety
         private readonly object _prototypeLock = new();
@@ -86,29 +107,18 @@ namespace MHServerEmu.Games.GameData
         /// </summary>
         private void LoadCalligraphyDataFramework()
         {
-            // Define directories
-            var directories = new (string FilePath, Action<BinaryReader> Read, Action Callback)[]
-            {
-                ("Calligraphy/Curve.directory",         ReadCurveDirectoryEntry,        () => Logger.Info($"Loaded {CurveDirectory.RecordCount} curves")),
-                ("Calligraphy/Type.directory",          ReadTypeDirectoryEntry,         () => Logger.Info($"Loaded {AssetDirectory.AssetCount} asset entries of {AssetDirectory.AssetTypeCount} types")),
-                ("Calligraphy/Blueprint.directory",     ReadBlueprintDirectoryEntry,    () => Logger.Info($"Loaded {_loadedBlueprints.Count} blueprints")),
-                ("Calligraphy/Prototype.directory",     ReadPrototypeDirectoryEntry,    () => Logger.Info($"Loaded {_prototypeDataRefRecords.Count} Calligraphy prototype entries")),
-                ("Calligraphy/Replacement.directory",   ReadReplacementDirectoryEntry,  () => { } )
-            };
-
             // Load all directories
-            foreach (var directory in directories)
+            foreach (DataDirectoryEntry directoryEntry in DataDirectoryLookup)
             {
-                using Stream stream = LoadPakDataFile(directory.Item1, PakFileId.Calligraphy);
-                using BinaryReader reader = new(stream);
+                LoadDirectoryFromFile(directoryEntry);
 
-                CalligraphyHeader header = new(reader);
-                int recordCount = reader.ReadInt32();
-
-                for (int i = 0; i < recordCount; i++)
-                    directory.Read(reader);
-
-                directory.Callback();
+                switch (directoryEntry.Id)
+                {
+                    case DirectoryId.Curve:     Logger.Info($"Loaded {CurveDirectory.RecordCount} curves"); break;
+                    case DirectoryId.Type:      Logger.Info($"Loaded {AssetDirectory.AssetCount} asset entries of {AssetDirectory.AssetTypeCount} types"); break;
+                    case DirectoryId.Blueprint: Logger.Info($"Loaded {_loadedBlueprints.Count} blueprints"); break;
+                    case DirectoryId.Prototype: Logger.Info($"Loaded {_prototypeDataRefRecords.Count} Calligraphy prototype entries"); break;
+                }
             }
 
             // Bind asset types to code enums where needed and enumerate all assets
@@ -145,7 +155,7 @@ namespace MHServerEmu.Games.GameData
             if (!Verify.IsNotNull(fileStream, $"Unable to open pak file stream for blueprint file {blueprintFilePath}"))
                 return null;
 
-            using BinaryReader dataReader = new(fileStream);
+            using CalligraphyReader dataReader = new(fileStream, blueprintFilePath);
 
             if (!Verify.IsTrue(blueprint.Deserialize(dataReader, guid, blueprintRef))) return null;
 
@@ -159,7 +169,7 @@ namespace MHServerEmu.Games.GameData
         /// <summary>
         /// Creates a <see cref="PrototypeDataRefRecord"/> for a Calligraphy <see cref="Prototype"/> without loading it.
         /// </summary>
-        private void AddCalligraphyPrototype(PrototypeId prototypeId, PrototypeGuid prototypeGuid, BlueprintId blueprintId, PrototypeRecordFlags flags, string filePath)
+        private bool AddCalligraphyPrototype(PrototypeId prototypeId, PrototypeGuid prototypeGuid, BlueprintId blueprintId, PrototypeRecordFlags flags, string filePath)
         {
             // Create a dataRef
             GameDatabase.PrototypeRefManager.AddDataRef(prototypeId, filePath);
@@ -186,6 +196,8 @@ namespace MHServerEmu.Games.GameData
 
             _prototypeDataRefRecords.Add(prototypeId, record);
             // Load the prototype on demand
+
+            return true;
         }
 
         /// <summary>
@@ -846,90 +858,141 @@ namespace MHServerEmu.Games.GameData
 
         #region Deserialization
 
-        /// <summary>
-        /// Helper method for deserializing <see cref="Calligraphy.AssetDirectory"/> entries.
-        /// </summary>
-        private void ReadTypeDirectoryEntry(BinaryReader entryReader)
+        private bool LoadDirectoryFromFile(DataDirectoryEntry directoryEntry)
         {
-            AssetTypeId dataId = (AssetTypeId)entryReader.ReadUInt64();
-            AssetTypeGuid assetTypeGuid = (AssetTypeGuid)entryReader.ReadUInt64();
-            AssetTypeRecordFlags flags = (AssetTypeRecordFlags)entryReader.ReadByte();
-            string filePath = entryReader.ReadFixedString16().Replace('\\', '/');
+            if (!Verify.IsNotNull(directoryEntry)) return false;
 
-            GameDatabase.AssetTypeRefManager.AddDataRef(dataId, filePath);
+            string directoryFilename = $"Calligraphy/{directoryEntry.Filename}";
 
-            AssetDirectory.LoadedAssetTypeRecord assetTypeRecord = AssetDirectory.CreateAssetTypeRecord(dataId, flags);
-            if (!Verify.IsNotNull(assetTypeRecord)) return;
+            // skipping GetPakFileModTime() from the client here
 
-            string assetTypeFilename = $"Calligraphy/{filePath}";
-            using Stream fileStream = LoadPakDataFile(assetTypeFilename, PakFileId.Calligraphy);
-            if (!Verify.IsNotNull(fileStream, $"Unable to open asset type file {assetTypeFilename}"))
-                return;
+            using Stream fileStream = LoadPakDataFile(directoryFilename, PakFileId.Calligraphy);
+            if (!Verify.IsNotNull(fileStream, $"Unable to open find {directoryFilename} in pakfile"))
+                return false;
 
-            using BinaryReader reader = new(fileStream);
+            using CalligraphyReader reader = new(fileStream, directoryFilename);
+            if (!Verify.IsTrue(reader.ReadHeader(directoryEntry.Magic))) return false;
 
-            AssetType assetType = assetTypeRecord.AssetType;
-            assetType.Load(reader, AssetDirectory, dataId, assetTypeGuid, GameDatabase.StringRefManager);
+            if (!Verify.IsTrue(reader.Read(out int numEntries))) return false;
+
+            for (int i = 0; i < numEntries; i++)
+            {
+                if (!Verify.IsTrue(directoryEntry.ReadFunction(reader, this))) return false;
+            }
+
+            return true;
         }
 
         /// <summary>
         /// Helper method for deserializing <see cref="Calligraphy.CurveDirectory"/> entries.
         /// </summary>
-        private void ReadCurveDirectoryEntry(BinaryReader entryReader)
+        private static bool ReadCurveDirectoryEntry(CalligraphyReader entryReader, DataDirectory dataDirectory)
         {
-            CurveId curveId = (CurveId)entryReader.ReadUInt64();
-            CurveGuid guid = (CurveGuid)entryReader.ReadUInt64();                // Doesn't seem to be used at all
-            CurveRecordFlags flags = (CurveRecordFlags)entryReader.ReadByte();   // Neither is this, none of the curve records have any flags set
-            string filePath = entryReader.ReadFixedString16().Replace('\\', '/');
+            CurveDirectory curveDirectory = dataDirectory.CurveDirectory;
+
+            if (!Verify.IsTrue(entryReader.Read(out CurveId curveId))) return false;
+            if (!Verify.IsTrue(entryReader.Read(out CurveGuid guid))) return false;             // Doesn't seem to be used at all
+            if (!Verify.IsTrue(entryReader.Read(out CurveRecordFlags flags))) return false;     // Neither is this, none of the curve records have any flags set
+
+            const int MaxDataFileFilePath = 1280;
+            Span<byte> filepathBuffer = stackalloc byte[MaxDataFileFilePath];
+            if (!Verify.IsTrue(entryReader.ReadFilePath(filepathBuffer, MaxDataFileFilePath - 1))) return false;
+            string filePath = filepathBuffer.GetCString();
 
             GameDatabase.CurveRefManager.AddDataRef(curveId, filePath);
 
-            CurveDirectory.CurveRecord record = CurveDirectory.CreateCurveRecord(curveId, flags);
-            if (!Verify.IsNotNull(record)) return;
+            CurveDirectory.CurveRecord record = curveDirectory.CreateCurveRecord(curveId, flags);
+            if (!Verify.IsNotNull(record)) return false;
 
-            // Load this curve
-            CurveDirectory.GetCurve(curveId);
+            // Load this curve immediately
+            return curveDirectory.GetCurve(curveId) != null;
+        }
+
+        /// <summary>
+        /// Helper method for deserializing <see cref="Calligraphy.AssetDirectory"/> entries.
+        /// </summary>
+        private static bool ReadTypeDirectoryEntry(CalligraphyReader entryReader, DataDirectory dataDirectory)
+        {
+            AssetDirectory assetDirectory = dataDirectory.AssetDirectory;
+
+            if (!Verify.IsTrue(entryReader.Read(out AssetTypeId dataId))) return false;
+            if (!Verify.IsTrue(entryReader.Read(out AssetTypeGuid assetTypeGuid))) return false;
+            if (!Verify.IsTrue(entryReader.Read(out AssetTypeRecordFlags flags))) return false;
+
+            const int MaxDataFileFilePath = 1280;
+            Span<byte> filepathBuffer = stackalloc byte[MaxDataFileFilePath];
+            if (!Verify.IsTrue(entryReader.ReadFilePath(filepathBuffer, MaxDataFileFilePath - 1))) return false;
+            string filePath = filepathBuffer.GetCString();
+
+            GameDatabase.AssetTypeRefManager.AddDataRef(dataId, filePath);
+
+            AssetDirectory.LoadedAssetTypeRecord assetTypeRecord = assetDirectory.CreateAssetTypeRecord(dataId, flags);
+            if (!Verify.IsNotNull(assetTypeRecord)) return false;
+
+            string assetTypeFilename = $"Calligraphy/{filePath}";
+            using Stream fileStream = dataDirectory.LoadPakDataFile(assetTypeFilename, PakFileId.Calligraphy);
+            if (!Verify.IsNotNull(fileStream, $"Unable to open asset type file {assetTypeFilename}"))
+                return false;
+
+            using CalligraphyReader reader = new(fileStream, assetTypeFilename);
+
+            AssetType assetType = assetTypeRecord.AssetType;
+            return assetType.Load(reader, assetDirectory, dataId, assetTypeGuid, GameDatabase.StringRefManager);
         }
 
         /// <summary>
         /// Helper method for deserializing <see cref="Blueprint"/> directory entries.
         /// </summary>
-        private void ReadBlueprintDirectoryEntry(BinaryReader entryReader)
+        private static bool ReadBlueprintDirectoryEntry(CalligraphyReader entryReader, DataDirectory dataDirectory)
         {
-            BlueprintId dataId = (BlueprintId)entryReader.ReadUInt64();
-            BlueprintGuid guid = (BlueprintGuid)entryReader.ReadUInt64();
-            BlueprintRecordFlags flags = (BlueprintRecordFlags)entryReader.ReadByte();
-            string filePath = entryReader.ReadFixedString16().Replace('\\', '/');
+            if (!Verify.IsTrue(entryReader.Read(out BlueprintId dataId))) return false;
+            if (!Verify.IsTrue(entryReader.Read(out BlueprintGuid guid))) return false;
+            if (!Verify.IsTrue(entryReader.Read(out BlueprintRecordFlags flags))) return false;
+            
+            const int MaxDataFileFilePath = 1280;
+            Span<byte> filepathBuffer = stackalloc byte[MaxDataFileFilePath];
+            if (!Verify.IsTrue(entryReader.ReadFilePath(filepathBuffer, MaxDataFileFilePath - 1))) return false;
+            string filePath = filepathBuffer.GetCString();
 
             GameDatabase.BlueprintRefManager.AddDataRef(dataId, filePath);
-            LoadBlueprint(dataId, guid, flags);
+            return dataDirectory.LoadBlueprint(dataId, guid, flags) != null;
         }
 
         /// <summary>
         /// Helper method for deserializing <see cref="Prototype"/> directory entries.
         /// </summary>
-        private void ReadPrototypeDirectoryEntry(BinaryReader entryReader)
+        private static bool ReadPrototypeDirectoryEntry(CalligraphyReader entryReader, DataDirectory dataDirectory)
         {
-            PrototypeId prototypeId = (PrototypeId)entryReader.ReadUInt64();
-            PrototypeGuid prototypeGuid = (PrototypeGuid)entryReader.ReadUInt64();
-            BlueprintId blueprintId = (BlueprintId)entryReader.ReadUInt64();
-            PrototypeRecordFlags flags = (PrototypeRecordFlags)entryReader.ReadByte();
-            string filePath = entryReader.ReadFixedString16().Replace('\\', '/');
+            if (!Verify.IsTrue(entryReader.Read(out PrototypeId prototypeId))) return false;
+            if (!Verify.IsTrue(entryReader.Read(out PrototypeGuid prototypeGuid))) return false;
+            if (!Verify.IsTrue(entryReader.Read(out BlueprintId blueprintId))) return false;
+            if (!Verify.IsTrue(entryReader.Read(out PrototypeRecordFlags flags))) return false;
 
-            AddCalligraphyPrototype(prototypeId, prototypeGuid, blueprintId, flags, filePath);
+            const int MaxDataFileFilePath = 1280;
+            Span<byte> filepathBuffer = stackalloc byte[MaxDataFileFilePath];
+            if (!Verify.IsTrue(entryReader.ReadFilePath(filepathBuffer, MaxDataFileFilePath - 1))) return false;
+            string filePath = filepathBuffer.GetCString();
+
+            return dataDirectory.AddCalligraphyPrototype(prototypeId, prototypeGuid, blueprintId, flags, filePath);
         }
 
         /// <summary>
         /// Helper method for deserializing replacement directory entries.
         /// </summary>
-        private void ReadReplacementDirectoryEntry(BinaryReader entryReader)
+        private static bool ReadReplacementDirectoryEntry(CalligraphyReader entryReader, DataDirectory dataDirectory)
         {
-            ulong guid = entryReader.ReadUInt64();
-            ulong replacement = entryReader.ReadUInt64();
-            string name = entryReader.ReadFixedString16();
+            if (!Verify.IsTrue(entryReader.Read(out ulong guid))) return false;
+            if (!Verify.IsTrue(entryReader.Read(out ulong replacement))) return false;
+
+            const int MaxNamePath = 1024;
+            Span<byte> nameBuffer = stackalloc byte[MaxNamePath];
+            if (!Verify.IsTrue(entryReader.ReadFilePath(nameBuffer, MaxNamePath))) return false;
+            string name = nameBuffer.GetCString();
 
             if (guid != 0)
-                ReplacementDirectory.AddReplacementRecord(guid, replacement, name);
+                return dataDirectory.ReplacementDirectory.AddReplacementRecord(guid, replacement, name);
+            else
+                return false;
         }
 
         /// <summary>
@@ -1017,6 +1080,14 @@ namespace MHServerEmu.Games.GameData
                 }
             }
         }
+    }
+
+    public class DataDirectoryEntry(string filename, string magic, Func<CalligraphyReader, DataDirectory, bool> readFunction, DirectoryId id)
+    {
+        public readonly string Filename = filename;
+        public readonly string Magic = magic;
+        public readonly Func<CalligraphyReader, DataDirectory, bool> ReadFunction = readFunction;
+        public readonly DirectoryId Id = id;
     }
 
     /// <summary>

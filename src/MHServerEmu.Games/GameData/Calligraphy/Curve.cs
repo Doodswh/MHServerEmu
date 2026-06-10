@@ -23,32 +23,27 @@ namespace MHServerEmu.Games.GameData.Calligraphy
             return GameDatabase.GetCurveName(_curveRef);
         }
 
-        public bool Load(BinaryReader reader, CurveId curveRef)
+        public bool Load(CalligraphyReader reader, CurveId curveRef)
         {
             _curveRef = curveRef;
 
-            try
+            if (!Verify.IsTrue(reader.ReadHeader("CRV"))) return false;
+
+            if (!Verify.IsTrue(reader.Read(out int startPosition))) return false;
+            MinPosition = startPosition;
+
+            if (!Verify.IsTrue(reader.Read(out int endPosition))) return false;
+            MaxPosition = endPosition;
+
+            int numElements = endPosition - startPosition + 1;
+            if (!Verify.IsTrue(numElements >= 1)) return false;
+
+            _values = new float[numElements];
+            for (int i = 0; i < numElements; i++)
             {
-                CalligraphyHeader header = new(reader); // TODO: CalligraphyReader
-
-                MinPosition = reader.ReadInt32();
-                MaxPosition = reader.ReadInt32();
-
-                int numElements = MaxPosition - MinPosition + 1;
-                if (!Verify.IsTrue(numElements >= 1)) return false;
-
-                _values = new float[numElements];
-                for (int i = 0; i < numElements; i++)
-                {
-                    double value = reader.ReadDouble();
-                    _values[i] = (float)value;
-                    IsCurveZero &= value == 0;
-                }
-            }
-            catch (Exception e)
-            {
-                Verify.IsTrue(false, e.Message);
-                return false;
+                if (!Verify.IsTrue(reader.Read(out double value))) return false;
+                _values[i] = (float)value;
+                IsCurveZero &= value == 0;
             }
 
             return true;

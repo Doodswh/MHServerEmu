@@ -117,6 +117,18 @@ namespace MHServerEmu.Core.Extensions
             return true;
         }
 
+        public static string GetCString(this Span<byte> buffer)
+        {
+            int nullIndex = buffer.IndexOf((byte)0);
+
+            if (nullIndex > 0)
+                buffer = buffer[..nullIndex];
+            else if (nullIndex == 0)
+                return string.Empty;
+
+            return Encoding.UTF8.GetString(buffer);
+        }
+
         #endregion
     }
 }
