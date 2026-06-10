@@ -32,7 +32,7 @@ namespace MHServerEmu.Games.GameData.Calligraphy
 
         #region Gazillion::BinaryReader
 
-        public bool Read<T>(out T dest) where T: struct
+        public bool Read<T>(out T dest) where T: unmanaged
         {
             Span<byte> buffer = stackalloc byte[Unsafe.SizeOf<T>()];
 
@@ -42,7 +42,7 @@ namespace MHServerEmu.Games.GameData.Calligraphy
                 return false;
             }
 
-            dest = MemoryMarshal.Cast<byte, T>(buffer)[0];
+            dest = Unsafe.ReadUnaligned<T>(ref MemoryMarshal.GetReference(buffer));
             return true;
         }
 
