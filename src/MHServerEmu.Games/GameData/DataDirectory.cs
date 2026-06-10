@@ -986,7 +986,7 @@ namespace MHServerEmu.Games.GameData
 
             const int MaxNamePath = 1024;
             Span<byte> nameBuffer = stackalloc byte[MaxNamePath];
-            if (!Verify.IsTrue(entryReader.ReadFilePath(nameBuffer, MaxNamePath))) return false;
+            if (!Verify.IsTrue(entryReader.ReadStringUTF8(nameBuffer, MaxNamePath))) return false;
             string name = nameBuffer.GetCString();
 
             if (guid != 0)

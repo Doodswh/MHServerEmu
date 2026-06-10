@@ -14,6 +14,8 @@ namespace MHServerEmu.Games.GameData.Calligraphy
         
         public string SectionName { get; }
 
+        public long BytesRemaining { get => _stream.Length - _stream.Position; }
+
         public CalligraphyReader(Stream stream, string sectionName = "Unknown")
         {
             _stream = stream;
