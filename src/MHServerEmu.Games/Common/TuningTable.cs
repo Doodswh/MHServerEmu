@@ -6,6 +6,7 @@ using MHServerEmu.Games.Entities;
 using MHServerEmu.Games.GameData;
 using MHServerEmu.Games.GameData.Calligraphy;
 using MHServerEmu.Games.GameData.Prototypes;
+using MHServerEmu.Games.MetaGames;
 using MHServerEmu.Games.Powers;
 using MHServerEmu.Games.Properties;
 using MHServerEmu.Games.Regions;
@@ -74,7 +75,7 @@ namespace MHServerEmu.Games.Common
         public void SetDifficultyIndex(int difficultyIndex, bool broadcast)
         {
             int oldIndex = DifficultyIndex;
-            _difficultyIndex = Math.Clamp(difficultyIndex, _difficultyIndexMin, _difficultyIndexMax);
+            _difficultyIndex = XDefenseScaling.ClampDifficultyIndex(_region, difficultyIndex, _difficultyIndexMin, _difficultyIndexMax);
             if (oldIndex != _difficultyIndex && broadcast)
                 BroadcastChange(oldIndex, _difficultyIndex);
         }
@@ -115,7 +116,7 @@ namespace MHServerEmu.Games.Common
             Curve difficultyIndexDamageCurve = GameDatabase.GetCurve(difficultyGlobals.DifficultyIndexDamageDefaultMtoP);
             if (difficultyIndexDamageCurve == null) return Logger.WarnReturn(0.0f, "GetIndexEnemyDamageBonus(): difficultyIndexDamageCurve == null");
 
-            return difficultyIndexDamageCurve.GetAt(DifficultyIndex);
+            return GetCurveAtDifficultyIndex(difficultyIndexDamageCurve, 0f) * XDefenseScaling.GetEnemyDamageMultiplier(_region);
         }
 
         public float GetIndexEnemyDamageResistance()
@@ -136,8 +137,7 @@ namespace MHServerEmu.Games.Common
             Curve modifierCurve = GameDatabase.GetCurve(Prototype.PlayerXPByDifficultyIndexCurve);
             if (modifierCurve == null) return Logger.WarnReturn(0.0f, "GetIndexXPBonus(): modifierCurve == null");
 
-            int difficultyIndex = Math.Clamp(DifficultyIndex, modifierCurve.MinPosition, modifierCurve.MaxPosition);
-            return modifierCurve.GetAt(difficultyIndex);
+            return GetCurveAtDifficultyIndex(modifierCurve, 0f) * XDefenseScaling.GetWaveXpMultiplier(_region);
         }
 
         public float GetIndexLootBonus()
@@ -199,7 +199,30 @@ namespace MHServerEmu.Games.Common
 
             return difficultyMult;
         }
+        private float GetCurveAtDifficultyIndex(Curve curve, float minValue)
+        {
+            int difficultyIndex = DifficultyIndex;
+            if (XDefenseScaling.IsInfiniteScalingEnabled(_region) == false || difficultyIndex <= curve.MaxPosition)
+            {
+                int index = Math.Clamp(difficultyIndex, curve.MinPosition, curve.MaxPosition);
+                return curve.GetAt(index);
+            }
 
+            if (curve.MaxPosition <= curve.MinPosition)
+                return Math.Max(curve.GetAt(curve.MaxPosition), minValue);
+
+            float maxValue = curve.GetAt(curve.MaxPosition);
+            float previousValue = curve.GetAt(curve.MaxPosition - 1);
+            float step = maxValue - previousValue;
+            if (float.IsNaN(step) || float.IsInfinity(step) || step == 0f)
+                return Math.Max(maxValue, minValue);
+
+            float value = maxValue + step * (difficultyIndex - curve.MaxPosition);
+            if (float.IsNaN(value) || float.IsInfinity(value))
+                return Math.Max(maxValue, minValue);
+
+            return Math.Max(value, minValue);
+        }
         private float GetDifficultyIndexDamageMultiplier(bool isPlayerDamage, Rank targetRank)
         {
             DifficultyGlobalsPrototype difficultyGlobals = GameDatabase.DifficultyGlobalsPrototype;

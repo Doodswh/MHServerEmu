@@ -1,4 +1,4 @@
-using System.Net;
+﻿using System.Net;
 using MHServerEmu.Core.Network.Web;
 using MHServerEmu.WebFrontend.AccountDashboard;
 using MHServerEmu.WebFrontend.Models;
@@ -98,6 +98,30 @@ namespace MHServerEmu.WebFrontend.Handlers.AccountDashboard
             if (AccountDashboardDataService.TryBuildResponse(session.Email, out object response, out string message) == false)
             {
                 context.StatusCode = (int)HttpStatusCode.InternalServerError;
+                await context.SendJsonAsync(new
+                {
+                    authenticated = true,
+                    message,
+                });
+                return;
+            }
+
+            await context.SendJsonAsync(response);
+        }
+    }
+
+    public class AccountDashboardCharacterWebHandler : AccountDashboardHandlerBase
+    {
+        protected override async Task Post(WebRequestContext context)
+        {
+            AccountDashboardSession session = await RequireSessionAsync(context);
+            if (session == null)
+                return;
+
+            AccountDashboardCharacterRequest request = await context.ReadJsonAsync<AccountDashboardCharacterRequest>();
+            if (AccountDashboardDataService.TryBuildCharacterResponse(session.Email, request.CharacterId, out object response, out string message) == false)
+            {
+                context.StatusCode = (int)HttpStatusCode.BadRequest;
                 await context.SendJsonAsync(new
                 {
                     authenticated = true,

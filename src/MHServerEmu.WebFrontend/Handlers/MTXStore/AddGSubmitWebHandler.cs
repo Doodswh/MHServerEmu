@@ -1,6 +1,7 @@
 ﻿using MHServerEmu.Core.Network;
 using MHServerEmu.Core.Network.Web;
 using MHServerEmu.WebFrontend.Network;
+using System.Net;
 
 namespace MHServerEmu.WebFrontend.Handlers.MTXStore
 {
@@ -9,6 +10,12 @@ namespace MHServerEmu.WebFrontend.Handlers.MTXStore
         protected override async Task Post(WebRequestContext context)
         {
             AddGRequest request = await context.ReadJsonAsync<AddGRequest>();
+
+            if (string.IsNullOrWhiteSpace(request.Email) || string.IsNullOrWhiteSpace(request.Token))
+            {
+                context.StatusCode = (int)HttpStatusCode.BadRequest;
+                return;
+            }
 
             string email = request.Email;
             string token = request.Token;

@@ -911,6 +911,9 @@ namespace MHServerEmu.Games.Entities.Avatars
             if (base.OnPowerAssigned(power) == false)
                 return false;
 
+            if (_pendingAction.PowerProtoRef == power.PrototypeDataRef)
+                CancelPendingAction();
+
             // Set charges to max if the assigned power uses charges
             if (Properties.HasProperty(new PropertyId(PropertyEnum.PowerChargesMax, power.PrototypeDataRef)) == false)
             {
@@ -2546,7 +2549,7 @@ namespace MHServerEmu.Games.Entities.Avatars
             // Unassign
             UnassignPower(mappedPowerRef);
             Properties.RemoveProperty(new(PropertyEnum.AvatarMappedPower, originalPowerRef));
-
+            Properties.RemoveProperty(new(PropertyEnum.PowerChargesMaxBonus, mappedPowerRef));
             // Refresh the original power
             GetPowerProgressionInfo(originalPowerRef, out PowerProgressionInfo originalPowerInfo);
             UpdatePowerRank(ref originalPowerInfo, false);
@@ -7125,7 +7128,7 @@ namespace MHServerEmu.Games.Entities.Avatars
             CurrentTeamUpAgent?.SetTeamUpsAtMaxLevel(player);   // Needed to calculate team-up synergies
 
             ApplyLiveTuneServerConditions();
-
+          
             RestoreSelfAppliedPowerConditions();     // This needs to happen after we assign powers
             UpdateBoostConditionPauseState(region.PausesBoostConditions());
 
@@ -7145,6 +7148,8 @@ namespace MHServerEmu.Games.Entities.Avatars
             }
 
             UpdateTalentPowers();
+   
+            RestoreSelfAppliedPowerConditions();
 
             var missionManager = player.MissionManager;
             if (missionManager != null)

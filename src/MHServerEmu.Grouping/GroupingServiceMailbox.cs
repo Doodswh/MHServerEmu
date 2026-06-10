@@ -16,7 +16,7 @@ namespace MHServerEmu.Grouping
             _groupingManager = groupingManager;
         }
 
-        protected override void HandleServiceMessage(IGameServiceMessage message)
+        public override void HandleMessage<T>(in T message)
         {
             // NOTE: There is a ClientToGroupingManager protocol with a single message - GetPlayerInfoByName.
             // It appears to be unused, but if we ever receive it, it should end up here as a ServiceMessage.RouteMessageBuffer.

@@ -1,7 +1,8 @@
-﻿using System.Diagnostics;
-using Gazillion;
+﻿using Gazillion;
 using MHServerEmu.Core.Logging;
+using MHServerEmu.Core.Metrics;
 using MHServerEmu.Games.GameData;
+using System.Diagnostics;
 
 namespace MHServerEmu.Games.Regions
 {

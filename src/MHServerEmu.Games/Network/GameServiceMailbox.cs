@@ -27,7 +27,7 @@ namespace MHServerEmu.Games.Network
             Game = game;
         }
 
-        protected override void HandleServiceMessage(IGameServiceMessage message)
+        public override void HandleMessage<T>(in T message)
         {
             switch (message)
             {
@@ -42,7 +42,9 @@ namespace MHServerEmu.Games.Network
                 case ServiceMessage.DestroyPortal destroyPortal:
                     OnDestroyPortal(destroyPortal);
                     break;
-
+                case ServiceMessage.SpawnEntityInRegions spawnEntityInRegions:
+                    OnSpawnEntityInRegions(spawnEntityInRegions);
+                    break;
                 case ServiceMessage.UnableToChangeRegion unableToChangeRegion:
                     OnUnableToChangeRegion(unableToChangeRegion);
                     break;
@@ -189,7 +191,28 @@ namespace MHServerEmu.Games.Network
             player.Community.OnPlayerLookupByNameResult(remoteJobId, resultPlayerDbId, resultPlayerName);
             return true;
         }
+        private void OnSpawnEntityInRegions(in ServiceMessage.SpawnEntityInRegions message)
+        {
+            var regionProtoRef = (PrototypeId)message.RegionProtoRef;
+            var difficultyTierProtoRef = (PrototypeId)message.DifficultyTierProtoRef;
 
+            var agentProto = GameDatabase.GetPrototype<AgentPrototype>((PrototypeId)message.EntityProtoRef);
+            if (agentProto == null)
+            {
+                Logger.Warn("OnSpawnEntityInRegions(): agentProto == null");
+                return;
+            }
+
+            foreach (Region region in Game.RegionManager)
+            {
+                if (region.PrototypeDataRef != regionProtoRef) continue;
+                if (region.DifficultyTierRef != difficultyTierProtoRef) continue;   // confirm accessor
+
+                // Honor "only if the space is free": bounds test at message.Position, then create ownerless.
+                EntityHelper.CreateAgentInRegion(agentProto, region, message.Position, message.Orientation,
+     message.CharacterLevel, message.CombatLevel);  // PROPOSED — see note
+            }
+        }
         private bool OnCommunityBroadcastBatch(in ServiceMessage.CommunityBroadcastBatch communityBroadcastBatch)
         {
             if (communityBroadcastBatch.PlayerDbId != 0)

@@ -1,2 +1,2 @@
 window.dashboardConfig = window.dashboardConfig || {};
-window.dashboardConfig.originSuffix = window.location.port === "8313" ? "" : "/AuthServer";
+window.dashboardConfig.originSuffix = window.location.pathname.toLowerCase().indexOf("/authserver/") === 0 ? "/AuthServer" : "";

@@ -21,6 +21,7 @@ namespace MHServerEmu.Core.Network.Web
         public string HttpMethod { get => _httpRequest.HttpMethod; }
         public string XForwardedFor { get => _httpRequest.Headers["X-Forwarded-For"]; }
         public string Authorization { get => _httpRequest.Headers["Authorization"]; }
+        public NameValueCollection QueryString { get => _httpRequest.QueryString; }
 
         public bool IsGameClientRequest { get => UserAgent.Equals("Secret Identity Studios Http Client", StringComparison.InvariantCulture); }
 

@@ -11,27 +11,33 @@ namespace MHServerEmu.Games.Network
         public Game Game { get; }
         public bool CanSendArchiveMessages { get => true; }
 
-        public ulong RegisterMessageHandler<T>(T handler, ref ulong replicationId) where T: IArchiveMessageHandler
+        public ulong RegisterMessageHandler<T>(T handler, ref ulong replicationId) where T : IArchiveMessageHandler
         {
-            // NOTE: We pass a ref to the replicationId field along with the handler so that we don't have to expose it via a public setter.
+            //  If the ID is 0 or taken, keep generating new IDs until we find a completely free one.
+            if (replicationId == InvalidReplicationId || Game.MessageHandlerDict.ContainsKey(replicationId))
+            {
+                do
+                {
+                    replicationId = Game.CurrentRepId;
+                }
+                while (Game.MessageHandlerDict.ContainsKey(replicationId));
+            }
 
-            if (replicationId == InvalidReplicationId)
-                replicationId = Game.CurrentRepId;
-
-            if (Game.MessageHandlerDict.ContainsKey(replicationId))
-                return Logger.WarnReturn(InvalidReplicationId, $"RegisterMessageHandler(): ReplicationId {replicationId} is already used by another handler");
+            // Since the loop above guarantees the ID is unique, we no longer need the secondary warning check.
 
             //Logger.Debug($"RegisterMessageHandler(): Registered handler id {replicationId} for {this}");
             Game.MessageHandlerDict.Add(replicationId, handler);
             return replicationId;
         }
 
-        public bool UnregisterMessageHandler<T>(T handler) where T: IArchiveMessageHandler
+        public bool UnregisterMessageHandler<T>(T handler) where T : IArchiveMessageHandler
         {
+            if (handler.ReplicationId == InvalidReplicationId)
+                return false;
+
             if (Game.MessageHandlerDict.Remove(handler.ReplicationId) == false)
                 return Logger.WarnReturn(false, $"UnregisterMessageHandler(): ReplicationId {handler.ReplicationId} not found");
 
-            //Logger.Debug($"RegisterMessageHandler(): Unregistered handler id {handler.ReplicationId} from {this}");
             return true;
         }
 

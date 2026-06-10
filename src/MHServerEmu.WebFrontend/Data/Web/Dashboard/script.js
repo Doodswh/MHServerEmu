@@ -179,10 +179,12 @@ const serverStatusTab = {
 
 const metricsTab = {
 	tabName: "metrics",
+	regionReportsByGame: {},
 
 	initialize() {
 		document.getElementById("metrics-button").onclick = () => this.requestData();
 		document.getElementById("metrics-game-select").onchange = () => this.onGameMetricSelectChanged();
+		document.getElementById("metrics-region-game-select").onchange = () => this.onRegionGameSelectChanged();
 	},
 
 	requestData() {
@@ -196,12 +198,19 @@ const metricsTab = {
 		this.updateReportMetadata(data);
 		this.updateMemoryMetrics(data.Memory);
 		this.updateGameMetrics(data.Games);
+		this.updateRegionMetrics(data.RegionsByGame || {});
 	},
 
 	onGameMetricSelectChanged() {
 		const select = document.getElementById("metrics-game-select");
-		const metric = select.options[select.selectedIndex].value;
+		const metric = select.selectedIndex >= 0 ? select.options[select.selectedIndex].value : "";
 		this.selectGameMetric(metric);
+	},
+
+	onRegionGameSelectChanged() {
+		const select = document.getElementById("metrics-region-game-select");
+		const gameId = select.selectedIndex >= 0 ? select.options[select.selectedIndex].value : "";
+		this.selectRegionGame(gameId);
 	},
 
 	updateReportMetadata(data) {
@@ -236,7 +245,6 @@ const metricsTab = {
 
 		const dataMap = new Map();
 
-		// Bucket data by metric
 		for (const key in data) {
 			const entry = data[key];
 
@@ -257,7 +265,6 @@ const metricsTab = {
 			}
 		}
 		
-		// Populate html with bucketed data
 		dataMap.forEach((value, key) => {
 			const selectOption = htmlUtil.createAndAppendChild(gameMetricSelect, "option", key);
 			selectOption.value = key;
@@ -269,14 +276,47 @@ const metricsTab = {
 			htmlUtil.createAndAppendTable(subcontainer, value);
 		});
 
-		// Reselect the previously selected metric
 		if (dataMap.size > 0) {
 			if (prevSelectedIndex == -1)
 				prevSelectedIndex = 0;
 
-			gameMetricSelect.selectedIndex = prevSelectedIndex;
+			gameMetricSelect.selectedIndex = Math.min(prevSelectedIndex, gameMetricSelect.options.length - 1);
 			this.onGameMetricSelectChanged();
 		}
+	},
+
+	updateRegionMetrics(data) {
+		this.regionReportsByGame = data;
+
+		const regionGameSelect = document.getElementById("metrics-region-game-select");
+		const previousGameId = regionGameSelect.value;
+		regionGameSelect.innerHTML = "";
+
+		const regionContainer = document.getElementById("metrics-regions-container");
+		const regionSummary = document.getElementById("metrics-regions-summary");
+		regionContainer.innerHTML = "";
+		regionSummary.innerHTML = "";
+
+		const gameIds = Object.keys(data).sort((left, right) => {
+			const leftId = BigInt(left);
+			const rightId = BigInt(right);
+			return leftId < rightId ? -1 : (leftId > rightId ? 1 : 0);
+		});
+
+		if (gameIds.length === 0) {
+			htmlUtil.createAndAppendChild(regionContainer, "p", "No region scheduler data available.");
+			return;
+		}
+
+		for (let i = 0; i < gameIds.length; i++) {
+			const gameId = gameIds[i];
+			const reports = data[gameId] || [];
+			const option = htmlUtil.createAndAppendChild(regionGameSelect, "option", `Game 0x${stringUtil.bigIntToHexString(gameId)} (${reports.length} regions)`);
+			option.value = gameId;
+		}
+
+		regionGameSelect.value = gameIds.includes(previousGameId) ? previousGameId : gameIds[0];
+		this.onRegionGameSelectChanged();
 	},
 
 	selectGameMetric(metric) {
@@ -290,6 +330,105 @@ const metricsTab = {
 			return;
 
 		document.getElementById(metricSubcontainerId).style.display = "block";
+	},
+
+	selectRegionGame(gameId) {
+		const regionContainer = document.getElementById("metrics-regions-container");
+		const regionSummary = document.getElementById("metrics-regions-summary");
+		regionContainer.innerHTML = "";
+		regionSummary.innerHTML = "";
+
+		if (gameId == "")
+			return;
+
+		const reports = (this.regionReportsByGame[gameId] || []).slice().sort((left, right) => {
+			const leftScore = this.getHotnessScore(left);
+			const rightScore = this.getHotnessScore(right);
+			if (leftScore !== rightScore)
+				return rightScore - leftScore;
+
+			const leftPending = left.Aoi.Pending + left.Events.Pending + left.Transfers.Pending;
+			const rightPending = right.Aoi.Pending + right.Events.Pending + right.Transfers.Pending;
+			if (leftPending !== rightPending)
+				return rightPending - leftPending;
+
+			return Number(BigInt(left.RegionId) - BigInt(right.RegionId));
+		});
+
+		this.renderRegionSummary(regionSummary, reports);
+
+		const tableData = [["RegionId", "Prototype", "Players", "Match", "Transfers", "AOI", "Events"]];
+		for (let i = 0; i < reports.length; i++) {
+			const report = reports[i];
+			tableData.push([
+				`0x${stringUtil.bigIntToHexString(report.RegionId)}`,
+				report.PrototypeName,
+				report.PlayerCount.toString(),
+				report.MatchNumber.toString(),
+				this.formatRegionPhase(report.Transfers),
+				this.formatRegionPhase(report.Aoi),
+				this.formatRegionPhase(report.Events),
+			]);
+		}
+
+		htmlUtil.createAndAppendTable(regionContainer, tableData);
+	},
+
+	renderRegionSummary(parent, reports) {
+		const cards = htmlUtil.createAndAppendChild(parent, "div");
+		cards.className = "metrics-region-summary-grid";
+
+		const hotRegions = reports.filter((report) => report.Transfers.IsHot || report.Aoi.IsHot || report.Events.IsHot).length;
+		const totalPlayers = reports.reduce((sum, report) => sum + report.PlayerCount, 0);
+		const busiestRegion = reports.reduce((best, report) => {
+			if (best == null)
+				return report;
+			return this.getHotnessScore(report) > this.getHotnessScore(best) ? report : best;
+		}, null);
+		const hottestLabel = busiestRegion != null
+			? `${busiestRegion.PrototypeName} (0x${stringUtil.bigIntToHexString(busiestRegion.RegionId)})`
+			: "n/a";
+		const hottestPressure = busiestRegion != null
+			? `${this.formatRegionPhaseShort(busiestRegion.Aoi)} | ${this.formatRegionPhaseShort(busiestRegion.Events)}`
+			: "n/a";
+
+		this.appendSummaryCard(cards, "Regions", reports.length.toString(), "Visible regions in this game report");
+		this.appendSummaryCard(cards, "Hot Regions", hotRegions.toString(), "Regions currently flagged hot in any phase");
+		this.appendSummaryCard(cards, "Players", totalPlayers.toString(), "Players across the reported regions");
+		this.appendSummaryCard(cards, "Top Hotspot", hottestLabel, hottestPressure);
+	},
+
+	appendSummaryCard(parent, label, value, detail) {
+		const card = htmlUtil.createAndAppendChild(parent, "div");
+		card.className = "metrics-region-summary-card";
+
+		const labelNode = htmlUtil.createAndAppendChild(card, "div", label);
+		labelNode.className = "metrics-region-summary-label";
+
+		const valueNode = htmlUtil.createAndAppendChild(card, "div", value);
+		valueNode.className = "metrics-region-summary-value";
+
+		const detailNode = htmlUtil.createAndAppendChild(card, "div", detail);
+		detailNode.className = "metrics-region-summary-detail";
+	},
+
+	getHotnessScore(report) {
+		let score = 0;
+		score += report.Transfers.IsHot ? 1 : 0;
+		score += report.Aoi.IsHot ? 2 : 0;
+		score += report.Events.IsHot ? 2 : 0;
+		score += report.Transfers.Pending + report.Aoi.Pending + report.Events.Pending;
+		return score;
+	},
+
+	formatRegionPhase(phase) {
+		const status = phase.IsHot ? "HOT" : "OK";
+		return `${status} | pending=${phase.Pending} | avg=${phase.AverageElapsedMilliseconds.toFixed(2)} ms | last=${phase.LastElapsedMilliseconds.toFixed(2)} ms | budget=${phase.LastBudget} | processed=${phase.LastProcessed}`;
+	},
+
+	formatRegionPhaseShort(phase) {
+		const status = phase.IsHot ? "HOT" : "OK";
+		return `${status}, pending=${phase.Pending}, avg=${phase.AverageElapsedMilliseconds.toFixed(2)} ms`;
 	},
 
 	formatTracker(tracker) {
@@ -476,3 +615,4 @@ tabManager.initialize([
 ]);
 
 })();
+

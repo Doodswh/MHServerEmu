@@ -71,6 +71,7 @@ namespace MHServerEmu.WebFrontend
                 }
 
                 InitializeWebDashboard("AccountDashboard", "/AccountDashboard/");
+                InitializeAdminAccountDashboard("ServerMetrics", "/ServerMetrics/");
             }
         }
 
@@ -142,10 +143,11 @@ namespace MHServerEmu.WebFrontend
             _webService.RegisterHandler("/AccountManagement/SetFlag",       new AccountSetFlagWebHandler());
             _webService.RegisterHandler("/AccountManagement/ClearFlag",     new AccountClearFlagWebHandler());
 
-            _webService.RegisterHandler("/AccountDashboard/Login",   new AccountDashboardLoginWebHandler());
-            _webService.RegisterHandler("/AccountDashboard/Session", new AccountDashboardSessionWebHandler());
-            _webService.RegisterHandler("/AccountDashboard/Logout",  new AccountDashboardLogoutWebHandler());
-            _webService.RegisterHandler("/AccountDashboard/Data",    new AccountDashboardDataWebHandler());
+            _webService.RegisterHandler("/AccountDashboard/Login",     new AccountDashboardLoginWebHandler());
+            _webService.RegisterHandler("/AccountDashboard/Session",   new AccountDashboardSessionWebHandler());
+            _webService.RegisterHandler("/AccountDashboard/Logout",    new AccountDashboardLogoutWebHandler());
+            _webService.RegisterHandler("/AccountDashboard/Data",      new AccountDashboardDataWebHandler());
+            _webService.RegisterHandler("/AccountDashboard/Character", new AccountDashboardCharacterWebHandler());
 
             _webService.RegisterHandler("/ServerStatus", new ServerStatusWebHandler());
             _webService.RegisterHandler("/RegionReport", new RegionReportWebHandler());
@@ -268,6 +270,56 @@ namespace MHServerEmu.WebFrontend
             }
 
             Logger.Info($"Initialized remote console dashboard at {localPath}");
+        }
+
+        private void InitializeAdminAccountDashboard(string dashboardDirectoryName, string localPath)
+        {
+            string dashboardDirectory = Path.Combine(FileHelper.DataDirectory, "Web", dashboardDirectoryName);
+            if (Directory.Exists(dashboardDirectory) == false)
+            {
+                Logger.Warn($"InitializeAdminAccountDashboard(): Dashboard directory '{dashboardDirectoryName}' does not exist");
+                return;
+            }
+
+            string indexFilePath = Path.Combine(dashboardDirectory, "index.html");
+            if (File.Exists(indexFilePath) == false)
+            {
+                Logger.Warn($"InitializeAdminAccountDashboard(): Index file not found at '{indexFilePath}'");
+                return;
+            }
+
+            _dashboardEndpoints ??= new();
+
+            if (localPath.StartsWith('/') == false)
+                localPath = $"/{localPath}";
+
+            if (localPath.EndsWith('/') == false)
+                localPath = $"{localPath}/";
+
+            _webService.RegisterHandler(localPath, new AccountDashboardAdminPageWebHandler(indexFilePath));
+            _dashboardEndpoints.Add(localPath);
+
+            if (localPath.Length > 1)
+            {
+                string localPathRedirect = localPath[..^1];
+                _webService.RegisterHandler(localPathRedirect, new TrailingSlashRedirectWebHandler());
+                _dashboardEndpoints.Add(localPathRedirect);
+            }
+
+            foreach (string filePath in Directory.GetFiles(dashboardDirectory, "*", SearchOption.AllDirectories))
+            {
+                string relativeFilePath = Path.GetRelativePath(dashboardDirectory, filePath);
+
+                if (string.Equals(relativeFilePath, "index.html", StringComparison.InvariantCultureIgnoreCase))
+                    continue;
+
+                string subFilePath = $"{localPath}{relativeFilePath.Replace('\\', '/')}";
+
+                _webService.RegisterHandler(subFilePath, new StaticFileWebHandler(filePath));
+                _dashboardEndpoints.Add(subFilePath);
+            }
+
+            Logger.Info($"Initialized admin account dashboard at {localPath}");
         }
     }
 }

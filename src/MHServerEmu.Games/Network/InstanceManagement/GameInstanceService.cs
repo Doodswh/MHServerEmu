@@ -92,7 +92,9 @@ namespace MHServerEmu.Games.Network.InstanceManagement
                 case ServiceMessage.PlayerLookupByNameResult playerLookupByNameResult:
                     RouteMessageToGame(playerLookupByNameResult.GameId, playerLookupByNameResult);
                     break;
-
+                case ServiceMessage.SpawnEntityInRegions spawnEntityInRegions:
+                    GameManager.BroadcastServiceMessageToGames(spawnEntityInRegions);
+                    break;
                 case ServiceMessage.CommunityBroadcastBatch communityBroadcastBatch:
                     if (communityBroadcastBatch.GameId != 0)
                         RouteMessageToGame(communityBroadcastBatch.GameId, communityBroadcastBatch);

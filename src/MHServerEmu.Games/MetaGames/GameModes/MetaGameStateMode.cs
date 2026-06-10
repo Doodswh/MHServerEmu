@@ -100,7 +100,7 @@ namespace MHServerEmu.Games.MetaGames.GameModes
                 evalContext.SetReadOnlyVar_PropertyCollectionPtr(EvalContext.Default, MetaGame.Properties);
                 evalContext.SetReadOnlyVar_PropertyCollectionPtr(EvalContext.Other, region.Properties);
                 int evalMode = Eval.RunInt(_proto.EvalModeEnd, evalContext);
-                if (evalMode >= 0)
+                if (evalMode >= 0 && XDefenseScaling.ShouldBypassModeEnd(MetaGame) == false)
                 {
                     MetaGame.ScheduleActivateGameMode(evalMode);
                     return;

@@ -389,24 +389,27 @@ namespace MHServerEmu.PlayerManagement.Players
             // Create a new region if needed
             if (region == null)
             {
-                // We treat match regions as private since there is currently no matchmaking.
-                if (regionProto.IsPublic && regionProto.Behavior != RegionBehavior.MatchPlay)
+                if (regionProto.IsPublic)
                     region = PlayerManagerService.Instance.WorldManager.GetOrCreatePublicRegion(regionProtoRef, createRegionParams);
                 else
                     region = PlayerManagerService.Instance.WorldManager.CreatePrivateRegion(this, regionProtoRef, createRegionParams);
 
-                worldView.AddRegion(region);
-            }
-            else
-            {
-                RegionTransferFailure canEnterRegion = CanEnterRegion(region, false);
-                if (canEnterRegion != RegionTransferFailure.eRTF_NoError)
+                if (region != null)
                 {
-                    CancelRegionTransfer(requestingGameId, canEnterRegion);
+                    worldView.AddRegion(region);
+                }
+                else
+                {
+                    CancelRegionTransfer(requestingGameId, RegionTransferFailure.eRTF_DestinationInaccessible);
                     return false;
                 }
             }
-
+            RegionTransferFailure canEnterRegion = CanEnterRegion(region, false);
+            if (canEnterRegion != RegionTransferFailure.eRTF_NoError)
+            {
+                CancelRegionTransfer(requestingGameId, canEnterRegion);
+                return false;
+            }
             ulong destGameId = region.Game.Id;
 
             NetStructTransferParams transferParams = NetStructTransferParams.CreateBuilder()
@@ -687,6 +690,21 @@ namespace MHServerEmu.PlayerManagement.Players
 
             List<(ulong, ulong)> worldView = new();
             GetCurrentWorldView().BuildWorldViewCache(worldView);
+            if (GracePeriodRegion != null)
+            {
+                if (!worldView.Any(w => w.Item1 == GracePeriodRegion.Id))
+                {
+                    worldView.Add((GracePeriodRegion.Id, (ulong)GracePeriodRegion.RegionProtoRef));
+                }
+            }
+
+            if (TargetRegion != null)
+            {
+                if (!worldView.Any(w => w.Item1 == TargetRegion.Id))
+                {
+                    worldView.Add((TargetRegion.Id, (ulong)TargetRegion.RegionProtoRef));
+                }
+            }
             ServiceMessage.WorldViewSync message = new(CurrentGame.Id, PlayerDbId, worldView);
             ServerManager.Instance.SendMessageToService(GameServiceType.GameInstance, message);
         }

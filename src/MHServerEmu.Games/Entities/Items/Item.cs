@@ -77,6 +77,7 @@ namespace MHServerEmu.Games.Entities.Items
         public bool StacksCanBeSplit { get => ItemPrototype?.StackSettings?.StacksCanBeSplit == true; }
 
         public bool IsPetItem { get => ItemPrototype?.IsPetItem == true; }
+        private bool _bagLootRolled = false;
         public bool IsCraftingRecipe { get => Prototype is CraftingRecipePrototype; }
         public bool IsRelic { get => Prototype is RelicPrototype; }
         public bool IsTeamUpGear { get => Prototype is TeamUpGearPrototype; }
@@ -121,6 +122,9 @@ namespace MHServerEmu.Games.Entities.Items
 
                 // Restore affix level from XP for legendary items
                 TryLevelUpAffix(true);
+
+                _bagLootRolled = true;
+                // ---------------------
             }
 
             return true;
@@ -229,6 +233,38 @@ namespace MHServerEmu.Games.Entities.Items
             }
 
             base.OnSelfAddedToOtherInventory();
+
+            // --- NEW: BagItem Initialization Logic ---
+            if (ItemPrototype is BagItemPrototype && !_bagLootRolled)
+            {
+                // Mark it so we never roll loot for this specific bag again
+                _bagLootRolled = true;
+
+                // Get the player to use as the context for the loot roll (level, boosts, etc.)
+                Player player = GetOwnerOfType<Player>();
+                if (player != null)
+                {
+                    var entityProto = this.PrototypeDataRef.As<EntityPrototype>();
+
+                    // Because EntityPrototype.cs defines Inventories as an array, we can safely loop it
+                    if (entityProto != null && entityProto.Inventories.HasValue())
+                    {
+                        foreach (EntityInventoryAssignmentPrototype assignment in entityProto.Inventories)
+                        {
+                            if (assignment == null || assignment.LootTable == PrototypeId.Invalid || assignment.Inventory == PrototypeId.Invalid)
+                                continue;
+
+                            // Entity.cs already instantiated this inventory for us during InitInventories(). We just fetch it!
+                            Inventory nestedInv = this.GetInventoryByRef(assignment.Inventory);
+                            if (nestedInv != null)
+                            {
+                                PopulateBagWithLoot(assignment.LootTable, nestedInv, player);
+                            }
+                        }
+                    }
+                }
+            }
+            // -----------------------------------------
         }
 
         public override void OnSelfRemovedFromOtherInventory(ref InventoryLocation prevInvLoc)
@@ -2285,7 +2321,7 @@ namespace MHServerEmu.Games.Entities.Items
 
             return false;
         }
-
+       
         private static bool HasItemAction(ItemActionBasePrototype[] actions, ItemActionType actionType)
         {
             foreach (ItemActionBasePrototype actionBaseProto in actions)
@@ -2467,7 +2503,50 @@ namespace MHServerEmu.Games.Entities.Items
 
             return InteractionValidateResult.UnknownFailure;
         }
+        private void PopulateBagWithLoot(PrototypeId lootTableRef, Inventory destinationInv, Player player)
+        {
+            var lootTableProto = lootTableRef.As<LootTablePrototype>();
+            if (lootTableProto == null) return;
 
+            using LootInputSettings inputSettings = ObjectPoolManager.Instance.Get<LootInputSettings>();
+            inputSettings.Initialize(LootContext.Drop, player, null, this.Properties[PropertyEnum.ItemLevel]);
+
+            using ItemResolver resolver = ObjectPoolManager.Instance.Get<ItemResolver>();
+            resolver.Initialize(Game.Random);
+            resolver.SetContext(LootContext.Drop, player);
+
+            LootRollResult result = lootTableProto.RollLootTable(inputSettings.LootRollSettings, resolver);
+            if (result == LootRollResult.Success)
+            {
+                using LootResultSummary lootResultSummary = ObjectPoolManager.Instance.Get<LootResultSummary>();
+                resolver.FillLootResultSummary(lootResultSummary);
+
+                foreach (ItemSpec itemSpec in lootResultSummary.ItemSpecs)
+                {
+                    // Create the generated loot item
+                    using EntitySettings settings = ObjectPoolManager.Instance.Get<EntitySettings>();
+                    settings.EntityRef = itemSpec.ItemProtoRef;
+                    settings.ItemSpec = itemSpec;
+
+                    Item lootItem = Game.EntityManager.CreateEntity(settings) as Item;
+                    if (lootItem == null) continue;
+
+                    lootItem.Properties[PropertyEnum.InventoryStackCount] = itemSpec.StackCount;
+
+                    // Use the native inventory system to pack the item into the Bag
+                    ulong? stackEntityId = null;
+                    InventoryLocation prevInvLoc = InventoryLocation.Invalid;
+                    Inventory.ChangeEntityInventoryLocationOnCreate(
+                        lootItem,
+                        destinationInv,
+                        Inventory.InvalidSlot,
+                        false,
+                        true,
+                        ref prevInvLoc
+                    );
+                }
+            }
+        }
         private InteractionValidateResult PlayerCanUseInventoryStashToken(Player player, InventoryStashTokenPrototype inventoryStashTokenProto)
         {
             PrototypeId invStashProtoRef = inventoryStashTokenProto.Inventory;

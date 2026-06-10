@@ -175,7 +175,7 @@ namespace MHServerEmu.Games.GameData.PatchManager
                 ValueType.String => new SimpleValue<string>(jsonElement.GetString(), valueType),
                 ValueType.Boolean => new SimpleValue<bool>(jsonElement.GetBoolean(), valueType),
                 ValueType.Float => new SimpleValue<float>(jsonElement.GetSingle(), valueType),
-                ValueType.Double => new SimpleValue<double>(jsonElement.GetDouble(), valueType), // Added Double
+                ValueType.Double => new SimpleValue<double>(jsonElement.GetDouble(), valueType), 
                 ValueType.Integer => new SimpleValue<int>(jsonElement.GetInt32(), valueType),
                 ValueType.Enum => new SimpleValue<string>(jsonElement.GetString(), valueType),
                 ValueType.PrototypeGuid => new SimpleValue<PrototypeGuid>((PrototypeGuid)jsonElement.GetUInt64(), valueType),
@@ -197,7 +197,7 @@ namespace MHServerEmu.Games.GameData.PatchManager
                 ValueType.PrototypeArray => new ArrayValue<Prototype>(jsonElement, valueType, x => ParseJsonPrototype(x)),
                 ValueType.StringArray => new ArrayValue<string>(jsonElement, valueType, x => x.GetString()),
                 ValueType.FloatArray => new ArrayValue<float>(jsonElement, valueType, x => x.GetSingle()),
-                ValueType.DoubleArray => new ArrayValue<double>(jsonElement, valueType, x => x.GetDouble()), // Added DoubleArray
+                ValueType.DoubleArray => new ArrayValue<double>(jsonElement, valueType, x => x.GetDouble()), 
                 ValueType.IntegerArray => new ArrayValue<int>(jsonElement, valueType, x => x.GetInt32()),
                 ValueType.BooleanArray => new ArrayValue<bool>(jsonElement, valueType, x => x.GetBoolean()),
                 ValueType.Vector3Array => new ArrayValue<Vector3>(jsonElement, valueType, x => ParseJsonVector3(x)),
@@ -485,7 +485,7 @@ namespace MHServerEmu.Games.GameData.PatchManager
             Span<PropertyParam> paramValues = stackalloc PropertyParam[Property.MaxParamCount];
             propertyInfo.DefaultParamValues.CopyTo(paramValues);
 
-            // --- LOGGING ENHANCEMENT: Check for EXTRA parameters ---
+            //  Check for EXTRA parameters ---
             foreach (var prop in jsonElement.EnumerateObject())
             {
                 if (prop.Name.StartsWith("Param") && int.TryParse(prop.Name.AsSpan(5), out int paramIndex))
@@ -547,7 +547,7 @@ namespace MHServerEmu.Games.GameData.PatchManager
                 }
                 else
                 {
-                    // LOGGING ENHANCEMENT: Missing parameter warning
+                    //  Missing parameter warning
                     Logger.Warn($"[PatchManager] ⚠️ Property '{propertyEnum}' expects a '{paramName}' (Type: {expectedType}), but it was not found in the JSON. The engine will fallback to the default value for this parameter.");
                 }
             }

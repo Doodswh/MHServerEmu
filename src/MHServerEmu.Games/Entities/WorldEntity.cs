@@ -109,6 +109,8 @@ namespace MHServerEmu.Games.Entities
         protected EntityTrackingContextMap _trackingContextMap;
         protected ConditionCollection _conditionCollection;
         protected PowerCollection _powerCollection;
+        private static readonly PrototypeId DangerRoomRewardsVendorPrototypeRef = (PrototypeId)9464237972577394631UL;
+        private static readonly LocaleStringId DoodsVendorDisplayNameLocaleStringId = (LocaleStringId)18000000000000030000UL;
 
         // Clone data is initialized on demand for ClonePerPlayer world entities (primarily DR reward chests).
         private Event<PlayerEnteredRegionGameEvent>.Action _playerEnteredRegionAction;
@@ -203,7 +205,7 @@ namespace MHServerEmu.Games.Entities
 
             if (worldEntityProto.IsVacuumable)
                 SetFlag(EntityFlags.IsNeverAffectedByPowers, true);
-
+            ApplyServerSideDisplayNameOverrides();
             if (settings.IgnoreNavi)
                 SetFlag(EntityFlags.IgnoreNavi, true);
 
@@ -234,6 +236,7 @@ namespace MHServerEmu.Games.Entities
 
             // LiveTuning MobHealth
             Properties[PropertyEnum.HealthPctBonus] = LiveTuningManager.GetLiveWorldEntityTuningVar(worldEntityProto, WorldEntityTuningVar.eWETV_MobHealth) - 1.0f;
+            Properties[PropertyEnum.HealthPctBonus] += XDefenseScaling.GetEnemyHealthPctBonus(this, settings);
             Properties[PropertyEnum.VariationSeed] = settings.VariationSeed != 0 ? settings.VariationSeed : Game.Random.Next(1, 10000);
 
             TagPlayers = new(this);
@@ -3532,10 +3535,20 @@ namespace MHServerEmu.Games.Entities
         public override void OnPropertyChange(PropertyId id, PropertyValue newValue, PropertyValue oldValue, SetPropertyFlags flags)
         {
             base.OnPropertyChange(id, newValue, oldValue, flags);
+            if (id.Enum == PropertyEnum.Invulnerable
+        && newValue.RawLong == 0
+        && _temporaryInvulnerabilityEndEvent.IsValid
+        && Game != null
+        && Game.CurrentTime < _temporaryInvulnerabilityEndTime)
+            {
+                Properties[PropertyEnum.Invulnerable] = true;
+                _temporaryInvulnerabilitySetProperty = true;
+            }
             if (flags.HasFlag(SetPropertyFlags.Refresh)) return;
 
             switch (id.Enum)
             {
+               
                 case PropertyEnum.AllianceOverride:
                     OnAllianceChanged(newValue);
                     break;
@@ -4737,11 +4750,8 @@ namespace MHServerEmu.Games.Entities
 
             _temporaryInvulnerabilityEndTime = endTime;
             if (Properties[PropertyEnum.Invulnerable] == false)
-            {
                 Properties[PropertyEnum.Invulnerable] = true;
-                _temporaryInvulnerabilitySetProperty = true;
-            }
-
+            _temporaryInvulnerabilitySetProperty = true;
             if (_temporaryInvulnerabilityEndEvent.IsValid)
                 Game.GameEventScheduler.RescheduleEvent(_temporaryInvulnerabilityEndEvent, duration);
             else
@@ -4835,7 +4845,11 @@ namespace MHServerEmu.Games.Entities
             EventPointer<ScheduledWeaponReturnEvent> scheduledWeaponReturn = new();
             ScheduleEntityEvent(scheduledWeaponReturn, delay);
         }
-
+        private void ApplyServerSideDisplayNameOverrides()
+        {
+            if (PrototypeDataRef == DangerRoomRewardsVendorPrototypeRef)
+                Properties[PropertyEnum.DisplayNameOverride] = (ulong)DoodsVendorDisplayNameLocaleStringId;
+        }
         public void CancelExitWorldEvent()
         {
             if (_exitWorldEvent.IsValid)

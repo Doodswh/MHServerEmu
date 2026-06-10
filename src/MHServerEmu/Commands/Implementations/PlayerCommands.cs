@@ -37,45 +37,50 @@ namespace MHServerEmu.Commands.Implementations
     public class PlayerCommands : CommandGroup
     {
         /// <summary>
-        /// A helper function to find a player's connection anywhere on the server by name using an efficient lookup.
+        /// Safely bypasses internal protection levels to fetch a PlayerHandle using Reflection.
         /// </summary>
-        private PlayerConnection FindPlayerConnectionByName(string playerName)
+        private PlayerHandle GetPlayerHandle(ulong playerDbId)
         {
-                       if (!PlayerNameCache.Instance.TryGetPlayerDbId(playerName, out ulong playerDbId, out _))
+            try
+            {
+                object playerManager = null;
+                var pmsType = typeof(PlayerManagerService);
+
+                var instanceProp = pmsType.GetProperty("Instance", System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static);
+                if (instanceProp != null) playerManager = instanceProp.GetValue(null);
+
+                if (playerManager == null) playerManager = ServerManager.Instance.GetGameService(GameServiceType.PlayerManager);
+
+                if (playerManager == null) return null;
+
+                object clientManager = null;
+                var flags = System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic;
+                var clientManagerProp = playerManager.GetType().GetProperty("ClientManager", flags);
+
+                if (clientManagerProp != null) clientManager = clientManagerProp.GetValue(playerManager);
+                else
+                {
+                    var clientManagerField = playerManager.GetType().GetField("ClientManager", flags);
+                    if (clientManagerField != null) clientManager = clientManagerField.GetValue(playerManager);
+                }
+
+                if (clientManager == null) return null;
+
+
+                var getPlayerMethod = clientManager.GetType().GetMethod("GetPlayer", flags, null, new Type[] { typeof(ulong) }, null);
+
+                return getPlayerMethod?.Invoke(clientManager, new object[] { playerDbId }) as PlayerHandle;
+            }
+            catch (Exception)
             {
                 return null;
             }
-
-            
-            var gameInstanceService = ServerManager.Instance.GetGameService(GameServiceType.GameInstance) as GameInstanceService;
-            if (gameInstanceService == null) return null;
-
-            GameManager gameManager = gameInstanceService.GameManager;
-            if (gameManager == null) return null;
-
-           
-            if (!gameManager.TryGetGameForPlayerDbId(playerDbId, out Game game))
-            {
-                return null; 
-            }
-           
-            foreach (var connection in game.NetworkManager)
-            {
-                if (connection.PlayerDbId == playerDbId)
-                {
-                    return connection;
-                }
-            }
-
-            return null; 
         }
 
         private PlayerConnection GetInvokerConnection(NetClient client)
         {
-
             return client as PlayerConnection;
         }
-
 
         [Command("costume")]
         [CommandDescription("Changes costume for the current avatar.")]
@@ -140,13 +145,11 @@ namespace MHServerEmu.Commands.Implementations
 
             if (avatar.EquippedCostumeRef != (PrototypeId)HardcodedBlueprints.Costume)
             {
-             
                 costumeProtoRef = (PrototypeId)HardcodedBlueprints.Costume;
                 result = "Applied fallback costume override.";
             }
             else
             {
-                
                 Inventory costumeInv = avatar.GetInventory(InventoryConvenienceLabel.Costume);
                 if (costumeInv != null && costumeInv.Count > 0)
                 {
@@ -154,7 +157,6 @@ namespace MHServerEmu.Commands.Implementations
                     if (costume != null)
                         costumeProtoRef = costume.PrototypeDataRef;
                 }
-
                 result = "Reverted fallback costume override.";
             }
 
@@ -203,6 +205,111 @@ namespace MHServerEmu.Commands.Implementations
             return $"Successfully given {amount} of all currencies.";
         }
 
+        [Command("bring")]
+        [CommandDescription("Brings a player to your current location safely.")]
+        [CommandUsage("player bring [playerName]")]
+        [CommandUserLevel(AccountUserLevel.Admin)]
+        [CommandInvokerType(CommandInvokerType.Client)]
+        [CommandParamCount(1)]
+        public string Bring(string[] @params, NetClient client)
+        {
+            PlayerConnection adminConnection = GetInvokerConnection(client);
+            if (adminConnection == null) return "System Error: Could not find your player connection.";
+
+            ulong adminDbId = adminConnection.PlayerDbId;
+            string targetPlayerName = @params[0];
+
+            if (string.Equals(adminConnection.Player.GetName(), targetPlayerName, StringComparison.OrdinalIgnoreCase))
+                return "You cannot bring yourself.";
+
+            if (!PlayerNameCache.Instance.TryGetPlayerDbId(targetPlayerName, out ulong targetDbId, out _))
+                return $"Player '{targetPlayerName}' not found in the database.";
+
+            PlayerHandle adminHandle = GetPlayerHandle(adminDbId);
+            if (adminHandle == null) return "System Error: Reflection failed to grab your Admin Handle.";
+            if (adminHandle.ActualRegion == null) return "Error: You must be fully loaded into a region to bring someone to you.";
+
+            PlayerHandle targetHandle = GetPlayerHandle(targetDbId);
+            if (targetHandle == null) return "System Error: Reflection failed to grab the Target Handle.";
+            if (!targetHandle.IsConnected) return $"Player '{targetPlayerName}' is not currently online.";
+
+            Avatar adminAvatar = adminConnection.Player?.CurrentAvatar;
+            if (adminAvatar != null && adminAvatar.IsInWorld)
+            {
+                Vector3 safePos = GetSafeTeleportPosition(adminAvatar);
+
+                PlayerConnection targetLocalConnection = targetHandle.Client as PlayerConnection;
+                Avatar targetAvatar = targetLocalConnection?.Player?.CurrentAvatar;
+
+                if (targetAvatar != null && adminHandle.ActualRegion == targetHandle.ActualRegion)
+                {
+                    targetAvatar.ChangeRegionPosition(safePos, null, ChangePositionFlags.Teleport);
+                    return $"Bringing {targetPlayerName} safely to your exact location.";
+                }
+            }
+
+            ulong requestingGameId = targetHandle.CurrentGame?.Id ?? 0;
+            bool success = targetHandle.BeginRegionTransferToPlayer(requestingGameId, adminDbId);
+
+            if (success)
+                return $"Bringing {targetPlayerName} to your location.";
+            else
+                return $"Failed to bring {targetPlayerName}. The server rejected the transfer (they may be in a restricted state).";
+        }
+
+        [Command("goto")]
+        [CommandDescription("Goes to a player's current location safely.")]
+        [CommandUsage("player goto [playerName]")]
+        [CommandUserLevel(AccountUserLevel.Admin)]
+        [CommandInvokerType(CommandInvokerType.Client)]
+        [CommandParamCount(1)]
+        public string GoTo(string[] @params, NetClient client)
+        {
+            PlayerConnection adminConnection = GetInvokerConnection(client);
+            if (adminConnection == null) return "System Error: Could not find your player connection.";
+
+            ulong adminDbId = adminConnection.PlayerDbId;
+            string targetPlayerName = @params[0];
+
+            if (string.Equals(adminConnection.Player.GetName(), targetPlayerName, StringComparison.OrdinalIgnoreCase))
+                return "You cannot go to yourself.";
+
+            if (!PlayerNameCache.Instance.TryGetPlayerDbId(targetPlayerName, out ulong targetDbId, out _))
+                return $"Player '{targetPlayerName}' not found in the database.";
+
+            PlayerHandle adminHandle = GetPlayerHandle(adminDbId);
+            if (adminHandle == null) return "System Error: Reflection failed to grab your Admin Handle.";
+
+            PlayerHandle targetHandle = GetPlayerHandle(targetDbId);
+            if (targetHandle == null) return "System Error: Reflection failed to grab the Target Handle.";
+            if (!targetHandle.IsConnected) return $"Player '{targetPlayerName}' is not currently online.";
+            if (targetHandle.ActualRegion == null) return $"Player '{targetPlayerName}' is currently transitioning or in a lobby.";
+
+            PlayerConnection targetLocalConnection = targetHandle.Client as PlayerConnection;
+            Avatar targetAvatar = targetLocalConnection?.Player?.CurrentAvatar;
+
+            if (targetAvatar != null && targetAvatar.IsInWorld)
+            {
+                Vector3 safePos = GetSafeTeleportPosition(targetAvatar);
+
+                Avatar adminAvatar = adminConnection.Player?.CurrentAvatar;
+                if (adminAvatar != null && adminHandle.ActualRegion == targetHandle.ActualRegion)
+                {
+                    adminAvatar.ChangeRegionPosition(safePos, null, ChangePositionFlags.Teleport);
+                    return $"Teleporting safely to {targetPlayerName}'s location.";
+                }
+
+            }
+
+            ulong requestingGameId = adminHandle.CurrentGame?.Id ?? 0;
+            bool success = adminHandle.BeginRegionTransferToPlayer(requestingGameId, targetDbId);
+
+            if (success)
+                return $"Teleporting to {targetPlayerName}'s location.";
+            else
+                return $"Failed to teleport to {targetPlayerName}. The server rejected the transfer.";
+        }
+
         [Command("kill")]
         [CommandDescription("Kills a specified player anywhere on the server.")]
         [CommandUsage("player kill [playerName]")]
@@ -217,28 +324,25 @@ namespace MHServerEmu.Commands.Implementations
             string targetPlayerName = @params[0];
 
             if (string.Equals(adminPlayer.GetName(), targetPlayerName, StringComparison.OrdinalIgnoreCase))
-            {
                 return "You cannot use this command to kill yourself. Use '!player die' instead.";
-            }
 
-            PlayerConnection targetConnection = FindPlayerConnectionByName(targetPlayerName);
-            if (targetConnection == null)
-            {
-                return $"Player '{targetPlayerName}' not found online on this server instance.";
-            }
+            if (!PlayerNameCache.Instance.TryGetPlayerDbId(targetPlayerName, out ulong targetDbId, out _))
+                return $"Player '{targetPlayerName}' not found.";
 
-            Player targetPlayer = targetConnection.Player;
-            Avatar targetAvatar = targetPlayer.CurrentAvatar;
+            PlayerHandle targetHandle = GetPlayerHandle(targetDbId);
+
+            if (targetHandle == null || !targetHandle.IsConnected)
+                return $"Player '{targetPlayerName}' is not currently online.";
+
+            PlayerConnection targetConnection = targetHandle.Client as PlayerConnection;
+            Player targetPlayer = targetConnection?.Player;
+            Avatar targetAvatar = targetPlayer?.CurrentAvatar;
 
             if (targetAvatar == null || !targetAvatar.IsInWorld)
-            {
                 return $"Player '{targetPlayerName}' does not have an active avatar in the world.";
-            }
 
             if (targetAvatar.IsDead)
-            {
                 return $"Player '{targetPlayerName}' is already dead.";
-            }
 
             Avatar killerAvatar = adminPlayer.CurrentAvatar;
             ulong killerId = killerAvatar?.Id ?? adminPlayer.Id;
@@ -249,124 +353,6 @@ namespace MHServerEmu.Commands.Implementations
             targetAvatar.ApplyDamageTransferPowerResults(powerResults);
 
             return $"Player '{targetPlayerName}' has been killed.";
-        }
-
-        [Command("bring")]
-        [CommandDescription("Brings a player to your current location or region entry point.")]
-        [CommandUsage("player bring [playerName]")]
-        [CommandUserLevel(AccountUserLevel.Admin)]
-        [CommandInvokerType(CommandInvokerType.Client)]
-        [CommandParamCount(1)]
-        public string Bring(string[] @params, NetClient client)
-        {
-            PlayerConnection adminConnection = GetInvokerConnection(client);
-            if (adminConnection == null) return "Error: Could not find your player connection.";
-            Player adminPlayer = adminConnection.Player;
-            Avatar adminAvatar = adminPlayer.CurrentAvatar;
-
-            if (adminAvatar == null || !adminAvatar.IsInWorld || adminAvatar.Region == null)
-            {
-                return "You must be in a valid region to use this command.";
-            }
-
-            string targetPlayerName = @params[0];
-            if (string.Equals(adminPlayer.GetName(), targetPlayerName, StringComparison.OrdinalIgnoreCase))
-            {
-                return "You cannot bring yourself.";
-            }
-
-            PlayerConnection targetConnection = FindPlayerConnectionByName(targetPlayerName);
-            if (targetConnection == null)
-            {
-                return $"Player '{targetPlayerName}' not found online.";
-            }
-
-            Player targetPlayer = targetConnection.Player;
-            Avatar targetAvatar = targetPlayer.CurrentAvatar;
-
-            if (targetAvatar == null || !targetAvatar.IsInWorld)
-            {
-                return $"Player '{targetPlayerName}' is not in a state to be teleported.";
-            }
-
-            // Admin's location details
-            var adminRegion = adminAvatar.Region;
-            var adminPosition = adminAvatar.RegionLocation.Position;
-
-            // Case 1: Target is already in the same region. Just move them directly.
-            if (targetAvatar.Region?.Id == adminRegion.Id)
-            {
-                targetAvatar.ChangeRegionPosition(adminPosition, null, ChangePositionFlags.Teleport);
-                return $"Brought {targetPlayerName} to your location.";
-            }
-
-            // Case 2: Target is in a different region/instance. Initiate a full transfer to the admin's exact region instance.
-            using (var teleporter = ObjectPoolManager.Instance.Get<Teleporter>())
-            {
-                teleporter.Initialize(targetPlayer, TeleportContextEnum.TeleportContext_Debug);
-                teleporter.TeleportToRegionLocation(adminRegion.Id, adminPosition);
-            }
-
-            return $"Bringing {targetPlayerName} to your location.";
-        }
-
-        [Command("goto")]
-        [CommandDescription("Goes to a player's current location.")]
-        [CommandUsage("player goto [playerName]")]
-        [CommandUserLevel(AccountUserLevel.Admin)]
-        [CommandInvokerType(CommandInvokerType.Client)]
-        [CommandParamCount(1)]
-        public string GoTo(string[] @params, NetClient client)
-        {
-            PlayerConnection adminConnection = GetInvokerConnection(client);
-            if (adminConnection == null) return "Error: Could not find your player connection.";
-            Player adminPlayer = adminConnection.Player;
-            Avatar adminAvatar = adminPlayer.CurrentAvatar;
-
-            if (adminAvatar == null || !adminAvatar.IsInWorld)
-            {
-                return "You must have an active avatar to use this command.";
-            }
-
-            string targetPlayerName = @params[0];
-            if (string.Equals(adminPlayer.GetName(), targetPlayerName, StringComparison.OrdinalIgnoreCase))
-            {
-                return "You cannot go to yourself.";
-            }
-
-            PlayerConnection targetConnection = FindPlayerConnectionByName(targetPlayerName);
-            if (targetConnection == null)
-            {
-                return $"Player '{targetPlayerName}' not found online.";
-            }
-
-            Player targetPlayer = targetConnection.Player;
-            Avatar targetAvatar = targetPlayer.CurrentAvatar;
-
-            if (targetAvatar == null || !targetAvatar.IsInWorld || targetAvatar.Region == null)
-            {
-                return $"Player '{targetPlayerName}' is not in a location that can be teleported to.";
-            }
-
-            // Target's location details
-            var targetRegion = targetAvatar.Region;
-            var targetPosition = targetAvatar.RegionLocation.Position;
-
-            // Case 1: Admin is already in the same region. Just move them directly.
-            if (adminAvatar.Region?.Id == targetRegion.Id)
-            {
-                adminAvatar.ChangeRegionPosition(targetPosition, null, ChangePositionFlags.Teleport);
-                return $"Teleported to {targetPlayerName}'s location.";
-            }
-
-            // Case 2: Admin is in a different region/instance. Initiate a full transfer to the target's exact region instance.
-            using (var teleporter = ObjectPoolManager.Instance.Get<Teleporter>())
-            {
-                teleporter.Initialize(adminPlayer, TeleportContextEnum.TeleportContext_Debug);
-                teleporter.TeleportToRegionLocation(targetRegion.Id, targetPosition);
-            }
-
-            return $"Teleporting to {targetPlayerName}'s location.";
         }
 
         [Command("clearconditions")]
@@ -393,6 +379,7 @@ namespace MHServerEmu.Commands.Implementations
 
             return $"Cleared {count} persistent conditions.";
         }
+
         [Command("vanish")]
         [CommandDescription("Makes an admin invisible to other players.")]
         [CommandUserLevel(AccountUserLevel.Admin)]
@@ -404,9 +391,7 @@ namespace MHServerEmu.Commands.Implementations
             Avatar avatar = player.CurrentAvatar;
 
             if (avatar == null || !avatar.IsInWorld)
-            {
                 return "You must have an active avatar in the world to use this command.";
-            }
 
             bool isVanished = player.IsVanished;
             player.IsVanished = !isVanished;
@@ -440,6 +425,7 @@ namespace MHServerEmu.Commands.Implementations
                 return "You are no longer vanished.";
             }
         }
+
         [Command("die")]
         [CommandDescription("Kills the current avatar.")]
         [CommandInvokerType(CommandInvokerType.Client)]
@@ -462,128 +448,42 @@ namespace MHServerEmu.Commands.Implementations
 
             return $"You are now dead. Thank you for using Stop-and-Drop.";
         }
-        [Command("sendgift")]
-        [CommandDescription("Sends a gift item to a player that will be waiting when they log in.")]
-        [CommandUsage("player sendgift [playerName] [itemPrototype] [count] [daily]")]
-        [CommandUserLevel(AccountUserLevel.Admin)]
-        [CommandInvokerType(CommandInvokerType.Client)]
-       
-        public string SendGift(string[] @params, NetClient client)
+
+        /// <summary>
+        /// Generates an expanding radial search around a target avatar to find a clear drop zone.
+        /// Fully self-contained so other server owners can utilize the math locally.
+        /// </summary>
+        private Vector3 GetSafeTeleportPosition(Avatar targetAvatar, float maxRadius = 5.0f, float stepSize = 0.5f)
         {
-            PlayerConnection adminConnection = GetInvokerConnection(client);
-            if (adminConnection == null) return "Error: Could not find your player connection.";
+            if (targetAvatar == null || !targetAvatar.IsInWorld)
+                return Vector3.Zero;
 
-            string targetPlayerName = @params[0];
-            string itemSearch = @params[1];
+            Vector3 center = targetAvatar.RegionLocation.Position;
 
-            if (!int.TryParse(@params[2], out int count) || count <= 0)
+            if (Avatar.AdjustStartPositionIfNeeded(targetAvatar.Region, ref center))
             {
-                return $"Invalid count: {@params[2]}. Must be a positive integer.";
+                return center;
             }
 
-            bool isDaily = false;
-            if (@params.Length == 4)
+            for (float radius = stepSize; radius <= maxRadius; radius += stepSize)
             {
-                if (!bool.TryParse(@params[3], out isDaily))
+                int pointsOnCircle = (int)(radius * 8);
+                float angleStep = (float)(Math.PI * 2 / pointsOnCircle);
+
+                for (int i = 0; i < pointsOnCircle; i++)
                 {
-                    return $"Invalid daily flag: {@params[3]}. Use 'true' or 'false'.";
+                    float angle = i * angleStep;
+                    float x = center.X + (float)Math.Cos(angle) * radius;
+                    float z = center.Z + (float)Math.Sin(angle) * radius;
+
+                    Vector3 candidate = new Vector3(x, center.Y, z);
                 }
             }
 
-            // Search for the item prototype
-            var matches = GameDatabase.SearchPrototypes(itemSearch,
-                DataFileSearchFlags.SortMatchesByName | DataFileSearchFlags.CaseInsensitive);
-
-            if (!matches.Any())
-                return $"Failed to find any items containing '{itemSearch}'.";
-
-            if (matches.Count() > 1)
-            {
-                CommandHelper.SendMessage(client, $"Found multiple matches for '{itemSearch}':");
-                CommandHelper.SendMessages(client, matches.Select(match => GameDatabase.GetPrototypeName(match)), false);
-                return string.Empty;
-            }
-
-            PrototypeId itemProtoRef = matches.First();
-
-            // Verify the target player exists
-            if (!PlayerNameCache.Instance.TryGetPlayerDbId(targetPlayerName, out ulong playerDbId, out _))
-            {
-                return $"Player '{targetPlayerName}' not found in the database.";
-            }
-
-            // Check if player is online - if so, get their instance ID for immediate delivery
-            PlayerConnection targetConnection = FindPlayerConnectionByName(targetPlayerName);
-            ulong instanceId = 0;
-            bool playerOnline = false;
-
-            if (targetConnection != null && targetConnection.Player != null)
-            {
-                var game = targetConnection.Player.Game;
-                if (game != null)
-                {
-                    instanceId = game.Id;
-                    playerOnline = true;
-                }
-            }
-
-            // Send message to GiftItemDistributor service to add the gift
-            var giftMessage = new ServiceMessage.AddPlayerGift(
-                targetPlayerName,
-                (ulong)itemProtoRef,
-                count,
-                isDaily,
-                playerOnline,
-                instanceId
-            );
-
-            ServerManager.Instance.SendMessageToService(GameServiceType.GiftItemDistributor, giftMessage);
-
-            string giftType = isDaily ? "daily gift" : "one-time gift";
-            string deliveryStatus = playerOnline ? " (delivered immediately)" : " (will be delivered on next login)";
-            return $"Successfully queued {giftType} for '{targetPlayerName}': {count}x {GameDatabase.GetPrototypeName(itemProtoRef)}{deliveryStatus}";
+            // Fallback to the exact center if absolutely no space was found within the max radius
+            return center;
         }
 
-        [Command("listgifts")]
-        [CommandDescription("Lists all pending gifts in the system.")]
-        [CommandUsage("player listgifts [playerName]")]
-        [CommandUserLevel(AccountUserLevel.Admin)]
-        [CommandInvokerType(CommandInvokerType.Client)]
-       
-        public string ListGifts(string[] @params, NetClient client)
-        {
-            PlayerConnection adminConnection = GetInvokerConnection(client);
-            if (adminConnection == null) return "Error: Could not find your player connection.";
-
-            string filterPlayerName = @params.Length > 0 ? @params[0] : null;
-
-            var listMessage = new ServiceMessage.ListPlayerGifts(filterPlayerName);
-            ServerManager.Instance.SendMessageToService(GameServiceType.GiftItemDistributor, listMessage);
-
-            return "Requesting gift list...";
-        }
-
-        [Command("removegift")]
-        [CommandDescription("Removes a pending gift by index.")]
-        [CommandUsage("player removegift [index]")]
-        [CommandUserLevel(AccountUserLevel.Admin)]
-        [CommandInvokerType(CommandInvokerType.Client)]
-        [CommandParamCount(1)]
-        public string RemoveGift(string[] @params, NetClient client)
-        {
-            PlayerConnection adminConnection = GetInvokerConnection(client);
-            if (adminConnection == null) return "Error: Could not find your player connection.";
-
-            if (!int.TryParse(@params[0], out int index) || index < 0)
-            {
-                return $"Invalid index: {@params[0]}. Must be a non-negative integer.";
-            }
-
-            var removeMessage = new ServiceMessage.RemovePlayerGift(index);
-            ServerManager.Instance.SendMessageToService(GameServiceType.GiftItemDistributor, removeMessage);
-
-            return $"Attempting to remove gift at index {index}...";
-        }
+     
     }
 }
-

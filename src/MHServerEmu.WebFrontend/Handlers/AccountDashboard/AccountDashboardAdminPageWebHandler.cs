@@ -71,7 +71,7 @@ namespace MHServerEmu.WebFrontend.Handlers.AccountDashboard
                 return null;
             }
 
-            if (session.Account.UserLevel != AccountUserLevel.Admin)
+            if (session.Account.UserLevel != AccountUserLevel.Dev)
             {
                 context.StatusCode = (int)HttpStatusCode.Forbidden;
                 await context.SendJsonAsync(new

@@ -66,7 +66,7 @@ namespace MHServerEmu.Games.Powers
             return base.ActivateInternal(ref settings);
         }
 
-        protected override bool ApplyInternal(PowerApplication powerApplication)
+        public override bool ApplyInternal(PowerApplication powerApplication)
         {
             // Remove interested players who became no longer interested between activation and application of this power
             using var interestedPlayerSetHandle = HashSetPool<Player>.Instance.Get(out HashSet<Player> interestedPlayerSet);
@@ -133,7 +133,39 @@ namespace MHServerEmu.Games.Powers
 
             return true;
         }
+        protected override void GenerateActualTargetPosition(ulong targetId, Vector3 originalTargetPosition, out Vector3 actualTargetPosition, ref PowerActivationSettings settings)
+        {
+            actualTargetPosition = originalTargetPosition;
 
+            if (Owner == null)
+            {
+                Logger.Warn("GenerateActualTargetPosition: Owner is null.");
+                return;
+            }
+
+            MissilePowerPrototype missilePowerProto = MissilePowerPrototype;
+            if (missilePowerProto == null)
+            {
+                Logger.Warn("GenerateActualTargetPosition: MissilePowerPrototype is null.");
+                return;
+            }
+
+            if (missilePowerProto.MissileUsesActualTargetPos)
+                return;
+
+            Vector3 ownerPosition = Owner.RegionLocation.Position;
+            Vector3 direction = originalTargetPosition - ownerPosition;
+
+            if ((targetId == Entity.InvalidId && Vector3.LengthSquared(direction) < 400f) ||
+                (targetId != Entity.InvalidId && Segment.IsNearZero(Vector3.LengthSquared2D(direction))))
+            {
+                direction = Owner.Forward.To2D();
+            }
+
+            direction = Vector3.SafeNormalize(direction, Owner.Forward);
+
+            actualTargetPosition = ownerPosition + direction * GetRange();
+        }
         private MissileCreateResult CreateMissileLooper(PowerApplication powerApplication)
         {
             var prototype = MissilePowerPrototype;

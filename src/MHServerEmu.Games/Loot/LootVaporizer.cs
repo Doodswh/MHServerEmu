@@ -25,8 +25,8 @@ namespace MHServerEmu.Games.Loot
         private static readonly Logger Logger = LogManager.CreateLogger();
         public static readonly List<string> AutoLootWhitelist = new()
         {
-            "AncientForgottenDevice", 
-             "Cake",
+            "AncientForgottenDevice",
+             "Cake" 
         };
 
         public static bool ShouldVaporizeLootResult(Player player, in LootResult lootResult, PrototypeId avatarProtoRef)

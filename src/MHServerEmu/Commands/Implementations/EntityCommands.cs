@@ -106,7 +106,41 @@ namespace MHServerEmu.Commands.Implementations
             }
             return string.Empty;
         }
+        [Command("spawnall")]
+        [CommandDescription("Spawn an entity near the avatar across all instances of the current region + difficulty.")]
+        [CommandUsage("entity spawnall [pattern]")]
+        [CommandUserLevel(AccountUserLevel.Admin)]
+        [CommandInvokerType(CommandInvokerType.Client)]
+        [CommandParamCount(1)]
+        public string SpawnAll(string[] @params, NetClient client)
+        {
+            PlayerConnection playerConnection = (PlayerConnection)client;
+            Avatar avatar = playerConnection.Player.CurrentAvatar;
+            if (avatar == null || avatar.IsInWorld == false)
+                return "Avatar not found.";
 
+            Region region = avatar.Region;
+            if (region == null) return "No region found.";
+
+            PrototypeId agentRef = CommandHelper.FindPrototype(HardcodedBlueprints.Agent, @params[0], client);
+            if (agentRef == PrototypeId.Invalid) return string.Empty;
+
+            var agentProto = GameDatabase.GetPrototype<AgentPrototype>(agentRef);
+
+            if (EntityHelper.GetSpawnPositionNearAvatar(avatar, region, agentProto.Bounds, 250, out Vector3 position) == false)
+                return "No space found to spawn the entity";
+            var orientation = Orientation.FromDeltaVector(avatar.RegionLocation.Position - position);
+
+            var message = new ServiceMessage.SpawnEntityInRegions(
+        (ulong)region.PrototypeDataRef,
+        (ulong)region.DifficultyTierRef,
+        (ulong)agentRef,
+        position, orientation,
+        avatar.CharacterLevel, avatar.CombatLevel);
+
+            ServerManager.Instance.SendMessageToService(GameServiceType.GameInstance, message);
+            return "Broadcasting spawn to all matching region instances.";
+        }
         [Command("near")]
         [CommandDescription("Displays all entities in a radius (default is 100).")]
         [CommandUsage("entity near [radius]")]

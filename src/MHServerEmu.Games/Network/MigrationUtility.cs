@@ -1,4 +1,5 @@
 ﻿using Gazillion;
+using MHServerEmu.Core.Logging;
 using MHServerEmu.Core.Memory;
 using MHServerEmu.Core.Serialization;
 using MHServerEmu.DatabaseAccess.Models;
@@ -17,6 +18,10 @@ namespace MHServerEmu.Games.Network
     {
         // We have everything in a self-contained server, so we can get away with just storing our migration data in a runtime object.
         // We can potentially use a separate archive that would contain just the migration data.
+        private static readonly Logger Logger = LogManager.CreateLogger();
+        // Add a logger to the class (the file currently has none):
+        //   private static readonly Logger Logger = LogManager.CreateLogger();
+        // plus usings: MHServerEmu.Core.Logging and the ConditionCollection namespace.
 
         public static void Store(MigrationData migrationData, Entity entity)
         {
@@ -27,11 +32,14 @@ namespace MHServerEmu.Games.Network
                 StoreWorldView(migrationData, player.PlayerConnection.WorldView);
                 StoreMatchQueueStatus(migrationData, player.MatchQueueStatus);
                 StoreCommunity(migrationData, player.Community);
+                StoreVanishState(migrationData, player);
             }
             else if (entity is Agent agent)
             {
                 foreach (WorldEntity summon in new SummonedEntityIterator(agent))
+                {
                     StoreProperties(migrationData, summon);
+                }
             }
         }
 
@@ -44,11 +52,14 @@ namespace MHServerEmu.Games.Network
                 RestoreWorldView(migrationData, player.PlayerConnection.WorldView);
                 RestoreMatchQueueStatus(migrationData, player.MatchQueueStatus);
                 RestoreCommunity(migrationData, player.Community);
+                RestoreVanishState(migrationData, player);
             }
             else if (entity is Agent agent)
             {
                 foreach (WorldEntity summon in new SummonedEntityIterator(agent))
+                {
                     RestoreProperties(migrationData, summon);
+                }
             }
         }
 
@@ -57,27 +68,14 @@ namespace MHServerEmu.Games.Network
             List<(ulong, ulong)> propertyList = migrationData.GetOrCreatePropertyList(entity.DatabaseUniqueId);
             propertyList.Clear();
 
-            // HACK: Ugly property hack, remove this when we figure out an efficient way to migrate runtime-only conditions.
-            PropertyEnum propertyToIgnore = PropertyEnum.Invalid;
-
-            if (entity is Avatar)
-            {
-                switch ((AvatarPrototypeId)entity.PrototypeDataRef)
-                {
-                    case AvatarPrototypeId.AntMan:
-                    case AvatarPrototypeId.Blade:
-                        propertyToIgnore = PropertyEnum.SecondaryResource;
-                        break;
-
-                    case AvatarPrototypeId.HumanTorch:
-                    case AvatarPrototypeId.ScarletWitch:
-                        propertyToIgnore = PropertyEnum.Endurance;
-                        break;
-                }
-            }
-
-            entity.Properties.GetPropertiesForMigration(propertyList, propertyToIgnore);
+            // Conditions now travel with the entity (StoreConditions), so resource values arrive consistent
+            // with their backing conditions - the old per-avatar propertyToIgnore hack is no longer needed.
+            entity.Properties.GetPropertiesForMigration(propertyList);
         }
+
+     
+
+
 
         private static void RestoreProperties(MigrationData migrationData, Entity entity)
         {

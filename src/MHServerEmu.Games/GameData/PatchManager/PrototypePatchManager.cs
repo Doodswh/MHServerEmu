@@ -138,7 +138,7 @@ namespace MHServerEmu.Games.GameData.PatchManager
             patchList.Add(value);
         }
 
-        // FIX 5: Iterate all Properties-typed entries rather than returning on the first hit,
+        // Iterate all Properties-typed entries rather than returning on the first hit,
         // so multiple Properties patches targeting the same prototype are all applied.
         public bool CheckProperties(PrototypeId protoRef, out PropertyCollection prop)
         {
@@ -219,7 +219,7 @@ namespace MHServerEmu.Games.GameData.PatchManager
                 }
             }
 
-            // FIX 3: The dangling if had no body — log when patches are applied.
+            // The dangling if had no body — log when patches are applied.
             if (appliedCount > 0)
                 Logger.Trace($"[PatchManager] Applied {appliedCount} patch(es) to '{entry_PrototypeName(patchProtoRef)}'.");
 
@@ -227,13 +227,7 @@ namespace MHServerEmu.Games.GameData.PatchManager
                 _pathDict.Clear();
         }
 
-        // FIX 4 helper: look up a prototype name in ReplacementDirectory and resolve it.
-        // Requires adding FindRecordByName() to ReplacementDirectory — a simple linear scan
-        // over its internal dictionary values. Example implementation to add there:
-        //
-        //   public ReplacementRecord FindRecordByName(string name) =>
-        //       _replacementDict.Values.FirstOrDefault(r => r.Name == name);
-        //
+        
         private static PrototypeId TryResolveViaReplacementDirectory(string prototypeName, out string replacedName)
         {
             replacedName = null;
@@ -417,7 +411,7 @@ namespace MHServerEmu.Games.GameData.PatchManager
                     continue;
                 }
 
-                // 2. Safely get Steps
+                //  get Steps
                 if (!patchElement.TryGetProperty("Steps", out var stepsElement) || stepsElement.ValueKind != JsonValueKind.Array)
                     continue;
 
@@ -432,7 +426,7 @@ namespace MHServerEmu.Games.GameData.PatchManager
                 {
                     if (!isFirst) pathBuilder.Append(".");
 
-                    // 3. Safely extract step properties (defaulting to 0 if omitted by JSON serializer)
+                    // extract step properties (defaulting to 0 if omitted by JSON serializer)
                     string fieldName = step.TryGetProperty("FieldName", out var fieldNameEl) ? fieldNameEl.GetString() : string.Empty;
                     ulong declaringBp = step.TryGetProperty("DeclaringBlueprintId", out var dbpEl) ? dbpEl.GetUInt64() : 0;
                     byte copyNum = step.TryGetProperty("BlueprintCopyNumber", out var bpcEl) ? bpcEl.GetByte() : (byte)0;
@@ -461,7 +455,7 @@ namespace MHServerEmu.Games.GameData.PatchManager
                 byte structType = lastStep.TryGetProperty("StructureType", out var stEl) ? stEl.GetByte() : (byte)0;
                 ValueType mappedType = MapCalligraphyType(baseType, structType);
 
-                // 4. Safely extract CurrentValue (handle missing/null payloads)
+                // extract CurrentValue (handle missing/null payloads)
                 JsonElement currentValueElement;
                 if (!patchElement.TryGetProperty("CurrentValue", out currentValueElement))
                 {
@@ -592,7 +586,7 @@ namespace MHServerEmu.Games.GameData.PatchManager
                 string part = pathParts[i];
                 if (current == null) return null;
 
-                // FIX 6: Handle BlueprintId-keyed mixin selectors dynamically
+                // Handle BlueprintId-keyed mixin selectors dynamically
                 if (part.Contains("[BlueprintId="))
                 {
                     int bracketStart = part.IndexOf('[');
@@ -613,7 +607,7 @@ namespace MHServerEmu.Games.GameData.PatchManager
                     // Changed to object to allow flattened C# classes to be returned
                     object foundMixinObj = null;
 
-                    // 1. Try to find the mixin in the explicit list (e.g., "Components")
+                    // Try to find the mixin in the explicit list (e.g., "Components")
                     object memberValue = string.IsNullOrEmpty(memberName) ? null : GetMemberValue(current, memberName, out _);
                     if (memberValue is PrototypeMixinList namedList)
                     {
@@ -640,7 +634,7 @@ namespace MHServerEmu.Games.GameData.PatchManager
                         }
                     }
 
-                    // 2. FALLBACK: Search ALL PrototypeMixinList fields dynamically
+                    //FALLBACK: Search ALL PrototypeMixinList fields dynamically
                     if (foundMixinObj == null)
                     {
                         var type = current.GetType();
@@ -715,7 +709,7 @@ namespace MHServerEmu.Games.GameData.PatchManager
                         }
                     }
 
-                    // 3. ULTIMATE C# FLATTENED MIXIN FALLBACK
+                    // C# FLATTENED MIXIN FALLBACK
                     // In MHServerEmu, mixins are often flattened into strongly typed C# properties instead of being kept in a list!
                     // Example: OC has "Components[...].Speed", but the Server has `public LocomotionComponent Locomotion { get; set; }`
                     if (foundMixinObj == null && !string.IsNullOrEmpty(targetFieldName))

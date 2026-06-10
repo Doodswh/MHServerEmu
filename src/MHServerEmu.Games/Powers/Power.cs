@@ -25,6 +25,7 @@ using MHServerEmu.Games.Powers.Conditions;
 using MHServerEmu.Games.Properties;
 using MHServerEmu.Games.Properties.Evals;
 using MHServerEmu.Games.Regions;
+using System.Runtime.InteropServices;
 
 namespace MHServerEmu.Games.Powers
 {
@@ -3188,27 +3189,35 @@ namespace MHServerEmu.Games.Powers
             cooldown += flatCooldownModifier;               // Apply flat modifier to base
             cooldown += cooldown * cooldownModifierPct;     // Apply percentage modifier
 
-            
             TimeSpan interruptCooldown = owner.GetPowerInterruptCooldown(powerProto);
             cooldown = Clock.Max(cooldown, interruptCooldown);
 
             float combinedTuningMult = 1.0f;
 
-            if (owner is Avatar avatarOwner)
+            // Check LiveTuning exclusion flag
+            float excludeFromTuning = LiveTuningManager.GetLivePowerTuningVar(
+                powerProto,
+                PowerTuningVar.ePTV_ExcludeFromCooldownTuning
+            );
+
+            // Only apply LiveTuning multipliers if the power is NOT excluded (1.0f is default)
+            if (excludeFromTuning == 1.0f)
             {
-       
-                combinedTuningMult *= LiveTuningManager.GetLiveAvatarTuningVar(
-                    (AvatarPrototype)avatarOwner.Prototype,
-                    AvatarEntityTuningVar.eAETV_CooldownGlobalMult
+                if (owner is Avatar avatarOwner)
+                {
+                    combinedTuningMult *= LiveTuningManager.GetLiveAvatarTuningVar(
+                        (AvatarPrototype)avatarOwner.Prototype,
+                        AvatarEntityTuningVar.eAETV_CooldownGlobalMult
+                    );
+                }
+
+                combinedTuningMult *= LiveTuningManager.GetLivePowerTuningVar(
+                    powerProto,
+                    PowerTuningVar.ePTV_CooldownDuration
                 );
             }
 
- 
-            combinedTuningMult *= LiveTuningManager.GetLivePowerTuningVar(
-                powerProto,
-                PowerTuningVar.ePTV_CooldownDuration
-            );
-
+            // Apply the final multiplier if it was changed
             if (combinedTuningMult != 1.0f)
             {
                 cooldown = TimeSpan.FromTicks((long)(cooldown.Ticks * combinedTuningMult));
@@ -3857,7 +3866,7 @@ namespace MHServerEmu.Games.Powers
             return PowerUseResult.Success;
         }
 
-        protected virtual bool ApplyInternal(PowerApplication powerApplication)
+        public virtual bool ApplyInternal(PowerApplication powerApplication)
         {
             // NOTE: This is where powers actually do stuff
             if (Prototype is MovementPowerPrototype movementPowerProto)
@@ -4160,23 +4169,27 @@ namespace MHServerEmu.Games.Powers
         }
 
         protected virtual void GenerateActualTargetPosition(ulong targetId, Vector3 originalTargetPosition, out Vector3 actualTargetPosition,
-            ref PowerActivationSettings settings)
+     ref PowerActivationSettings settings)
         {
             actualTargetPosition = originalTargetPosition;
 
-            if (Game == null || Owner == null) return;
-            var style = TargetingStylePrototype;
-            if (style == null) return;
+            if (Game == null) { Logger.Error("GenerateActualTargetPosition(): Game is null."); return; }
+            if (Owner == null) { Logger.Error("GenerateActualTargetPosition(): Owner is null."); return; }
+
+            TargetingStylePrototype style = TargetingStylePrototype;
+            if (style == null) { Logger.Error("GenerateActualTargetPosition(): TargetingStylePrototype is null."); return; }
 
             Vector3 ownerPosition = Owner.RegionLocation.Position;
 
             if (Prototype is MovementPowerPrototype movementPowerProto)
             {
-                var target = Game.EntityManager.GetEntity<WorldEntity>(targetId);
+                WorldEntity target = Game.EntityManager.GetEntity<WorldEntity>(targetId);
+
                 if (movementPowerProto.CustomBehavior != null)
                 {
-                    var context = new MovementBehaviorPrototype.Context(this, Owner, target, originalTargetPosition);
-                    if (movementPowerProto.CustomBehavior.GenerateTargetPosition(context, ref actualTargetPosition)) return;
+                    MovementBehaviorPrototype.Context context = new(this, Owner, target, originalTargetPosition);
+                    if (movementPowerProto.CustomBehavior.GenerateTargetPosition(context, ref actualTargetPosition))
+                        return;
                 }
 
                 if (movementPowerProto.TeleportMethod == TeleportMethodType.Teleport && Owner.Properties.HasProperty(PropertyEnum.TeleportLockdown))
@@ -4189,12 +4202,12 @@ namespace MHServerEmu.Games.Powers
 
                 if (movementPowerProto.MoveToOppositeEdgeOfTarget && target != null)
                 {
-                    if (movementPowerProto.MoveToExactTargetLocation == false) return;
+                    if (!movementPowerProto.MoveToExactTargetLocation) { Logger.Warn("GenerateActualTargetPosition(): MovementPowerProto.MoveToExactTargetLocation is false."); return; }
 
                     Vector3 targetPosition = target.RegionLocation.Position;
                     direction = targetPosition - ownerPosition;
 
-                    if (!Vector3.IsNearZero(direction))
+                    if (Vector3.IsNearZero(direction) == false)
                     {
                         direction = Vector3.Normalize(direction);
                         float radius = target.Bounds.Radius + Owner.Bounds.Radius;
@@ -4202,7 +4215,9 @@ namespace MHServerEmu.Games.Powers
                         actualTargetPosition += direction * movementPowerProto.AdditionalTargetPosOffset;
                     }
                     else
+                    {
                         actualTargetPosition = targetPosition;
+                    }
                 }
                 else if (movementPowerProto.MoveToExactTargetLocation)
                 {
@@ -4212,9 +4227,11 @@ namespace MHServerEmu.Games.Powers
                             direction = originalTargetPosition - target.RegionLocation.Position;
                     }
                     else
+                    {
                         direction = originalTargetPosition - ownerPosition;
+                    }
 
-                    if (!Vector3.IsNearZero(direction))
+                    if (Vector3.IsNearZero(direction) == false)
                     {
                         direction = Vector3.Normalize(direction);
 
@@ -4224,7 +4241,7 @@ namespace MHServerEmu.Games.Powers
                         Vector3 offset = direction * movementPowerProto.AdditionalTargetPosOffset;
                         Vector3 offsetDirection = actualTargetPosition + offset - ownerPosition;
 
-                        if (!Vector3.IsNearZero(offsetDirection))
+                        if (Vector3.IsNearZero(offsetDirection) == false)
                         {
                             offsetDirection = Vector3.Normalize(offsetDirection);
                             if (Vector3.Dot(direction, offsetDirection) >= 0f)
@@ -4254,15 +4271,16 @@ namespace MHServerEmu.Games.Powers
 
                 bool isBlocked = false;
                 float rangeOverride = 0.0f;
-                if (movementPowerProto.TeleportMethod != TeleportMethodType.None && !movementPowerProto.IgnoreTeleportBlockers)
+                if (movementPowerProto.TeleportMethod != TeleportMethodType.None && movementPowerProto.IgnoreTeleportBlockers == false)
                 {
-                    var region = Owner.Region;
-                    if (region == null) return;
+                    Region region = Owner.Region;
+                    if (region == null) { Logger.Error("GenerateActualTargetPosition(): Region is null."); return; }
 
                     Vector3? collisionPosition = Vector3.Zero;
                     Vector3 sweepVelocity = Vector3.Normalize(actualTargetPosition - ownerPosition) * GetRange();
-                    var firstHitEntity = region.SweepToFirstHitEntity(ref Owner.Bounds, sweepVelocity, ref collisionPosition,
+                    WorldEntity firstHitEntity = region.SweepToFirstHitEntity(ref Owner.Bounds, sweepVelocity, ref collisionPosition,
                         new MovementPowerEntityCollideFunc(1 << (int)BoundsMovementPowerBlockType.All));
+
                     if (firstHitEntity != null)
                     {
                         rangeOverride = Vector3.Distance2D(ownerPosition, collisionPosition.Value);
@@ -4283,21 +4301,19 @@ namespace MHServerEmu.Games.Powers
                 if (movementPowerProto.MoveFullDistance == false || movementPowerProto.TeleportMethod != TeleportMethodType.None)
                 {
                     Vector3? resultPostion = actualTargetPosition;
-                    var result = PowerPositionSweep(ref Owner.RegionLocation, actualTargetPosition, targetId, ref resultPostion, isBlocked, rangeOverride);
+                    PowerPositionSweepResult result = PowerPositionSweep(ref Owner.RegionLocation, actualTargetPosition, targetId, ref resultPostion, isBlocked, rangeOverride);
                     actualTargetPosition = resultPostion.Value;
 
-                    if (result == PowerPositionSweepResult.Error || result == PowerPositionSweepResult.TargetPositionInvalid)
-                    {
-                        Logger.Warn($"GenerateActualTargetPosition(): Movement power failed to sweep to target position. Using position {actualTargetPosition}, " +
-                            $"which may not be valid. Sweep result code: {result}\nPower: {ToString()}\nOwner: {Owner}\nRegionLocation: {Owner.RegionLocation}");
-
-                        actualTargetPosition = ownerPosition;
-                    }
-                    else
+                    if (result != PowerPositionSweepResult.Error && result != PowerPositionSweepResult.TargetPositionInvalid)
                     {
                         actualTargetPosition = RegionLocation.ProjectToFloor(Owner.Region, Owner.Cell, actualTargetPosition);
                         if (movementPowerProto.TeleportMethod != TeleportMethodType.None)
                             actualTargetPosition = Owner.FloorToCenter(actualTargetPosition);
+                    }
+                    else
+                    {
+                        Logger.Warn($"GenerateActualTargetPosition(): Movement power failed to sweep. Position: {actualTargetPosition}. Result: {result}");
+                        actualTargetPosition = ownerPosition;
                     }
                 }
             }
@@ -4305,12 +4321,14 @@ namespace MHServerEmu.Games.Powers
             {
                 if (style.AOESelfCentered)
                 {
-                    if (style.TargetingShape == TargetingShapeType.CircleArea
-                        || (style.TargetingShape == TargetingShapeType.WedgeArea
-                        || style.TargetingShape == TargetingShapeType.ArcArea
-                        || style.TargetingShape == TargetingShapeType.BeamSweep)
-                        && Vector3.LengthSqr(originalTargetPosition - ownerPosition) < 400.0f)
+                    if (style.TargetingShape == TargetingShapeType.CircleArea ||
+                        ((style.TargetingShape == TargetingShapeType.WedgeArea ||
+                        style.TargetingShape == TargetingShapeType.ArcArea ||
+                        style.TargetingShape == TargetingShapeType.BeamSweep) &&
+                        Vector3.LengthSqr(originalTargetPosition - ownerPosition) < 400.0f))
+                    {
                         actualTargetPosition = ownerPosition;
+                    }
                 }
 
                 if (style.RandomPositionRadius > 0)
@@ -4391,18 +4409,51 @@ namespace MHServerEmu.Games.Powers
             return true;
         }
 
-        private bool CreateSituationalComponent()
+        private void CreateSituationalComponent()
         {
-            if (Game == null) return Logger.WarnReturn(false, "CreateSituationalComponent(): Game == null");
-
             PowerPrototype powerProto = Prototype;
-            if (powerProto == null) return Logger.WarnReturn(false, "CreateSituationalComponent(): powerProto == null");
+            if (powerProto == null) { Logger.Warn("CreateSituationalComponent(): powerProto is null."); return; }
 
             if (powerProto?.SituationalComponent?.SituationalTrigger == null)
-                return true;
+                return;
 
+            if (Game == null) { Logger.Error("CreateSituationalComponent(): Game is null."); return; }
             _situationalComponent = new(Game, powerProto.SituationalComponent, this);
-            return true;
+        }
+
+        private static bool IsTargetInWedge(WorldEntity target, WorldEntity owner, float radius, Vector3 position, Vector3 targetPosition,
+            PowerPrototype powerProto, TargetingStylePrototype styleProto, float aoeAngle = 0f)
+        {
+            if (aoeAngle <= 0f)
+                aoeAngle = GetAOEAngle(powerProto);
+
+            if (aoeAngle <= 0f)
+            {
+                Logger.Warn($"IsTargetInWedge(): Invalid angle. Prototype: {powerProto}");
+                return false;
+            }
+
+            float targetRadius = target.Bounds.Radius;
+            Vector3 targetPos = target.RegionLocation.Position;
+            Vector3 direction = GetDirectionCheckData(styleProto, owner, position, targetPosition);
+            Vector3 distance = targetPos - position;
+            float lengthSq = Vector3.LengthSquared2D(distance);
+            float radiusSq = MathHelper.Square(radius + targetRadius);
+            if (lengthSq > radiusSq) return false;
+
+            float halfAngle = MathHelper.ToRadians(aoeAngle / 2.0f);
+            float angle = Vector3.Angle2D(distance, direction);
+            if (angle < halfAngle) return true;
+
+            Vector3 vectorSide = Vector3.SafeNormalize2D(Vector3.Perp2D(distance)) * targetRadius;
+
+            float angleRight = Vector3.Angle2D(vectorSide + distance, direction);
+            if (angleRight < halfAngle) return true;
+
+            float angleLeft = Vector3.Angle2D(-vectorSide + distance, direction);
+            if (angleLeft < halfAngle) return true;
+
+            return false;
         }
 
         #region AOE Calculations
@@ -4457,35 +4508,7 @@ namespace MHServerEmu.Games.Powers
             return false;
         }
 
-        private static bool IsTargetInWedge(WorldEntity target, WorldEntity owner, float radius, Vector3 position, Vector3 targetPosition,
-            PowerPrototype powerProto, TargetingStylePrototype styleProto, float aoeAngle = 0.0f)
-        {
-            if (aoeAngle == 0.0f) aoeAngle = GetAOEAngle(powerProto);
-            if (aoeAngle <= 0.0f)
-                return Logger.WarnReturn(false, $"IsTargetInWedge(): Trying to use a power with an invalid unsupported obtuse wedge angle! Prototype: {powerProto}");
-
-            float targetRadius = target.Bounds.Radius;
-            Vector3 targetPos = target.RegionLocation.Position;
-            Vector3 direction = GetDirectionCheckData(styleProto, owner, position, targetPosition);
-            Vector3 distance = targetPos - position;
-            float lengthSq = Vector3.LengthSquared2D(distance);
-            float radiusSq = MathHelper.Square(radius + targetRadius);
-            if (lengthSq > radiusSq) return false;
-
-            float halfAngle = MathHelper.ToRadians(aoeAngle / 2.0f);
-            float angle = Vector3.Angle2D(distance, direction);
-            if (angle < halfAngle) return true;
-
-            Vector3 vectorSide = Vector3.SafeNormalize2D(Vector3.Perp2D(distance)) * targetRadius;
-
-            float angleRight = Vector3.Angle2D(vectorSide + distance, direction);
-            if (angleRight < halfAngle) return true;
-
-            float angleLeft = Vector3.Angle2D(-vectorSide + distance, direction);
-            if (angleLeft < halfAngle) return true;
-
-            return false;
-        }
+     
 
         private static void GetBeamSweepSliceCheckData(PowerPrototype powerProto, Vector3 targetPosition, Vector3 position, int beamSlice,
             float aoeAngle, TimeSpan totalSweepTime, ref float angleResult, ref Vector3 positionResult)

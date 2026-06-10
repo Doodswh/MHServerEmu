@@ -109,6 +109,7 @@ namespace MHServerEmu.PlayerManagement.Auth
 
             if (statusCode != AuthStatusCode.Success)
                 return statusCode;
+
             if (loginDataPB.HasMachineId && !string.IsNullOrEmpty(loginDataPB.MachineId))
             {
                 if (IsHardwareBanned(loginDataPB.MachineId))
@@ -117,7 +118,6 @@ namespace MHServerEmu.PlayerManagement.Auth
                     return AuthStatusCode.AccountBanned;
                 }
 
-     
                 if (account.LastKnownMachineId != loginDataPB.MachineId)
                 {
                     account.LastKnownMachineId = loginDataPB.MachineId;
@@ -144,8 +144,8 @@ namespace MHServerEmu.PlayerManagement.Auth
             string platformTicket = _platformTicketManager.GenerateToken(sessionId);
 
             ClientSession session = new(sessionId, account, platformTicket, downloaderEnum, locale);
-            lock (_pendingSessionDict)
-                _pendingSessionDict.Add(session.Id, session);
+
+            _pendingSessionDict.Add(session.Id, session);
 
             // Create an AuthTicket for the client
             // Avoid extra allocations and copying by using Unsafe.FromBytes() for session key and token.
@@ -174,11 +174,8 @@ namespace MHServerEmu.PlayerManagement.Auth
             // Check if a pending session for these credentials exists
             ClientSession session;
 
-            lock (_pendingSessionDict)
-            {
-                if (_pendingSessionDict.Remove(credentials.Sessionid, out session) == false)
-                    return Logger.WarnReturn(false, $"VerifyClientCredentials(): SessionId 0x{credentials.Sessionid:X} not found");
-            }
+            if (_pendingSessionDict.Remove(credentials.Sessionid, out session) == false)
+                return Logger.WarnReturn(false, $"VerifyClientCredentials(): SessionId 0x{credentials.Sessionid:X} not found");
 
             // Verify the token if enabled
             if (_playerManager.Config.UseJsonDBManager == false)
@@ -196,19 +193,16 @@ namespace MHServerEmu.PlayerManagement.Auth
             }
 
             // Assign the session to the client if the token is valid
-            lock (_activeSessionDict)
-            {
-                // Handle the case when someone hijacks another client's credentials and attempts to log in with them while the actual client is still logged in
-                if (_activeSessionDict.TryAdd(session.Id, session) == false || _clientDict.TryAdd(session.Id, client) == false)
-                    return Logger.WarnReturn(false, $"VerifyClientCredentials(): A client is attempting to use {session} that is already in use");
+            // Handle the case when someone hijacks another client's credentials and attempts to log in with them while the actual client is still logged in
+            if (_activeSessionDict.TryAdd(session.Id, session) == false || _clientDict.TryAdd(session.Id, client) == false)
+                return Logger.WarnReturn(false, $"VerifyClientCredentials(): A client is attempting to use {session} that is already in use");
 
-                // Sessions cannot be reassigned
-                if (client.AssignSession(session) == false)
-                {
-                    _activeSessionDict.Remove(session.Id);
-                    _clientDict.Remove(session.Id);
-                    return Logger.WarnReturn(false, $"VerifyClientCredentials(): Failed to assign {session} to a client");
-                }
+            // Sessions cannot be reassigned
+            if (client.AssignSession(session) == false)
+            {
+                _activeSessionDict.Remove(session.Id);
+                _clientDict.Remove(session.Id);
+                return Logger.WarnReturn(false, $"VerifyClientCredentials(): Failed to assign {session} to a client");
             }
 
             // Success!
@@ -226,10 +220,12 @@ namespace MHServerEmu.PlayerManagement.Auth
             if (_platformTicketManager.TryGetValue(token, out ulong sessionId) == false)
                 return Logger.WarnReturn(false, $"VerifyPlatformTicket(): Invalid token {token}");
 
-            ClientSession session;
-            lock (_activeSessionDict)
-                _activeSessionDict.TryGetValue(sessionId, out session);
-
+            _activeSessionDict.TryGetValue(sessionId, out ClientSession session);
+            if (string.IsNullOrEmpty(token))
+            {
+                // Log that a null token was received if you want to track it
+                return false; // Authentication fails immediately
+            }
             if (session == null)
                 return Logger.WarnReturn(false, $"VerifyPlatformTicket(): Failed to retrieve session! sessionId=0x{sessionId:X}, token={token}, email={email}");
 
@@ -251,16 +247,14 @@ namespace MHServerEmu.PlayerManagement.Auth
         /// </summary>
         public void RemoveActiveSession(ulong sessionId)
         {
-            lock (_activeSessionDict)
-            {
-                if (_activeSessionDict.Remove(sessionId, out ClientSession session) == false)
-                    Logger.Warn($"RemoveActiveSession(): No active session for sessionId {sessionId:X}");
+            if (_activeSessionDict.Remove(sessionId, out ClientSession session) == false)
+                Logger.Warn($"RemoveActiveSession(): No active session for sessionId {sessionId:X}");
 
-                if (_clientDict.Remove(sessionId) == false)
-                    Logger.Warn($"RemoveActiveSession(): No client for sessionId {sessionId:X}");
+            if (_clientDict.Remove(sessionId) == false)
+                Logger.Warn($"RemoveActiveSession(): No client for sessionId {sessionId:X}");
 
+            if (session != null)
                 _platformTicketManager.RemoveToken(session.PlatformTicket);
-            }
         }
 
         /// <summary>
@@ -278,27 +272,39 @@ namespace MHServerEmu.PlayerManagement.Auth
         {
             return _clientDict.TryGetValue(sessionId, out client);
         }
+
         private bool IsHardwareBanned(string machineId)
         {
             return IDBManager.Instance.IsHardwareBanned(machineId);
         }
+
         private void PurgeExpiredSessions()
         {
-            lock (_pendingSessionDict)
+            if (_pendingSessionDict.Count == 0)
+                return;
+
+            List<ulong> expiredKeys = null;
+
+            foreach (var kvp in _pendingSessionDict)
             {
-                if (_pendingSessionDict.Count == 0)
-                    return;
+                ClientSession session = kvp.Value;
 
-                foreach (var kvp in _pendingSessionDict)
+                if (session.Length <= PendingSessionLifespan)
+                    continue;
+
+                expiredKeys ??= new List<ulong>();
+                expiredKeys.Add(kvp.Key);
+            }
+
+            if (expiredKeys != null)
+            {
+                foreach (ulong key in expiredKeys)
                 {
-                    ClientSession session = kvp.Value;
-
-                    if (session.Length <= PendingSessionLifespan)
-                        continue;
-
-                    Logger.Warn($"Pending session expired: sessionId=0x{session.Id:X}, account=[{session.Account}]");
-                    _pendingSessionDict.Remove(kvp.Key);
-                    _platformTicketManager.RemoveToken(session.PlatformTicket);
+                    if (_pendingSessionDict.Remove(key, out ClientSession session))
+                    {
+                        Logger.Warn($"Pending session expired: sessionId=0x{session.Id:X}, account=[{session.Account}]");
+                        _platformTicketManager.RemoveToken(session.PlatformTicket);
+                    }
                 }
             }
         }

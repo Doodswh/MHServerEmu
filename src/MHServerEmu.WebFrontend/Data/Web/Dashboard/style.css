@@ -117,3 +117,40 @@ div.account-form button {
     width: 100%;
     box-sizing: border-box;
 }
+
+div.metrics-region-summary-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+    gap: 10px;
+    margin: 8px 0 12px;
+}
+
+div.metrics-region-summary-card {
+    border: 1px solid #00717c;
+    background: linear-gradient(180deg, #0b1820 0%, #091117 100%);
+    padding: 10px;
+}
+
+div.metrics-region-summary-label {
+    color: #7cbfd6;
+    font: 11px/1.2 Verdana;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+}
+
+div.metrics-region-summary-value {
+    color: #f0f7fa;
+    font: 18px/1.2 "Bebas Neue", "Trebuchet MS", Verdana, sans-serif;
+    margin-top: 4px;
+}
+
+div.metrics-region-summary-detail {
+    color: #b0c6ce;
+    font: 11px/1.4 Verdana;
+    margin-top: 6px;
+    word-break: break-word;
+}
+
+#metrics-regions-container {
+    margin-top: 8px;
+}

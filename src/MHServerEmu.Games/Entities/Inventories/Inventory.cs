@@ -477,7 +477,22 @@ namespace MHServerEmu.Games.Entities.Inventories
         {
             if (entity == null) return Logger.WarnReturn(InventoryResult.InvalidSourceEntity, "CheckAddEntity(): entity == null");
             if (destSlot == InvalidSlot) return Logger.WarnReturn(InventoryResult.InvalidSlotParam, "CheckAddEntity(): destSlot == InvalidSlot");
+            if (Category == InventoryCategory.BagItem)
+            {
+                // The Owner of a nested inventory is the BagItem entity itself
+                if (Owner is Item bagItem)
+                {
+                    // Retrieve the specific BagItemPrototype data
+                    var bagProto = bagItem.PrototypeDataRef.As<BagItemPrototype>();
 
+                    // If the prototype exists and explicitly forbids player adds, reject the action
+                    if (bagProto != null && bagProto.AllowsPlayerAdds == false)
+                    {
+                        // This triggers the specific failure enum you already have defined
+                        return InventoryResult.InvalidBagItemPreventsPlayerAdds;
+                    }
+                }
+            }
             InventoryResult canChangeInvResult = entity.CanChangeInventoryLocation(this);
             if (canChangeInvResult != InventoryResult.Success)
                 return Logger.WarnReturn(canChangeInvResult, "CheckAddEntity(): canChangeInvResult != InventoryResult.Success");

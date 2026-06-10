@@ -781,9 +781,14 @@ namespace Gazillion {
     eGTV_HighVolumeMetricsEnabled = 27,
     eGTV_MediumVolumeMetricsEnabled = 28,
     eGTV_LowVolumeMetricsEnabled = 29,
-    eGTV_PatrolBossSpawnInvulnerabilitySeconds = 30,
-    eGTV_NumGlobalTuningVars = 31,
-  }
+        eGTV_PatrolBossSpawnInvulnerabilitySeconds = 30,
+        eGTV_XDefenseInfiniteScalingEnabled = 31,
+        eGTV_XDefenseWaveXPBonusPerWave = 32,
+        eGTV_XDefenseEnemyHealthBonusPerWave = 33,
+        eGTV_XDefenseEnemyDamageBonusPerWave = 34,
+        eGTV_XDefenseStudentHealthMultiplier = 35,
+        eGTV_NumGlobalTuningVars = 36,
+    }
   
   public enum AreaTuningVar {
     eATV_AreaMobSpawnHeat = 0,
@@ -828,8 +833,9 @@ namespace Gazillion {
     ePTV_PowerDamagePVP = 2,
     ePTV_PowerEnabled = 3,
     ePTV_CooldownDuration = 4,
-    ePTV_NumPowerTuningVars = 5,
-  }
+    ePTV_ExcludeFromCooldownTuning = 5,
+    ePTV_NumPowerTuningVars = 6,
+    }
   
   public enum RegionTuningVar {
     eRTV_PlayerLimit = 0,

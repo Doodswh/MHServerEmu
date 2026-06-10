@@ -81,6 +81,33 @@ namespace MHServerEmu.Games.Entities
             return agent;
         }
 
+        public static Agent CreateAgentInRegion(AgentPrototype agentProto, Region region,
+    Vector3 spawnPosition, Orientation orientation, int characterLevel, int combatLevel)
+        {
+            using EntitySettings entitySettings = ObjectPoolManager.Instance.Get<EntitySettings>();
+            entitySettings.EntityRef = agentProto.DataRef;
+            entitySettings.Position = spawnPosition;
+            entitySettings.Orientation = orientation;
+            entitySettings.RegionId = region.Id;
+            entitySettings.IsPopulation = true;
+
+            using PropertyCollection settingsProperties = ObjectPoolManager.Instance.Get<PropertyCollection>();
+            settingsProperties[PropertyEnum.DifficultyTier] = region.DifficultyTierRef;
+            settingsProperties[PropertyEnum.Rank] = agentProto.Rank;
+            settingsProperties[PropertyEnum.CharacterLevel] = characterLevel;
+            settingsProperties[PropertyEnum.CombatLevel] = combatLevel;
+            entitySettings.Properties = settingsProperties;
+
+            var agent = region.Game.EntityManager.CreateEntity(entitySettings) as Agent;
+            if (agent == null)
+                return Logger.WarnReturn<Agent>(null, "CreateAgentInRegion(): CreateEntity failed");
+
+            if (agentProto.ModifiersGuaranteed.HasValue())
+                foreach (var boost in agentProto.ModifiersGuaranteed)
+                    agent.Properties[PropertyEnum.EnemyBoost, boost] = true;
+
+            return agent;
+        }
         public static bool GetSpawnPositionNearAvatar(Avatar avatar, Region region, BoundsPrototype entityBoundsPrototype, float maxDistance, out Vector3 spawnPositionResult)
         {
             Bounds entityBounds = new();

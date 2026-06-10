@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
@@ -149,24 +149,42 @@
                         <div id="headline-stats" class="card-grid"></div>
                         <div class="dashboard-actions">
                             <a id="coa-dashboard-link" class="button button-secondary full-width hidden" href="/COA-Dashboard/">Server Console</a>
+                            <a id="server-metrics-link" class="button button-secondary full-width hidden" href="https://mho.councilofancients.com/dashboard">Server Metrics</a>
                         </div>
                     </section>
                 </div>
-
+                <section class="panel glass-panel" id="commendations-panel">
+                    <div class="section-heading">
+                        <p class="eyebrow">Progression</p>
+                        <h2>Demonfire Commendations</h2>
+                        <p>Track your current loot drop limits.</p>
+                    </div>
+                    <!-- The javascript will inject the progress bars into this grid -->
+                    <div id="commendations-grid" class="card-grid" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 1rem; margin-top: 1rem;">
+                    </div>
+                </section>
+                <section class="panel glass-panel" id="stashes-panel" style="display: none;">
+                    <div class="section-heading">
+                        <p class="eyebrow">Inventory</p>
+                        <h2>Player Stashes</h2>
+                        <p>Your global and hero-specific stash tabs.</p>
+                    </div>
+                    <div id="stashes-container" class="character-carried-groups"></div>
+                </section>
                 <section class="panel glass-panel">
                     <div class="section-heading section-row">
                         <div>
                             <p class="eyebrow">Characters</p>
                             <h2>Time Played By Character</h2>
-                            <p>Every saved hero on your account, sorted by the server response.</p>
+                            <p>Every saved hero on your account, sorted by the server response. Click any row to inspect equipment and carried inventory.</p>
                         </div>
                     </div>
                     <div class="table-wrap glass-inset">
                         <table>
                             <thead>
                                 <tr>
+                                    <th class="character-portrait-header"></th>
                                     <th>Character</th>
-                                    <th>Prototype</th>
                                     <th>Level</th>
                                     <th>Time Played</th>
                                 </tr>
@@ -179,6 +197,46 @@
         </main>
     </div>
 
+    <div class="modal fade" id="character-inventory-modal" tabindex="-1" role="dialog" aria-labelledby="character-inventory-title" aria-hidden="true">
+        <div class="modal-dialog modal-xl" role="document">
+            <div class="modal-content character-inventory-modal">
+                <div class="modal-header">
+                    <div class="character-inventory-heading">
+                        <div class="character-inventory-heading-art" id="character-inventory-portrait"></div>
+                        <div>
+                            <p class="eyebrow modal-eyebrow" id="character-inventory-eyebrow">Inventory Inspection</p>
+                            <h2 class="modal-title" id="character-inventory-title">Character inventory</h2>
+                            <p class="character-inventory-subtitle" id="character-inventory-subtitle">Select a hero to inspect their current loadout and carried items.</p>
+                        </div>
+                    </div>
+                    <button type="button" class="close" data-dismiss="modal" aria-label="Close">
+                        <span aria-hidden="true">&times;</span>
+                    </button>
+                </div>
+                <div class="modal-body">
+                    <div class="character-inventory-layout">
+                        <section class="glass-inset character-inventory-panel">
+                            <div class="character-inventory-panel-head">
+                                <p class="eyebrow modal-eyebrow">Equipped</p>
+                                <h3>Loadout</h3>
+                            </div>
+                            <div class="character-equipment-grid" id="character-equipment-grid"></div>
+                        </section>
+                        <section class="glass-inset character-inventory-panel">
+                            <div class="character-inventory-panel-head">
+                                <p class="eyebrow modal-eyebrow">Carried</p>
+                                <h3>Inventory</h3>
+                            </div>
+                            <div class="character-carried-groups" id="character-carried-groups"></div>
+                        </section>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="button modal-btn" data-dismiss="modal">Close</button>
+                </div>
+            </div>
+        </div>
+    </div>
     <div class="modal fade" id="serverdetails" tabindex="-1" role="dialog" aria-labelledby="server-details-title" aria-hidden="true">
         <div class="modal-dialog modal-xl" role="document">
             <div class="modal-content server-details-modal">
@@ -265,3 +323,4 @@
     <script src="script.js"></script>
 </body>
 </html>
+

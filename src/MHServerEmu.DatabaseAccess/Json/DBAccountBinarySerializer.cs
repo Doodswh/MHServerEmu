@@ -37,7 +37,7 @@ namespace MHServerEmu.DatabaseAccess.Json
 
         public static void Serialize(Stream stream, DBAccount dbAccount)
         {
-            using (BinaryWriter writer = new(stream))
+            using (BinaryWriter writer = new BinaryWriter(stream, Encoding.UTF8, leaveOpen: true))
             {
                 WriteFileHeader(writer);
 
@@ -62,7 +62,7 @@ namespace MHServerEmu.DatabaseAccess.Json
         {
             try
             {
-                using (BinaryReader reader = new(stream))
+                using (BinaryReader reader = new BinaryReader(stream, Encoding.UTF8, leaveOpen: true))
                 {
                     if (ReadFileHeader(reader) == false)
                         return Logger.ErrorReturn<DBAccount>(null, "Deserialize(): File header error");
@@ -141,8 +141,13 @@ namespace MHServerEmu.DatabaseAccess.Json
 
         private static void WriteDBPlayer(BinaryWriter writer, DBPlayer dbPlayer)
         {
+            if (dbPlayer == null)
+                dbPlayer = new DBPlayer();
+
             writer.Write(dbPlayer.DbGuid);
-            WriteByteArray(writer, dbPlayer.ArchiveData);
+
+            WriteByteArray(writer, dbPlayer.ArchiveData ?? Array.Empty<byte>());
+
             writer.Write(dbPlayer.StartTarget);
             writer.Write(dbPlayer.AOIVolume);
         }

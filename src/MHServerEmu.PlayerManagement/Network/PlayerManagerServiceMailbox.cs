@@ -27,7 +27,8 @@ namespace MHServerEmu.PlayerManagement.Network
             _playerManager = playerManager;
         }
 
-        protected override void HandleServiceMessage(IGameServiceMessage message)
+        // --- UPDATED SIGNATURE HERE ---
+        public override void HandleMessage<T>(in T message)
         {
             switch (message)
             {
@@ -360,7 +361,7 @@ namespace MHServerEmu.PlayerManagement.Network
         {
             CommunityMemberBroadcast broadcast = communityStatusUpdate.Broadcast;
             if (broadcast == null) return Logger.WarnReturn(false, "OnCommunityStatusUpdate(): broadcast == null");
-            
+
             _playerManager.CommunityRegistry.ReceiveMemberBroadcast(broadcast);
             return true;
         }

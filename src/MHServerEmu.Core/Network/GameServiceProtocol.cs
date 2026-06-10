@@ -1,6 +1,7 @@
 ﻿using System.Buffers;
 using Gazillion;
-using MHServerEmu.Core.System.Time; 
+using MHServerEmu.Core.System.Time;
+using MHServerEmu.Core.VectorMath;
 
 namespace MHServerEmu.Core.Network
 {
@@ -111,6 +112,22 @@ namespace MHServerEmu.Core.Network
             public readonly ulong PlayerDbId = playerDbId;
             public readonly ulong InstanceId = instanceId;
             public readonly List<GiftInfo> GiftsToAward = gifts;
+        }
+        /// <summary>
+        /// [Game -> GameInstance, broadcast] Spawns the entity in every region instance across all games
+        /// matching the given region prototype + difficulty tier.
+        /// </summary>
+        public readonly struct SpawnEntityInRegions(ulong regionProtoRef, ulong difficultyTierProtoRef,
+     ulong entityProtoRef, Vector3 position, Orientation orientation, int characterLevel, int combatLevel)
+     : IGameServiceMessage
+        {
+            public readonly ulong RegionProtoRef = regionProtoRef;
+            public readonly ulong DifficultyTierProtoRef = difficultyTierProtoRef;
+            public readonly ulong EntityProtoRef = entityProtoRef;
+            public readonly Vector3 Position = position;
+            public readonly Orientation Orientation = orientation;
+            public readonly int CharacterLevel = characterLevel;
+            public readonly int CombatLevel = combatLevel;
         }
         public readonly struct AddPlayerGift(string playerName, ulong itemPrototype, int count, bool isDaily, bool playerOnline, ulong instanceId)
        : IGameServiceMessage

@@ -11,12 +11,58 @@ if (typeof dashboardConfig === "undefined") {
   const SESSION_STORAGE_KEY = "coa-remote-console-token";
   const ACCOUNT_DASHBOARD_TOKEN_KEY = "coa-account-portal-token";
 
+  function readStoredValue(key) {
+    return window.sessionStorage.getItem(key) || window.localStorage.getItem(key) || "";
+  }
+
+  function readHashAccountToken() {
+    const hash = String(window.location.hash || "");
+    if (!hash) {
+      return "";
+    }
+
+    const match = hash.match(/accountToken=([^&]+)/i);
+    if (!match || !match[1]) {
+      return "";
+    }
+
+    try {
+      return decodeURIComponent(match[1]);
+    } catch (error) {
+      return match[1];
+    }
+  }
+
+  function clearHash() {
+    if (!window.location.hash) {
+      return;
+    }
+
+    if (window.history && typeof window.history.replaceState === "function") {
+      window.history.replaceState(null, document.title, window.location.pathname + window.location.search);
+      return;
+    }
+
+    window.location.hash = "";
+  }
+
+  const hashAccountToken = readHashAccountToken();
+  if (hashAccountToken) {
+    try {
+      window.sessionStorage.setItem(ACCOUNT_DASHBOARD_TOKEN_KEY, hashAccountToken);
+      window.localStorage.setItem(ACCOUNT_DASHBOARD_TOKEN_KEY, hashAccountToken);
+    } catch (error) {
+    }
+
+    clearHash();
+  }
+
   const state = {
     authenticated: false,
     whitelisted: true,
     session: null,
-    token: window.sessionStorage.getItem(SESSION_STORAGE_KEY) || "",
-    accountToken: window.sessionStorage.getItem(ACCOUNT_DASHBOARD_TOKEN_KEY) || "",
+    token: readStoredValue(SESSION_STORAGE_KEY),
+    accountToken: hashAccountToken || readStoredValue(ACCOUNT_DASHBOARD_TOKEN_KEY),
     latestSequence: 0,
     logs: [],
     commandLogs: [],

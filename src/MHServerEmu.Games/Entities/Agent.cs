@@ -2501,7 +2501,10 @@ namespace MHServerEmu.Games.Entities
 
         public override bool OnNegativeStatusEffectApplied(ulong conditionId)
         {
-            base.OnNegativeStatusEffectApplied(conditionId);
+            // Check the base method's return value. 
+            // If the base class rejects or fails to process the condition, we abort and pass 'false' up the chain.
+            if (!base.OnNegativeStatusEffectApplied(conditionId))
+                return false;
 
             // Apply CCReactCondition (if this agent has one)
             PrototypeId ccReactConditionProtoRef = AgentPrototype.CCReactCondition;
@@ -2509,7 +2512,8 @@ namespace MHServerEmu.Games.Entities
                 return true;
 
             Condition negativeStatusCondition = ConditionCollection.GetCondition(conditionId);
-            if (negativeStatusCondition == null) return Logger.WarnReturn(false, "OnNegativeStatusEffectApplied(): condition == null");
+            if (negativeStatusCondition == null)
+                return Logger.WarnReturn(false, "OnNegativeStatusEffectApplied(): condition == null");
 
             // Skip hit react conditions
             if (negativeStatusCondition.IsHitReactCondition())
@@ -2520,9 +2524,15 @@ namespace MHServerEmu.Games.Entities
                 return true;
 
             ConditionPrototype ccReactConditionProto = ccReactConditionProtoRef.As<ConditionPrototype>();
-            if (ccReactConditionProto == null) return Logger.WarnReturn(false, "OnNegativeStatusEffectApplied(): ccReactConditionProto == null");
+            if (ccReactConditionProto == null)
+                return Logger.WarnReturn(false, "OnNegativeStatusEffectApplied(): ccReactConditionProto == null");
 
             using var negativeStatusListHandle = ListPool<PrototypeId>.Instance.Get(out List<PrototypeId> negativeStatusList);
+
+            // Explicitly clear the pooled list. 
+            // This guarantees no leftover data from previous events ruins your count logic.
+            negativeStatusList.Clear();
+
             if (negativeStatusCondition.IsANegativeStatusEffect(negativeStatusList))
             {
                 // Apply only when this negative status condition has movement / cast speed decreases and no other statuses
@@ -2541,6 +2551,9 @@ namespace MHServerEmu.Games.Entities
             }
             else
             {
+                //We log the warning, but we intentionally fall through to return 'true' at the end.
+                // Even if this specific CC reaction failed, the base status effect was still applied, 
+                // so we don't want to accidentally cancel it by returning 'false'.
                 Logger.Warn("OnNegativeStatusEffectApplied(): condition.IsANegativeStatusEffect(negativeStatusList) == false");
             }
 

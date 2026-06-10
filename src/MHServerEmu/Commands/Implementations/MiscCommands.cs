@@ -320,7 +320,43 @@ namespace MHServerEmu.Commands.Implementations
 
             return $"Teleporting to {teleportPoint.ToStringNames()}.";
         }
+        [CommandGroup("convertraid")]
+        [CommandGroupDescription("Converts the current party into a raid (bypassing the UI drop-down).")]
+        [CommandGroupUserLevel(AccountUserLevel.Admin)]
+        [CommandGroupFlags(CommandGroupFlags.SingleCommand)]
+        public class ConvertRaidCommand : CommandGroup
+        {
+            [DefaultCommand]
+            [CommandInvokerType(CommandInvokerType.Client)]
+            public string ConvertRaid(string[] @params, NetClient client)
+            {
+                Player player = ((PlayerConnection)client).Player;
+                if (player == null) return "Player not found.";
 
+                Party party = player.GetParty();
+                if (party == null)
+                {
+                    return "You are not currently in a party.";
+                }
+
+                if (!player.IsPartyLeader())
+                {
+                    return "You must be the party leader to convert the group to a raid.";
+                }
+
+                // Construct the exact payload the client UI would normally send
+                Gazillion.PartyOperationPayload convertRequest = Gazillion.PartyOperationPayload.CreateBuilder()
+                    .SetRequestingPlayerDbId(player.DatabaseUniqueId)
+                    .SetRequestingPlayerName(player.GetName())
+                    .SetOperation(Gazillion.GroupingOperationType.eGOP_ConvertToRaid)
+                    .Build();
+
+                // Push the payload into the existing party manager pipeline
+                player.Game.PartyManager.OnClientPartyOperationRequest(player, convertRequest);
+
+                return "Party conversion to Raid requested.";
+            }
+        }
         [CommandGroup("syncmana")]
         [CommandGroupDescription("Syncs the current mana value with the server.")]
         [CommandGroupFlags(CommandGroupFlags.SingleCommand)]

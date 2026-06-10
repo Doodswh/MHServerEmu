@@ -9,10 +9,28 @@
 	<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&display=swap" rel="stylesheet">
 	
 	<style>
+		*, *::before, *::after {
+			box-sizing: border-box;
+		}
+
 		html {
+			width: 100%;
+			height: 100%;
 			background-color: #0d0d0b;
 			color: #d7d7d7;
 			font: 18px/1.385 Verdana;
+			overflow: hidden;
+		}
+
+		body {
+			width: 100%;
+			height: 100%;
+			margin: 0;
+			display: flex;
+			align-items: center;
+			justify-content: center;
+			overflow: hidden;
+			padding: 16px;
 		}
 
 		*:focus, *:active {
@@ -26,7 +44,6 @@
 		}
 
 		button, input {
-			box-sizing: border-box;
 			border: 1px solid black;
 			background: #1c1c1c;
 			color: inherit;
@@ -58,7 +75,8 @@
 				#252525 100%
 			);
 			height: 30px;
-			width: 70px;
+			width: 100%;
+			min-width: 0;
 			color: white;
 			font-family: "Bebas Neue", "Trebuchet MS", Verdana, sans-serif;
 			font-size: 24px;
@@ -97,17 +115,49 @@
 		table {
 			width: 100%;
 			margin: 12px 0px;
-			border-spacing: 16px;
+			border-spacing: 10px;
 			border: 1px solid #383838;
 			border-radius: 6px;
 			box-shadow: inset 0 0 8px #383838;
+			table-layout: fixed;
+		}
+
+		table.summary-table {
+			margin-top: 16px;
+			border-spacing: 8px;
+		}
+
+		table.summary-table td {
+			width: 50%;
+			padding: 10px 12px;
+			border: 1px solid #2f434b;
+			border-radius: 6px;
+			background: linear-gradient(#02090d, #0a161c);
+			vertical-align: top;
+		}
+
+		.summary-label {
+			color: #8db9c8;
+			font: normal 20px / 20px "Bebas Neue", "Trebuchet MS", Verdana, sans-serif;
+			letter-spacing: 0.04em;
+			text-transform: uppercase;
+		}
+
+		.summary-value {
+			margin-top: 4px;
+			color: white;
+			font: normal 30px / 28px "Bebas Neue", "Trebuchet MS", Verdana, sans-serif;
 		}
 
 		div.content {
-			margin: 10px auto;
-			padding: 20px;
+			margin: 0 auto;
+			padding: 16px;
 			border: 1px solid #00717c;
 			background-color: #00090e;
+			width: min(760px, 100%);
+			max-width: 760px;
+			max-height: 100%;
+			overflow: auto;
 		}
 
 		div.button-container {
@@ -168,6 +218,16 @@
 			box-shadow: inset 0 0 8px #00f0ff;
 			background: linear-gradient(337deg, #299ED9 49%, #4DC5FF 51%, #2f98cd 70%, #299ED9 100%);
 		}		
+		td.plus-cell {
+			width: 28px;
+			padding-left: 0;
+			padding-right: 0;
+		}
+
+		td.plus-cell .sign-button {
+			margin-left: -6px;
+		}
+
 		button.close-button:hover {
 			box-shadow: inset 0 0 8px #00f0ff, 0 0 4px #26BFFA;
 			background: linear-gradient(337deg, #299ED9 49%, #4DC5FF 51%, #2f98cd 70%, #299ED9 100%);
@@ -197,10 +257,47 @@
 			border-radius: 50%;
 			margin-left: 8px;
 		}
+
+		.g-header {
+			display: inline-flex;
+			margin: 0 0 4px 0;
+		}
 		.es {
 			display: inline-block;
 			vertical-align: middle;
 			width: 48px;
+		}
+
+		td.range-cell {
+			width: auto;
+		}
+
+		td.compact-input-cell {
+			width: 112px;
+			text-align: right;
+		}
+
+		td.compact-g-cell {
+			width: 112px;
+			padding-left: 0;
+			padding-right: 0;
+			white-space: nowrap;
+			text-align: right;
+			vertical-align: top;
+		}
+
+		.g-stack {
+			display: flex;
+			flex-direction: column;
+			align-items: flex-start;
+			gap: 4px;
+			width: 100%;
+			margin-left: 0;
+			margin-top: 10px;
+		}
+
+		.g-stack input[type="text"] {
+			width: 100%;
 		}
 	</style>
 </head>
@@ -208,18 +305,35 @@
 	<div class="content">
 		<h1>Add G</h1>
 		<p>Select the amount of Eternity Splinters to convert to G.</p>
+		<table class="summary-table">
+			<tr>
+				<td>
+					<div class="summary-label">Total Available ES</div>
+					<div class="summary-value" id="summary-es-balance">0</div>
+				</td>
+				<td>
+					<div class="summary-label">Current G Balance</div>
+					<div class="summary-value" id="summary-g-balance">0</div>
+				</td>
+			</tr>
+		</table>
 		<table>
 			<tr>
-				<td style="width:128px; text-align: right;"> 
+				<td class="compact-input-cell"> 
 					<div class="es">
 						<svg xmlns="http://www.w3.org/2000/svg" xml:space="preserve" width="48" height="35" viewBox="0 0 128 96"><path fill="#a2cfe9" d="m32.56 24.948 25.043 27.933 4.816 9.151a575 575 0 0 1-9.391 20.228c-2.554 2.71-12.763 12.522-12.763 12.522l-3.371-7.224 1.146-50.446-6.444-6.385z"/><path fill="#e6f2f9" d="m32.56 24.948 20.468 4.816L85.792 64.62s12.8 21.06 12.791 21.188L80.567 79.1l-2.776-2.611-5.01 11.829-2.61-18.996-12.568-16.44z"/><path fill="#b9e4f3" d="m21.964 3.035 14.448 10.114 16.616 16.615 4.575-7.224 16.375-6.501-18.69 16.238-2.26-2.513 3.612 10.114-24.08-14.93-.964 5.78-8.428-15.894z"/><path fill="#b6ddef" d="m83.601 61.477 24.09-8.596 18.3 12.763-18.06 2.649-7.706 1.445-14.433-5.118z"/><path fill="#6daad5" d="m37.375 18.687-4.816 6.261L21.964 3.035a706 706 0 0 1 15.411 15.652"/><path fill="#8ac8e4" d="M37.375 18.687q9.899 10.38 19.265 21.19l5.779 22.155-4.816-9.15-4.275-15.057L32.56 24.948z"/><path fill="#b3d9ed" d="m59.53 36.988 14.448-20.95c-.029.014-5.539 16.134-5.539 16.134l-5.538 7.465z"/><path fill="#89c8e4" d="m59.53 36.988-4.241-4.712c.042-.061 5.685-7.087 5.685-7.087l13.004-9.15z"/><path fill="#b8e5f4" d="m59.53 36.988 3.37 2.65 21.722.984-1.02 20.855 2.19 3.143 4.801 4.636 7.99 16.552-10.639-16.311-24.08-22.876z"/><path fill="#4583ca" d="m105.282 55.771 20.71 9.873-18.06 2.649-6.259-1.492c-.383-.001 3.415-11.03 3.609-11.03"/><path fill="#e3f0f8" d="m42.19 41.058 10.597 10.138-4.335 2.167z"/><path fill="#8ec8e3" d="m27.261 44.694 8.67 6.742-3.372 3.372-3.853-1.686L8.96 56.493l-1.926-.24z"/><path fill="#87c7e6" d="m59.048 42.768 4.816 3.853 24.08 22.876-9.15.24a44147 44147 0 0 1-19.746-26.97"/><path fill="#dcecf4" d="m26.78 50.955 9.15.481-7.224 1.686-18.301 6.261-8.163-.617 4.792-2.513 1.926.24z"/><path fill="#68a3d1" d="M84.622 40.622c.047.021 9.997 5.54 9.997 5.54l-9.564 4.07 22.635 2.65-2.408 2.89-30.341-3.854-2.844-3.097z"/><path fill="#3670bf" d="m52.787 51.196 3.853 4.094-8.188-1.927z"/><path fill="#2d69c0" d="m74.941 51.918 30.341 3.853-3.608 11.03L83.6 61.477z"/><path fill="#4785cb" d="m84.622 40.622-6.72 8.775-5.805-.576-2.572-2.892z"/><path fill="#6badd7" d="m48.452 53.363 8.188 1.927.24 8.187a740 740 0 0 0-6.26 16.856l-7.947.963z"/><path fill="#e5f2f8" d="m48.452 53.363-5.78 27.933-2.407-16.375z"/><path fill="#8cc8e4" d="m42.19 41.058 6.262 12.305-10.895 4.997-.19 8.362-10.106 9.036-3.852-3.13z"/><path fill="#bae4f4" d="m42.19 41.058-4.092 7.97-.482 5.78a304 304 0 0 0-14.207 17.82l-4.428 7.747 2.26-10.155L32.56 54.808l3.371-3.372-9.15-.481.481-6.26a187 187 0 0 1 10.779-7.583z"/><path fill="#72afd8" d="m37.557 58.36 2.708 6.561 2.408 16.375-5.78 6.261z"/><path fill="#8fc7e5" d="m72.617 71.546 5.215 4.98-3.819 8.88z"/><path fill="#6ea9d4" d="m23.409 72.628 3.852 3.13-8.28 4.616z"/><path fill="#4784cd" d="m56.64 39.878 2.408 2.89q9.855 13.47 19.745 26.97l1.775 9.362-18.15-17.068z"/></svg>
 					</div>
 					<input type="text" value="0" id="es-text-input" onchange="setES(this.value)" />
 				</td>
 				<td width="28"><button onclick="adjustES(-requestContext.conversionStep)" class="sign-button">-</button></td>
-				<td><input type="range" value="0" min="0" id="es-range-input" onchange="setES(this.value)" /></td>
-				<td width="28"><button onclick="adjustES(requestContext.conversionStep)" class="sign-button">+</button></td>
-				<td style="width:108px;"><input type="text" value="0" id="g-text-input" onchange="setESFromG(this.value)" /><div class="g">G</div></td>
+				<td class="range-cell"><input type="range" value="0" min="0" id="es-range-input" onchange="setES(this.value)" /></td>
+				<td class="plus-cell"><button onclick="adjustES(requestContext.conversionStep)" class="sign-button">+</button></td>
+				<td class="compact-g-cell">
+					<div class="g-stack">
+						<div class="g g-header">G</div>
+						<input type="text" value="0" id="g-text-input" onchange="setESFromG(this.value)" />
+					</div>
+				</td>
 			</tr>
 		</table>
 		<p>Please note that the amount of G after conversion may be subject to rounding errors.</p>
@@ -269,6 +383,7 @@
 			currentBalance: Math.max(Number("%CURRENT_BALANCE%"), 0),
 			conversionRatio: Math.max(Number("%CONVERSION_RATIO%"), 0),
 			conversionStep: Math.max(Number("%CONVERSION_STEP%"), 1),
+			currentGBalance: Math.max(Number("%CURRENT_G_BALANCE%"), 0),
 		});
 
 		var PopupType = Object.freeze({
@@ -367,6 +482,16 @@
 
 			convertResult = xhr.status;
 
+			if (convertResult == 400) {
+				showPopup(PopupType.INVALID_AMOUNT);
+				return;
+			}
+
+			if (convertResult == 409) {
+				showPopup(PopupType.LOW_BALANCE);
+				return;
+			}
+
 			var confirmText = convertResult == 200 ? "Successfully converted." : "Conversion error (" + convertResult + ").";
 			document.getElementById("popup-result-text").innerText = confirmText;
 			showPopup(PopupType.RESULT);
@@ -383,6 +508,8 @@
 
 			esRange.step = step;
 			esRange.max = max;
+			document.getElementById("summary-es-balance").innerText = requestContext.currentBalance;
+			document.getElementById("summary-g-balance").innerText = requestContext.currentGBalance;
 
 			if (max == 0)
 				showPopup(PopupType.LOW_BALANCE);

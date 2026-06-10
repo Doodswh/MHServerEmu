@@ -37,11 +37,15 @@ namespace MHServerEmu.WebFrontend.Handlers.MTXStore
 
         protected override Task Get(WebRequestContext context)
         {
-            // It seems the client sends a GET when it initializes the embedded browser, but it doesn't seem to be needed for anything.
-            return Task.CompletedTask;
+            return SendAddGPageAsync(context);
         }
 
-        protected override async Task Post(WebRequestContext context)
+        protected override Task Post(WebRequestContext context)
+        {
+            return SendAddGPageAsync(context);
+        }
+
+        private async Task SendAddGPageAsync(WebRequestContext context)
         {
             if (string.IsNullOrWhiteSpace(_htmlTemplate))
             {
@@ -49,11 +53,24 @@ namespace MHServerEmu.WebFrontend.Handlers.MTXStore
                 return;
             }
 
-            NameValueCollection request = await context.ReadQueryStringAsync();
+            // Read the body (in case it's a POST with form data)
+            NameValueCollection requestBody = await context.ReadQueryStringAsync();
 
-            string downloader = request["downloader"];
-            string token = request["token"];
-            string email = request["email"];
+            // Read the URL (in case it's a GET with URL parameters)
+            NameValueCollection queryParams = context.QueryString;
+
+            // Use the coalesce operator (??) to check the URL first, then fall back to the body
+            string downloader = queryParams["downloader"] ?? requestBody["downloader"];
+            string token = queryParams["token"] ?? requestBody["token"];
+            string email = queryParams["email"] ?? requestBody["email"];
+
+            // Added safety check so it gracefully fails instead of crashing if the client sends garbage
+            if (string.IsNullOrEmpty(token) || string.IsNullOrEmpty(email))
+            {
+                Logger.Warn("AddGWebHandler: Missing email or token in request.");
+                context.StatusCode = (int)HttpStatusCode.BadRequest;
+                return;
+            }
 
             ServiceMessage.MTXStoreESBalanceResponse balanceResponse = await GameServiceTaskManager.Instance.GetESBalanceAsync(email, token);
 

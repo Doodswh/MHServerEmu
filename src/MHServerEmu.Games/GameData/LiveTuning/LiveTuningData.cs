@@ -217,6 +217,21 @@ namespace MHServerEmu.Games.GameData.LiveTuning
                     .SetTuningVarEnum(i)
                     .SetTuningVarValue(tuningVarValue));
             }
+            for (int i = 0; i < (int)GlobalTuningVar.eGTV_NumGlobalTuningVars; i++)
+            {
+                GlobalTuningVar tuningVar = (GlobalTuningVar)i;
+                if (IsServerOnlyGlobalTuningVar(tuningVar))
+                    continue;
+
+                float tuningVarValue = GetLiveGlobalTuningVar(tuningVar);
+                if (tuningVarValue == DefaultTuningVarValue)
+                    continue;
+
+                updateBuilder.AddTuningTypeKeyValueSettings(NetStructLiveTuningSettingProtoEnumValue.CreateBuilder()
+                    .SetTuningVarProtoId((ulong)PrototypeId.Invalid)
+                    .SetTuningVarEnum(i)
+                    .SetTuningVarValue(tuningVarValue));
+            }
 
             // Power
             BlueprintId powerBlueprintRef = GetPowerBlueprintDataRef();
@@ -922,7 +937,15 @@ namespace MHServerEmu.Games.GameData.LiveTuning
 
             return true;
         }
-
+        private static bool IsServerOnlyGlobalTuningVar(GlobalTuningVar tuningVar)
+        {
+            return tuningVar == GlobalTuningVar.eGTV_PatrolBossSpawnInvulnerabilitySeconds
+                || tuningVar == GlobalTuningVar.eGTV_XDefenseInfiniteScalingEnabled
+                || tuningVar == GlobalTuningVar.eGTV_XDefenseWaveXPBonusPerWave
+                || tuningVar == GlobalTuningVar.eGTV_XDefenseEnemyHealthBonusPerWave
+                || tuningVar == GlobalTuningVar.eGTV_XDefenseEnemyDamageBonusPerWave
+                || tuningVar == GlobalTuningVar.eGTV_XDefenseStudentHealthMultiplier;
+        }
         private bool UpdateLiveWorldEntityTuningVar(PrototypeId worldEntityProtoRef, WorldEntityTuningVar tuningVarEnum, float tuningVarValue)
         {
             if (tuningVarEnum < 0 || tuningVarEnum >= WorldEntityTuningVar.eWETV_NumWorldEntityTuningVars)

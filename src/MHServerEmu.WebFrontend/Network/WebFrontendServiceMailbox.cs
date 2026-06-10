@@ -7,7 +7,7 @@ namespace MHServerEmu.WebFrontend.Network
     {
         private static readonly Logger Logger = LogManager.CreateLogger();
 
-        protected override void HandleServiceMessage(IGameServiceMessage message)
+        public override void HandleMessage<T>(in T message)
         {
             switch (message)
             {
