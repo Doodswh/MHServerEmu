@@ -1,4 +1,5 @@
-﻿using System.Diagnostics;
+﻿using MHServerEmu.Core.Collections;
+using System.Diagnostics;
 using System.Reflection;
 using System.Reflection.Emit;
 
@@ -9,9 +10,7 @@ namespace MHServerEmu.Core.Extensions
         private static readonly MethodInfo ArrayCloneMethod = typeof(Array).GetMethod("Clone");
 
         private static readonly Dictionary<PropertyInfo, FieldInfo> PropertyBackingFields = new();
-        private static readonly Dictionary<PropertyInfo, Delegate> SetPropertyDelegates = new();
-        private static readonly Dictionary<PropertyInfo, Delegate> CopyPropertyDelegates = new();
-        private static readonly Dictionary<PropertyInfo, Delegate> CopyArrayPropertyDelegates = new();
+        private static readonly Dictionary<PropertyInfo, InlineArray3<Delegate>> PropertyDelegates = new();
 
         // Notes:
         // - Reflection.Emit is faster than expression trees.
@@ -40,7 +39,8 @@ namespace MHServerEmu.Core.Extensions
         /// </summary>
         public static void SetValueFast<TInstance, TValue>(this PropertyInfo propertyInfo, TInstance instance, TValue value)
         {
-            if (SetPropertyDelegates.TryGetValue(propertyInfo, out Delegate setDelegate) == false)
+            ref Delegate setDelegate = ref GetDelegateRef(propertyInfo, PropertyDelegate.Set);
+            if (setDelegate == null)
             {
                 FieldInfo fieldInfo = propertyInfo.GetBackingField();
 
@@ -53,7 +53,6 @@ namespace MHServerEmu.Core.Extensions
                 il.Emit(OpCodes.Ret);
 
                 setDelegate = dm.CreateDelegate<Action<TInstance, TValue>>();
-                SetPropertyDelegates.Add(propertyInfo, setDelegate);
             }
 
             Action<TInstance, TValue> set = (Action<TInstance, TValue>)setDelegate;
@@ -65,7 +64,8 @@ namespace MHServerEmu.Core.Extensions
         /// </summary>
         public static void CopyValue<T>(this PropertyInfo propertyInfo, T source, T destination)
         {
-            if (CopyPropertyDelegates.TryGetValue(propertyInfo, out Delegate copyDelegate) == false)
+            ref Delegate copyDelegate = ref GetDelegateRef(propertyInfo, PropertyDelegate.Copy);
+            if (copyDelegate == null)
             {
                 FieldInfo fieldInfo = propertyInfo.GetBackingField();
 
@@ -79,7 +79,6 @@ namespace MHServerEmu.Core.Extensions
                 il.Emit(OpCodes.Ret);
 
                 copyDelegate = dm.CreateDelegate<Action<T, T>>();
-                CopyPropertyDelegates.Add(propertyInfo, copyDelegate);
             }
 
             Action<T, T> copy = (Action<T, T>)copyDelegate;
@@ -92,7 +91,8 @@ namespace MHServerEmu.Core.Extensions
         /// </summary>
         public static void CopyArray<T>(this PropertyInfo propertyInfo, T source, T destination)
         {
-            if (CopyArrayPropertyDelegates.TryGetValue(propertyInfo, out Delegate copyArrayDelegate) == false)
+            ref Delegate copyArrayDelegate = ref GetDelegateRef(propertyInfo, PropertyDelegate.CopyArray);
+            if (copyArrayDelegate == null)
             {
                 FieldInfo fieldInfo = propertyInfo.GetBackingField();
                 Type fieldType = fieldInfo.FieldType;
@@ -124,11 +124,24 @@ namespace MHServerEmu.Core.Extensions
                 il.Emit(OpCodes.Ret);
 
                 copyArrayDelegate = dm.CreateDelegate<Action<T, T>>();
-                CopyArrayPropertyDelegates.Add(propertyInfo, copyArrayDelegate);
             }
 
             Action<T, T> copyArray = (Action<T, T>)copyArrayDelegate;
             copyArray(source, destination);
+        }
+
+        private static ref Delegate GetDelegateRef(PropertyInfo propertyInfo, PropertyDelegate delegateEnum)
+        {
+            ref InlineArray3<Delegate> delegates = ref PropertyDelegates.GetValueRefOrAddDefault(propertyInfo);
+            return ref delegates[(int)delegateEnum];
+        }
+
+        private enum PropertyDelegate
+        {
+            Set,
+            Copy,
+            CopyArray,
+            NumDelegates,
         }
     }
 }
