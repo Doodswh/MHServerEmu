@@ -11,9 +11,9 @@
     /// </summary>
     public class DataRefManager<T> where T: Enum
     {
-        private readonly Dictionary<T, string> _referenceDict = new();
-        private readonly Dictionary<string, T> _reverseLookupDict;
-        private readonly Dictionary<T, string> _formattedNameDict = new();
+        private readonly Dictionary<T, string> _references = new();
+        private readonly Dictionary<string, T> _reverseLookup;
+        private readonly Dictionary<T, string> _formattedNames = new();
 
         /// <summary>
         /// Creates a new <see cref="DataRefManager{T}"/> instance and sets up a reverse lookup dictionary if needed.
@@ -23,7 +23,7 @@
             // We can't use a dict for reverse lookup for all ref managers because some reference
             // types (e.g. assets) can have duplicate names
             if (useReverseLookupDict)
-                _reverseLookupDict = new(StringComparer.OrdinalIgnoreCase);
+                _reverseLookup = new(StringComparer.OrdinalIgnoreCase);
         }
 
         /// <summary>
@@ -31,8 +31,8 @@
         /// </summary>
         public void AddDataRef(T value, string name)
         {
-            _referenceDict.Add(value, name);
-            _reverseLookupDict?.Add(name, value);
+            _references.Add(value, name);
+            _reverseLookup?.Add(name, value);
         }
 
         /// <summary>
@@ -41,18 +41,18 @@
         public T GetDataRefByName(string name)
         {
             // Try to use a lookup dict first
-            if (_reverseLookupDict != null)
+            if (_reverseLookup != null)
             {
-                if (_reverseLookupDict.TryGetValue(name, out T dataRef) == false)
+                if (_reverseLookup.TryGetValue(name, out T dataRef) == false)
                     return default;
 
                 return dataRef;
             }
 
             // Fall back to linear search if there's no dict
-            foreach (var kvp in _referenceDict)
+            foreach (var kvp in _references)
             {
-                if (kvp.Value.Equals(name, StringComparison.OrdinalIgnoreCase))
+                if (string.Equals(name, kvp.Value, StringComparison.OrdinalIgnoreCase))
                     return kvp.Key;
             }
 
@@ -60,11 +60,19 @@
         }
 
         /// <summary>
+        /// Returns <see langword="true"/> if this <see cref="DataRefManager{T}"/> contains the specified <see cref="T"/> data reference.
+        /// </summary>
+        public bool ContainsDataRef(T dataRef)
+        {
+            return _references.ContainsKey(dataRef);
+        }
+
+        /// <summary>
         /// Returns the name of the specified <typeparamref name="T"/> data reference.
         /// </summary>
         public string GetReferenceName(T dataRef)
         {
-            if (_referenceDict.TryGetValue(dataRef, out string name) == false)
+            if (_references.TryGetValue(dataRef, out string name) == false)
                 return string.Empty;
 
             return name;
@@ -73,13 +81,13 @@
         public string GetFormattedReferenceName(T dataRef)
         {
             // Cache formatted names to avoid unnecessary string allocations.
-            lock (_formattedNameDict)
+            lock (_formattedNames)
             {
-                if (_formattedNameDict.TryGetValue(dataRef, out string formattedName) == false)
+                if (_formattedNames.TryGetValue(dataRef, out string formattedName) == false)
                 {
                     string name = GetReferenceName(dataRef);
                     formattedName = Path.GetFileNameWithoutExtension(name);
-                    _formattedNameDict.Add(dataRef, formattedName);
+                    _formattedNames.Add(dataRef, formattedName);
                 }
 
                 return formattedName;
