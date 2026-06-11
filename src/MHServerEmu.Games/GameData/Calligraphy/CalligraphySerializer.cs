@@ -644,7 +644,6 @@ namespace MHServerEmu.Games.GameData.Calligraphy
         /// </summary>
         private static void AssignPointedAtValues(Prototype destPrototype, Prototype sourcePrototype, System.Reflection.PropertyInfo fieldInfo)
         {
-            //fieldInfo.SetValue(destPrototype, fieldInfo.GetValue(sourcePrototype));
             fieldInfo.CopyValue(sourcePrototype, destPrototype);
         }
 
@@ -653,13 +652,7 @@ namespace MHServerEmu.Games.GameData.Calligraphy
         /// </summary>
         private static void ShallowCopyCollection(Prototype destPrototype, Prototype sourcePrototype, System.Reflection.PropertyInfo fieldInfo)
         {
-            var sourceData = (Array)fieldInfo.GetValue(sourcePrototype);
-            if (sourceData == null) return;
-
-            int numItems = sourceData.Length;
-            Array destData = Array.CreateInstance(fieldInfo.PropertyType.GetElementType(), numItems);
-            Array.Copy(sourceData, destData, numItems);
-            fieldInfo.SetValue(destPrototype, destData);    // use standard reflection instead of SetValueFast() to pass Array without casting it to concrete type
+            fieldInfo.CopyArray(sourcePrototype, destPrototype);
         }
 
         /// <summary>

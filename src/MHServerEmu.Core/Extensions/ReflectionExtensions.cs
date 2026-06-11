@@ -6,9 +6,12 @@ namespace MHServerEmu.Core.Extensions
 {
     public static class ReflectionExtensions
     {
+        private static readonly MethodInfo ArrayCloneMethod = typeof(Array).GetMethod("Clone");
+
         private static readonly Dictionary<PropertyInfo, FieldInfo> PropertyBackingFields = new();
-        private static readonly Dictionary<PropertyInfo, Delegate> SetPropertyValueDelegates = new();
-        private static readonly Dictionary<PropertyInfo, Delegate> CopyPropertyValueDelegates = new();
+        private static readonly Dictionary<PropertyInfo, Delegate> SetPropertyDelegates = new();
+        private static readonly Dictionary<PropertyInfo, Delegate> CopyPropertyDelegates = new();
+        private static readonly Dictionary<PropertyInfo, Delegate> CopyArrayPropertyDelegates = new();
 
         // Notes:
         // - Reflection.Emit is faster than expression trees.
@@ -37,7 +40,7 @@ namespace MHServerEmu.Core.Extensions
         /// </summary>
         public static void SetValueFast<TInstance, TValue>(this PropertyInfo propertyInfo, TInstance instance, TValue value)
         {
-            if (SetPropertyValueDelegates.TryGetValue(propertyInfo, out Delegate setDelegate) == false)
+            if (SetPropertyDelegates.TryGetValue(propertyInfo, out Delegate setDelegate) == false)
             {
                 FieldInfo fieldInfo = propertyInfo.GetBackingField();
 
@@ -50,7 +53,7 @@ namespace MHServerEmu.Core.Extensions
                 il.Emit(OpCodes.Ret);
 
                 setDelegate = dm.CreateDelegate<Action<TInstance, TValue>>();
-                SetPropertyValueDelegates.Add(propertyInfo, setDelegate);
+                SetPropertyDelegates.Add(propertyInfo, setDelegate);
             }
 
             Action<TInstance, TValue> set = (Action<TInstance, TValue>)setDelegate;
@@ -62,7 +65,7 @@ namespace MHServerEmu.Core.Extensions
         /// </summary>
         public static void CopyValue<T>(this PropertyInfo propertyInfo, T source, T destination)
         {
-            if (CopyPropertyValueDelegates.TryGetValue(propertyInfo, out Delegate copyDelegate) == false)
+            if (CopyPropertyDelegates.TryGetValue(propertyInfo, out Delegate copyDelegate) == false)
             {
                 FieldInfo fieldInfo = propertyInfo.GetBackingField();
 
@@ -76,11 +79,56 @@ namespace MHServerEmu.Core.Extensions
                 il.Emit(OpCodes.Ret);
 
                 copyDelegate = dm.CreateDelegate<Action<T, T>>();
-                CopyPropertyValueDelegates.Add(propertyInfo, copyDelegate);
+                CopyPropertyDelegates.Add(propertyInfo, copyDelegate);
             }
 
             Action<T, T> copy = (Action<T, T>)copyDelegate;
             copy(source, destination);
+        }
+
+        /// <summary>
+        /// Creates a shallow copy of the array value of the auto property represented by this <see cref="PropertyInfo"/>
+        /// and assigns it to the destination instance.
+        /// </summary>
+        public static void CopyArray<T>(this PropertyInfo propertyInfo, T source, T destination)
+        {
+            if (CopyArrayPropertyDelegates.TryGetValue(propertyInfo, out Delegate copyArrayDelegate) == false)
+            {
+                FieldInfo fieldInfo = propertyInfo.GetBackingField();
+                Type fieldType = fieldInfo.FieldType;
+                Debug.Assert(fieldType.IsAssignableTo(typeof(Array)));
+
+                DynamicMethod dm = new("CopyArrayValue", null, [typeof(T), typeof(T)]);
+                ILGenerator il = dm.GetILGenerator();
+
+                il.DeclareLocal(fieldInfo.FieldType);
+                Label retLabel = il.DefineLabel();
+
+                il.Emit(OpCodes.Ldarg_0);
+                il.Emit(OpCodes.Ldfld, fieldInfo);
+                il.Emit(OpCodes.Stloc_0);
+
+                il.Emit(OpCodes.Ldloc_0);
+                il.Emit(OpCodes.Brfalse_S, retLabel);
+
+                il.Emit(OpCodes.Ldloc_0);
+                il.Emit(OpCodes.Callvirt, ArrayCloneMethod);
+                il.Emit(OpCodes.Castclass, fieldType);
+                il.Emit(OpCodes.Stloc_0);
+
+                il.Emit(OpCodes.Ldarg_1);
+                il.Emit(OpCodes.Ldloc_0);
+                il.Emit(OpCodes.Stfld, fieldInfo);
+
+                il.MarkLabel(retLabel);
+                il.Emit(OpCodes.Ret);
+
+                copyArrayDelegate = dm.CreateDelegate<Action<T, T>>();
+                CopyArrayPropertyDelegates.Add(propertyInfo, copyArrayDelegate);
+            }
+
+            Action<T, T> copyArray = (Action<T, T>)copyArrayDelegate;
+            copyArray(source, destination);
         }
     }
 }
