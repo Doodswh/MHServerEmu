@@ -148,7 +148,7 @@ namespace MHServerEmu.Games.GameData.Calligraphy
                     if (mixinFieldInfo != null)
                     {
                         // Set owner prototype to the existing mixin instance or create a new instance if there isn't one
-                        fieldOwnerPrototype = (Prototype)mixinFieldInfo.GetValue(prototype);
+                        mixinFieldInfo.GetValue(prototype, out fieldOwnerPrototype);
                         if (fieldOwnerPrototype == null)
                         {
                             fieldOwnerPrototype = GameDatabase.PrototypeClassManager.AllocatePrototype(mixinType);
@@ -512,7 +512,7 @@ namespace MHServerEmu.Games.GameData.Calligraphy
         /// </summary>
         private static PrototypePropertyCollection GetPropertyCollectionField(Prototype prototype, System.Reflection.PropertyInfo fieldInfo)
         {
-            var collection = (PrototypePropertyCollection)fieldInfo.GetValue(prototype);
+            fieldInfo.GetValue(prototype, out PrototypePropertyCollection collection);
 
             // Initialize a new collection in this field if there isn't one already or it doesn't belong to it
             if (collection == null || prototype.IsDynamicFieldOwnedBy(collection) == false)
@@ -660,7 +660,7 @@ namespace MHServerEmu.Games.GameData.Calligraphy
         /// </summary>
         private static void CopyMixin(Prototype destPrototype, Prototype sourcePrototype, System.Reflection.PropertyInfo fieldInfo)
         {
-            var sourceMixin = (Prototype)fieldInfo.GetValue(sourcePrototype);
+            fieldInfo.GetValue(sourcePrototype, out Prototype sourceMixin);
             if (sourceMixin == null) return;
 
             // Create the mixin instance on the destination prototype if there is something to copy and copy data to it
@@ -675,7 +675,7 @@ namespace MHServerEmu.Games.GameData.Calligraphy
         /// </summary>
         private static void CopyMixinCollection(Prototype destPrototype, Prototype sourcePrototype, System.Reflection.PropertyInfo fieldInfo)
         {
-            var sourceList = (PrototypeMixinList)fieldInfo.GetValue(sourcePrototype);
+            fieldInfo.GetValue(sourcePrototype, out PrototypeMixinList sourceList);
             if (sourceList == null) return;
 
             // Create a new list mixin on the destination prototype and take ownership of it
@@ -706,7 +706,7 @@ namespace MHServerEmu.Games.GameData.Calligraphy
         /// </summary>
         private static void CopyPrototypePropertyCollection(Prototype destPrototype, Prototype sourcePrototype, System.Reflection.PropertyInfo fieldInfo)
         {
-            var sourcePropertyCollection = (PrototypePropertyCollection)fieldInfo.GetValue(sourcePrototype);
+            fieldInfo.GetValue(sourcePrototype, out PrototypePropertyCollection sourcePropertyCollection);
             if (sourcePropertyCollection == null) return;
 
             // Create a copy of the source property collection and take ownership of it
@@ -728,7 +728,7 @@ namespace MHServerEmu.Games.GameData.Calligraphy
             if (fieldType == PrototypeFieldType.Mixin)
             {
                 // Allocate a simple mixin if needed and return it
-                var element = (Prototype)mixinFieldInfo.GetValue(ownerPrototype);
+                mixinFieldInfo.GetValue(ownerPrototype, out Prototype element);
                 if (element == null)
                 {
                     element = GameDatabase.PrototypeClassManager.AllocatePrototype(mixinFieldInfo.PropertyType);
@@ -757,7 +757,7 @@ namespace MHServerEmu.Games.GameData.Calligraphy
                 return Logger.ErrorReturn<PrototypeMixinList>(null, $"AcquireOwnedMixinList(): Tried to acquire owned mixin list for a field that is not a list mixin");
 
             // Create a new list if there isn't one or it belongs to another prototype
-            var list = (PrototypeMixinList)mixinFieldInfo.GetValue(prototype);
+            mixinFieldInfo.GetValue(prototype, out PrototypeMixinList list);
             if (list == null || prototype.IsDynamicFieldOwnedBy(list) == false)
             {
                 PrototypeMixinList newList = new();

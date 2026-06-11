@@ -10,7 +10,7 @@ namespace MHServerEmu.Core.Extensions
         private static readonly MethodInfo ArrayCloneMethod = typeof(Array).GetMethod("Clone");
 
         private static readonly Dictionary<PropertyInfo, FieldInfo> PropertyBackingFields = new();
-        private static readonly Dictionary<PropertyInfo, InlineArray3<Delegate>> PropertyDelegates = new();
+        private static readonly Dictionary<PropertyInfo, InlineArray4<Delegate>> PropertyDelegates = new();
 
         // Notes:
         // - Reflection.Emit is faster than expression trees.
@@ -32,6 +32,30 @@ namespace MHServerEmu.Core.Extensions
             }
 
             return fieldInfo;
+        }
+
+        /// <summary>
+        /// Retrieves the value of the auto property represented by this <see cref="PropertyInfo"/> avoiding boxing.
+        /// </summary>
+        public static void GetValue<TInstance, TValue>(this PropertyInfo propertyInfo, TInstance instance, out TValue value)
+        {
+            ref Delegate getDelegate = ref GetDelegateRef(propertyInfo, PropertyDelegate.Get);
+            if (getDelegate == null)
+            {
+                FieldInfo fieldInfo = propertyInfo.GetBackingField();
+
+                DynamicMethod dm = new("GetValue", typeof(TValue), [typeof(TInstance)]);
+                ILGenerator il = dm.GetILGenerator();
+
+                il.Emit(OpCodes.Ldarg_0);
+                il.Emit(OpCodes.Ldfld, fieldInfo);
+                il.Emit(OpCodes.Ret);
+
+                getDelegate = dm.CreateDelegate<Func<TInstance, TValue>>();
+            }
+
+            Func<TInstance, TValue> get = (Func<TInstance, TValue>)getDelegate;
+            value = get(instance);
         }
 
         /// <summary>
@@ -132,12 +156,13 @@ namespace MHServerEmu.Core.Extensions
 
         private static ref Delegate GetDelegateRef(PropertyInfo propertyInfo, PropertyDelegate delegateEnum)
         {
-            ref InlineArray3<Delegate> delegates = ref PropertyDelegates.GetValueRefOrAddDefault(propertyInfo);
+            ref InlineArray4<Delegate> delegates = ref PropertyDelegates.GetValueRefOrAddDefault(propertyInfo);
             return ref delegates[(int)delegateEnum];
         }
 
         private enum PropertyDelegate
         {
+            Get,
             Set,
             Copy,
             CopyArray,
