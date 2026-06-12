@@ -8,7 +8,7 @@ namespace MHServerEmu.Games.GameData.Calligraphy
     /// <summary>
     /// An implementation of <see cref="GameDataSerializer"/> for Calligraphy prototypes.
     /// </summary>
-    public sealed partial class CalligraphySerializer : GameDataSerializer
+    public sealed class CalligraphySerializer : GameDataSerializer
     {
         private static readonly Logger Logger = LogManager.CreateLogger();
 
@@ -293,8 +293,7 @@ namespace MHServerEmu.Games.GameData.Calligraphy
                 if (prototype is PowerPrototype)
                 {
                     // Iterate through all fields and check if if there are any mixin fields.
-                    // NOTE: the client uses a nested loop here and iterates through all parents until it founds a mixin or reaches the top of the hierarchy.
-                    // Since C# reflection already contains all inherited properties we can do it in a single foreach loop.
+                    // We don't need an outer loop like the client because our PrototypeFieldSet implementation includes fields from base classes.
                     foreach (PrototypeFieldInfo fieldInfo in classManager.GetPrototypeFieldSet(classType))
                     {
                         PrototypeFieldType fieldType = fieldInfo.Type;
@@ -313,9 +312,7 @@ namespace MHServerEmu.Games.GameData.Calligraphy
                 if (!Verify.IsNotNull(propertyHolderPrototype)) return false;
                 
                 // Get property collection to deserialize into from the property holder
-                // Note: going through the PrototypeClassManager to get property collection field info doesn't make a whole lot of sense
-                // in the context of our implementation, but that's how it's done in the client, so it's going to be this way (at least for now).
-                PrototypeFieldInfo propertyCollectionFieldInfo = classManager.GetFieldInfo(propertyHolderClassType, null, true);
+                PrototypeFieldInfo propertyCollectionFieldInfo = classManager.GetFieldInfo(propertyHolderClassType, default, true);
                 if (!Verify.IsNotNull(propertyCollectionFieldInfo, $"Prototype class missing property collection field info. blueprint={blueprint}, groupBlueprint={groupBlueprint}, prototype={prototype}"))
                     return false;
 
@@ -425,9 +422,6 @@ namespace MHServerEmu.Games.GameData.Calligraphy
             PrototypeId propertyDataRef = blueprint.PropertyDataRef;
             PropertyEnum propertyEnum = GameDatabase.PropertyInfoTable.GetPropertyEnumFromPrototype(propertyDataRef);
             if (!Verify.IsTrue(propertyEnum != PropertyEnum.Invalid)) return false;
-
-            if (propertyEnum == PropertyEnum.Invalid)
-                return Logger.ErrorReturn(false, $"DeserializeFieldGroupIntoPropertyBuilder(): Failed to get property enum value, file name {prototypeName}");
 
             if (!Verify.IsTrue(record.Read(out short numFields), $"Error reading number of fields in {prototypeName} in group {groupTag}"))
                 return false;
@@ -651,16 +645,16 @@ namespace MHServerEmu.Games.GameData.Calligraphy
         public static PrototypePropertyCollection GetPropertyCollectionField(Prototype prototype)
         {
             // NOTE: This method is public because it is also used by PowerPrototype during post-processing.
-            // Maybe we should move this to PrototypeClassManager where it makes more sense to be.
+            if (!Verify.IsNotNull(prototype)) return null;
 
-            // In all of our data there is never more than one PrototypePropertyCollection field,
-            // and it's always called Properties, so we will make use of that to avoid iterating through
-            // all fields.
-            PrototypeFieldInfo fieldInfo = GameDatabase.PrototypeClassManager.GetFieldInfo(prototype.GetType(), "Properties");
-            if (fieldInfo != null)
-                return GetPropertyCollectionField(prototype, fieldInfo);
-            else
+            PrototypeFieldSet fieldSet = GameDatabase.PrototypeClassManager.GetPrototypeFieldSet(prototype.GetType());
+            if (!Verify.IsNotNull(fieldSet)) return null;
+
+            PrototypeFieldInfo fieldInfo = fieldSet.PropertyCollection;
+            if (fieldInfo == null)
                 return null;
+
+            return GetPropertyCollectionField(prototype, fieldInfo);
         }
 
         /// <summary>
@@ -1558,7 +1552,7 @@ namespace MHServerEmu.Games.GameData.Calligraphy
         private static bool ParsePropertyList(in FieldParserParams @params)
         {
             // PropertyList seems to be used only in ModPrototype
-            PrototypePropertyCollection propertyCollection = GetPropertyCollectionField(@params.OwnerPrototype);
+            PrototypePropertyCollection propertyCollection = GetPropertyCollectionField(@params.OwnerPrototype, @params.FieldInfo);
             if (!Verify.IsNotNull(propertyCollection)) return false;
 
             CalligraphyReader reader = @params.Reader;

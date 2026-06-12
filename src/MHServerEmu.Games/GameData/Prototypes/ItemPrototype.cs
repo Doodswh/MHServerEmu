@@ -777,6 +777,7 @@ namespace MHServerEmu.Games.GameData.Prototypes
 
         //---
 
+        [DoNotCopy]
         public virtual ItemActionType ActionType { get => ItemActionType.None; }
     }
 

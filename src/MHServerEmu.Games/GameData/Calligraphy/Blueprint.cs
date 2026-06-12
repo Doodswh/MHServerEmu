@@ -153,22 +153,13 @@ namespace MHServerEmu.Games.GameData.Calligraphy
                 _members.Add(member.FieldId, member);
             }
 
-            // Bind non-property blueprint members to C# reflection metadata
+            // Bind non-property blueprint members to PrototypeFieldInfo.
+            // We don't need an inner loop like the client because our PrototypeFieldSet implementation includes fields from base classes.
             PrototypeClassManager prototypeClassManager = GameDatabase.PrototypeClassManager;
-            foreach (BlueprintMember member in _members.Values)
-            {
-                Type currentClassType = RuntimeBindingClassType;
-                while (currentClassType != typeof(Prototype))
-                {
-                    // Try to find a matching property info in our runtime binding
-                    member.RuntimeClassFieldInfo = prototypeClassManager.GetFieldInfo(currentClassType, member.FieldName);
-                    if (member.RuntimeClassFieldInfo != null)
-                        break;
+            PrototypeFieldSet fieldSet = prototypeClassManager.GetPrototypeFieldSet(RuntimeBindingClassType);
 
-                    // Go up in the hierarchy if we didn't find it
-                    currentClassType = currentClassType.BaseType;
-                }
-            }
+            foreach (BlueprintMember member in _members.Values)
+                member.RuntimeClassFieldInfo = fieldSet.GetFieldInfo(member.FieldName);
 
             return true;
         }
