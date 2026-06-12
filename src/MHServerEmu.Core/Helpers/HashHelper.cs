@@ -45,7 +45,7 @@ namespace MHServerEmu.Core.Helpers
         /// <summary>
         /// Hashes a <see cref="string"/> using the djb2 algorithm.
         /// </summary>
-        public static uint Djb2(string str)
+        public static uint Djb2(ReadOnlySpan<char> str)
         {
             int numBytes = Encoding.UTF8.GetByteCount(str);
             Span<byte> bytes = stackalloc byte[numBytes];

@@ -1203,26 +1203,25 @@ namespace MHServerEmu.Games.GameData.Calligraphy
             // Enums are represented in Calligraphy by assets.
             // We get asset name from the serialized asset id, and then parse the actual enum value from it.
             if (!Verify.IsTrue(@params.Reader.Read(out AssetId assetId))) return false;
-            string assetName = GameDatabase.GetAssetName(assetId);
 
-            // Fix asset names that start with a digit (C# doesn't allow enum members to start with a digit)
-            if (assetName.Length > 0 && char.IsDigit(assetName[0]))
-                assetName = $"_{assetName}";
+            bool hasValue = false;
+            int value = 0;
 
-            // Try to parse enum value from its name
-            if (Enum.TryParse(@params.FieldInfo.ClassType, assetName, true, out object value) == false)
+            if (assetId != AssetId.Invalid)
             {
-                if (assetName != string.Empty)
-                    Logger.Trace($"ParseEnum(): Missing enum member {assetName} in {@params.FieldInfo.ClassType.Name}, field {@params.FieldInfo.Name}, file name {@params.FileName}");
+                // Try to parse enum value from its name
+                string assetName = GameDatabase.GetAssetName(assetId);
+                hasValue = @params.FieldInfo.ClassType.TryGetEnumValue(assetName, out value);
 
-                // Set value to default for enums we can't parse
-                int defaultValue = @params.FieldInfo.EnumDefaultValue;
-                @params.FieldInfo.SetValue(@params.OwnerPrototype, defaultValue);
-                return true;
+                if (hasValue == false)
+                    Logger.Trace($"ParseEnum(): Missing enum member {assetName} in {@params.FieldInfo.ClassType.Name}, field {@params.FieldInfo.Name}, file name {@params.FileName}");
             }
 
-            // Set value to what we parsed if everything is okay
-            @params.FieldInfo.SetValue(@params.OwnerPrototype, (int)value);
+            // Fall back to default if we don't have a parsed value (including the common case of invalid asset ref)
+            if (hasValue == false)
+                value = @params.FieldInfo.GetDefaultEnumValue();
+
+            @params.FieldInfo.SetValue(@params.OwnerPrototype, value);
             return true;
         }
 

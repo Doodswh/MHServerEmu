@@ -17,7 +17,6 @@ namespace MHServerEmu.Games.GameData
         public string Name { get => PropertyInfo.Name; }
         public Type ClassType { get => PropertyInfo.PropertyType; }
         public Type ListMixinType { get => PropertyInfo.GetCustomAttribute<ListMixinAttribute>()?.FieldType; }
-        public int EnumDefaultValue { get => PropertyInfo.PropertyType.GetCustomAttribute<AssetEnumAttribute>().DefaultValue; }
         public Type ElementType { get => PropertyInfo.PropertyType.GetElementType(); }
 
         public PrototypeFieldInfo(System.Reflection.PropertyInfo propertyInfo, PrototypeFieldType fieldType)
@@ -49,6 +48,15 @@ namespace MHServerEmu.Games.GameData
         public void CopyArray(Prototype source, Prototype destination)
         {
             PropertyInfo.CopyArray(source, destination);
+        }
+
+        public int GetDefaultEnumValue()
+        {
+            AssetEnumAttribute attribute = PropertyInfo.PropertyType.GetCustomAttribute<AssetEnumAttribute>();
+            if (attribute == null)
+                return default;
+
+            return attribute.DefaultValue;
         }
     }
 }

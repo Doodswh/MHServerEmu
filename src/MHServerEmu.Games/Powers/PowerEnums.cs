@@ -239,7 +239,7 @@ namespace MHServerEmu.Games.Powers
     public enum PowerEventActionType
     {
         None = 0,
-        BodySlide = 1,
+        Bodyslide = 1,
         CancelScheduledActivation = 2,
         CancelScheduledActivationOnTriggeredPower = 3,
         ContextCallback = 4,

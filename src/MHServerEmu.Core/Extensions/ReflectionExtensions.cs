@@ -1,4 +1,5 @@
 ﻿using MHServerEmu.Core.Collections;
+using MHServerEmu.Core.Helpers;
 using System.Diagnostics;
 using System.Reflection;
 using System.Reflection.Emit;
@@ -11,6 +12,8 @@ namespace MHServerEmu.Core.Extensions
 
         private static readonly Dictionary<PropertyInfo, FieldInfo> PropertyBackingFields = new();
         private static readonly Dictionary<PropertyInfo, InlineArray4<Delegate>> PropertyDelegates = new();
+
+        private static readonly Dictionary<Type, Dictionary<uint, int>> EnumLookups = new();
 
         // Notes:
         // - Reflection.Emit is faster than expression trees.
@@ -152,6 +155,41 @@ namespace MHServerEmu.Core.Extensions
 
             Action<T, T> copyArray = (Action<T, T>)copyArrayDelegate;
             copyArray(source, destination);
+        }
+
+        /// <summary>
+        /// Retrieves the <see cref="int"/> representation of an <see cref="Enum"/> value with the provided name.
+        /// </summary>
+        /// <remarks>
+        /// If an enum member name starts with an underscore prefix, the underscore character will be ignored.
+        /// </remarks>
+        public static bool TryGetEnumValue(this Type type, ReadOnlySpan<char> name, out int value)
+        {
+            Debug.Assert(type.IsEnum);
+            Debug.Assert(type.GetEnumUnderlyingType() == typeof(int));
+
+            if (EnumLookups.TryGetValue(type, out Dictionary<uint, int> enumLookup) == false)
+            {
+                enumLookup = new();
+
+                // Multiple names can have the same value, so we need to iterate names and parse values and not vice versa.
+                foreach (string enumName in Enum.GetNames(type))
+                {
+                    int enumValue = (int)Enum.Parse(type, enumName);
+
+                    // Remove the underscore prefix we add for C# compatibility
+                    ReadOnlySpan<char> chars = enumName;
+                    if (chars[0] == '_')
+                        chars = chars[1..];
+
+                    uint hash = HashHelper.Djb2(chars);
+                    enumLookup.Add(hash, enumValue);
+                }
+
+                EnumLookups.Add(type, enumLookup);
+            }
+
+            return enumLookup.TryGetValue(HashHelper.Djb2(name), out value);
         }
 
         private static ref Delegate GetDelegateRef(PropertyInfo propertyInfo, PropertyDelegate delegateEnum)
