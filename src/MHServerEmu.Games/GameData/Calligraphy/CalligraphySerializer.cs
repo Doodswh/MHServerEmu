@@ -755,6 +755,7 @@ namespace MHServerEmu.Games.GameData.Calligraphy
                     case PrototypeFieldType.PrototypeDataRef:
                     case PrototypeFieldType.LocaleStringId:
                     case PrototypeFieldType.PrototypePtr:
+                    case PrototypeFieldType.PrototypeRefPtr:
                     case PrototypeFieldType.PropertyId:
                         AssignPointedAtValues(destPrototype, sourcePrototype, fieldInfo);
                         break;
@@ -771,6 +772,7 @@ namespace MHServerEmu.Games.GameData.Calligraphy
                     case PrototypeFieldType.ListAssetTypeRef:
                     case PrototypeFieldType.ListPrototypeDataRef:
                     case PrototypeFieldType.ListPrototypePtr:
+                    case PrototypeFieldType.VectorPrototypeRefPtr:
                         ShallowCopyCollection(destPrototype, sourcePrototype, fieldInfo);
                         break;
 
@@ -1094,6 +1096,7 @@ namespace MHServerEmu.Games.GameData.Calligraphy
             { PrototypeFieldType.PrototypeDataRef,      ParseUnmanaged64<PrototypeId> },
             { PrototypeFieldType.LocaleStringId,        ParseUnmanaged64<LocaleStringId> },
             { PrototypeFieldType.PrototypePtr,          ParsePrototypePtr },
+            { PrototypeFieldType.PrototypeRefPtr,       ParsePrototypeRefPtr },
             { PrototypeFieldType.PropertyId,            ParsePropertyId },
             { PrototypeFieldType.ListBool,              ParseListBool },
             { PrototypeFieldType.ListInt8,              ParseListInt8 },
@@ -1107,6 +1110,7 @@ namespace MHServerEmu.Games.GameData.Calligraphy
             { PrototypeFieldType.ListAssetTypeRef,      ParseListUnmanaged64<AssetTypeId> },
             { PrototypeFieldType.ListPrototypeDataRef,  ParseListUnmanaged64<PrototypeId> },
             { PrototypeFieldType.ListPrototypePtr,      ParseListPrototypePtr },
+            { PrototypeFieldType.VectorPrototypeRefPtr, ParseVectorPrototypeRefPtr },
             { PrototypeFieldType.PropertyList,          ParsePropertyList },
         };
 
@@ -1271,6 +1275,20 @@ namespace MHServerEmu.Games.GameData.Calligraphy
             prototype = GameDatabase.PrototypeClassManager.AllocatePrototype(classType);
 
             return DoDeserialize(prototype, header, PrototypeId.Invalid, @params.FileName, reader);
+        }
+
+        /// <summary>
+        /// Parses a <see cref="PrototypeId"/>, retrieves the <see cref="Prototype"/> instance associated with it, and assigns it to a field.
+        /// </summary>
+        private static bool ParsePrototypeRefPtr(in FieldParserParams @params)
+        {
+            // We handle PrototypeRefPtr similarly to RHStructs without instance data
+            if (!Verify.IsTrue(@params.Reader.Read(out PrototypeId protoRef))) return false;
+
+            Prototype prototype = GameDatabase.GetPrototype<Prototype>(protoRef);
+
+            @params.FieldInfo.SetValue(@params.OwnerPrototype, prototype);
+            return true;
         }
 
         /// <summary>
@@ -1504,6 +1522,29 @@ namespace MHServerEmu.Games.GameData.Calligraphy
                 if (DeserializePrototypePtr(@params, true, out Prototype prototype) == false)
                     return false;
 
+                values.SetValue(prototype, i);
+            }
+
+            @params.FieldInfo.SetValue(@params.OwnerPrototype, values);
+            return true;
+        }
+
+        /// <summary>
+        /// Parses a collection of <see cref="PrototypeId"/>, retrieves the associated <see cref="Prototype"/> instances, and assigns them to a field.
+        /// </summary>
+        private static bool ParseVectorPrototypeRefPtr(in FieldParserParams @params)
+        {
+            CalligraphyReader reader = @params.Reader;
+
+            if (!Verify.IsTrue(reader.Read(out short numItems))) return false;
+
+            Type elementType = @params.FieldInfo.ListElementType;
+            Array values = Array.CreateInstance(elementType, numItems);
+
+            for (int i = 0; i < numItems; i++)
+            {
+                if (!Verify.IsTrue(reader.Read(out PrototypeId protoRef))) return false;
+                Prototype prototype = GameDatabase.GetPrototype<Prototype>(protoRef);
                 values.SetValue(prototype, i);
             }
 

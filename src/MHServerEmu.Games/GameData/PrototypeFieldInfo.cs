@@ -36,6 +36,7 @@ namespace MHServerEmu.Games.GameData
 
                 case PrototypeFieldType.ListEnum:
                 case PrototypeFieldType.ListPrototypePtr:
+                case PrototypeFieldType.VectorPrototypeRefPtr:
                     ListElementType = PropertyInfo.PropertyType.GetElementType();
                     break;
 
