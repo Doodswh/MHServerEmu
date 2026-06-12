@@ -1,6 +1,6 @@
 ﻿using System.Reflection;
 using MHServerEmu.Core.Extensions;
-using MHServerEmu.Games.GameData.Calligraphy.Attributes;
+using MHServerEmu.Games.GameData.Calligraphy;
 using MHServerEmu.Games.GameData.Prototypes;
 using MHServerEmu.Games.Properties;
 
@@ -14,15 +14,37 @@ namespace MHServerEmu.Games.GameData
         public System.Reflection.PropertyInfo PropertyInfo { get; }
         public PrototypeFieldType Type { get; }
 
+        public Type ListElementType { get; }
+        public int DefaultEnumValue { get; }
+
         public string Name { get => PropertyInfo.Name; }
-        public Type ClassType { get => PropertyInfo.PropertyType; }
-        public Type ListMixinType { get => PropertyInfo.GetCustomAttribute<ListMixinAttribute>()?.FieldType; }
-        public Type ElementType { get => PropertyInfo.PropertyType.GetElementType(); }
+        public Type ClassType { get => PropertyInfo.PropertyType; }     // The client uses numeric class ids for this
 
         public PrototypeFieldInfo(System.Reflection.PropertyInfo propertyInfo, PrototypeFieldType fieldType)
         {
             PropertyInfo = propertyInfo;
             Type = fieldType;
+
+            // Cache additional type-specific metadata
+            switch (fieldType)
+            {
+                case PrototypeFieldType.Enum:
+                    AssetEnumAttribute assetEnumAttribute = PropertyInfo.PropertyType.GetCustomAttribute<AssetEnumAttribute>();
+                    if (assetEnumAttribute != null)
+                        DefaultEnumValue = assetEnumAttribute.DefaultValue;
+                    break;
+
+                case PrototypeFieldType.ListEnum:
+                case PrototypeFieldType.ListPrototypePtr:
+                    ListElementType = PropertyInfo.PropertyType.GetElementType();
+                    break;
+
+                case PrototypeFieldType.ListMixin:
+                    PrototypeFieldAttribute prototypeFieldAttribute = PropertyInfo.GetCustomAttribute<PrototypeFieldAttribute>();
+                    if (prototypeFieldAttribute != null)
+                        ListElementType = prototypeFieldAttribute.Param as Type;
+                    break;
+            }
         }
 
         public override string ToString()
@@ -48,15 +70,6 @@ namespace MHServerEmu.Games.GameData
         public void CopyArray(Prototype source, Prototype destination)
         {
             PropertyInfo.CopyArray(source, destination);
-        }
-
-        public int GetDefaultEnumValue()
-        {
-            AssetEnumAttribute attribute = PropertyInfo.PropertyType.GetCustomAttribute<AssetEnumAttribute>();
-            if (attribute == null)
-                return default;
-
-            return attribute.DefaultValue;
         }
     }
 }

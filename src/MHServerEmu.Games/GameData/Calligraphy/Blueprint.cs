@@ -402,9 +402,6 @@ namespace MHServerEmu.Games.GameData.Calligraphy
 
         public bool IsCompatibleWithType(PrototypeFieldType fieldType)
         {
-            return true;
-
-            /* TODO: finish implementing this
             switch (fieldType)
             {
                 case PrototypeFieldType.Int8:
@@ -437,6 +434,33 @@ namespace MHServerEmu.Games.GameData.Calligraphy
 
                 case PrototypeFieldType.CurveRef:
                     return StructureType == CalligraphyStructureType.Single && BaseType == CalligraphyBaseType.Curve;
+
+                case PrototypeFieldType.LocaleStringId:
+                    return StructureType == CalligraphyStructureType.Single && BaseType == CalligraphyBaseType.String;
+
+                case PrototypeFieldType.PrototypePtr:
+                    return StructureType == CalligraphyStructureType.Single && BaseType == CalligraphyBaseType.RHStruct;
+
+                case PrototypeFieldType.VectorPrototypeDataRef:
+                case PrototypeFieldType.ListPrototypeDataRef:
+                case PrototypeFieldType.VectorPrototypeRefPtr:
+                    return StructureType == CalligraphyStructureType.List && BaseType == CalligraphyBaseType.Prototype;
+
+                case PrototypeFieldType.VectorAssetDataRef:
+                case PrototypeFieldType.ListAssetRef:
+                case PrototypeFieldType.ListEnum:
+                    return StructureType == CalligraphyStructureType.List && BaseType == CalligraphyBaseType.Asset;
+
+                case PrototypeFieldType.ListAssetTypeRef:
+                    return StructureType == CalligraphyStructureType.List && BaseType == CalligraphyBaseType.Type;
+
+                case PrototypeFieldType.ListPrototypePtr:
+                case PrototypeFieldType.VectorPrototypePtr:
+                case PrototypeFieldType.PropertyList:
+                    return StructureType == CalligraphyStructureType.List && BaseType == CalligraphyBaseType.RHStruct;
+
+                case PrototypeFieldType.PropertyId:
+                    return StructureType == CalligraphyStructureType.Single && (BaseType == CalligraphyBaseType.Prototype || BaseType == CalligraphyBaseType.RHStruct);
 
                 case PrototypeFieldType.Invalid:
                 case PrototypeFieldType.UnkType10:
@@ -472,7 +496,6 @@ namespace MHServerEmu.Games.GameData.Calligraphy
                     Verify.IsTrue(false, "Unknown field type in Blueprint::IsCompatibleWithType()");
                     return false;
             }
-            */
         }
     }
 

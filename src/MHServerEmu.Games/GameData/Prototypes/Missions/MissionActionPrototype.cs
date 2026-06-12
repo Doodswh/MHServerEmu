@@ -1,6 +1,6 @@
 ﻿using MHServerEmu.Core.Logging;
 using MHServerEmu.Games.Entities;
-using MHServerEmu.Games.GameData.Calligraphy.Attributes;
+using MHServerEmu.Games.GameData.Calligraphy;
 using MHServerEmu.Games.Missions.Actions;
 
 namespace MHServerEmu.Games.GameData.Prototypes

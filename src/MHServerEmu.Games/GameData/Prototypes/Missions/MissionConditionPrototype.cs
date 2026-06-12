@@ -1,7 +1,7 @@
 ﻿using MHServerEmu.Core.Extensions;
 using MHServerEmu.Core.Memory;
 using MHServerEmu.Games.Dialog;
-using MHServerEmu.Games.GameData.Calligraphy.Attributes;
+using MHServerEmu.Games.GameData.Calligraphy;
 using MHServerEmu.Games.Missions;
 using MHServerEmu.Games.Missions.Conditions;
 

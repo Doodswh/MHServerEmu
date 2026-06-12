@@ -3,7 +3,6 @@ using System.Reflection;
 using System.Reflection.Emit;
 using MHServerEmu.Core.Logging;
 using MHServerEmu.Games.GameData.Calligraphy;
-using MHServerEmu.Games.GameData.Calligraphy.Attributes;
 using MHServerEmu.Games.GameData.PatchManager;
 using MHServerEmu.Games.GameData.Prototypes;
 using MHServerEmu.Games.Properties;
@@ -53,7 +52,7 @@ namespace MHServerEmu.Games.GameData
             { typeof(PrototypeId[]),                PrototypeFieldType.ListPrototypeDataRef },
             { typeof(Prototype[]),                  PrototypeFieldType.ListPrototypePtr },
             { typeof(PrototypeMixinList),           PrototypeFieldType.ListMixin },
-            { typeof(PrototypePropertyCollection),  PrototypeFieldType.PropertyCollection }   // FIXME: Separate PropertyCollection from PropertyList somehow?
+            { typeof(PrototypePropertyCollection),  PrototypeFieldType.PropertyCollection },
         };
 
         public int ClassCount { get => _prototypeTypes.Count; }
@@ -211,7 +210,7 @@ namespace MHServerEmu.Games.GameData
                         // the client checks if the argument type is derived from the type defined in the field info.
                         // This doesn't seem to cause any issues in 1.52, but may need to be changed if we run into issues with other versions.
 
-                        if (fieldInfo.Type == PrototypeFieldType.ListMixin && fieldInfo.ListMixinType == fieldClassType)
+                        if (fieldInfo.Type == PrototypeFieldType.ListMixin && fieldInfo.ListElementType == fieldClassType)
                             return fieldInfo;
                     }
                 }
@@ -348,9 +347,11 @@ namespace MHServerEmu.Games.GameData
         /// </summary>
         private static PrototypeFieldType DeterminePrototypeFieldType(System.Reflection.PropertyInfo fieldInfo)
         {
-            // Skip if the field is marked to be ignored
-            if (fieldInfo.IsDefined(typeof(DoNotCopyAttribute)))
-                return PrototypeFieldType.Invalid;
+            // Check if we have an explicit type field definition via an attribute.
+            // This includes properties flagged with [DoNotCopy], which is a shorthand for specifying PrototypeFieldType.Invalid.
+            PrototypeFieldAttribute prototypeFieldAttribute = fieldInfo.GetCustomAttribute<PrototypeFieldAttribute>();
+            if (prototypeFieldAttribute != null)
+                return prototypeFieldAttribute.Type;
 
             Type fieldType = fieldInfo.PropertyType;
 
@@ -359,13 +360,6 @@ namespace MHServerEmu.Games.GameData
             {
                 if (fieldType.IsArray == false)
                 {
-                    // Check if this is a mixin or a list mixin
-                    // Speed hack: instead of calling IsDefined() we just check if the type is one of mixin prototype types
-                    if (fieldType == typeof(LocomotorPrototype) || fieldType == typeof(PopulationInfoPrototype) || fieldType == typeof(ProductPrototype))
-                        return PrototypeFieldType.Mixin;
-                    else if (fieldType == typeof(PrototypeMixinList))
-                        return PrototypeFieldType.ListMixin;
-
                     // Check for prototypes and asset enums
                     // In resource prototypes we consider embedded prototypes as PrototypeFieldType.PrototypePtr (same as Calligraphy),
                     // even though technically they should be just PrototypeFieldType.Prototype. Distinguishing them doesn't seem

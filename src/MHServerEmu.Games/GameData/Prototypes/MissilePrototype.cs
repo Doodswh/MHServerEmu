@@ -1,6 +1,5 @@
 ﻿using MHServerEmu.Core.Memory;
-using MHServerEmu.Games.Entities;
-using MHServerEmu.Games.GameData.Calligraphy.Attributes;
+using MHServerEmu.Games.GameData.Calligraphy;
 using MHServerEmu.Games.Properties;
 using MHServerEmu.Games.Properties.Evals;
 

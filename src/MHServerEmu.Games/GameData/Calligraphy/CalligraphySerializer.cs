@@ -694,7 +694,7 @@ namespace MHServerEmu.Games.GameData.Calligraphy
             if (!Verify.IsNotNull(parentPrototype)) return false;
             if (!Verify.IsTrue(mixinFieldInfo.Type == PrototypeFieldType.Mixin || mixinFieldInfo.Type == PrototypeFieldType.ListMixin)) return false;
 
-            Type bindingType = fieldType == PrototypeFieldType.ListMixin ? mixinFieldInfo.ListMixinType : mixinFieldInfo.ClassType;
+            Type bindingType = fieldType == PrototypeFieldType.ListMixin ? mixinFieldInfo.ListElementType : mixinFieldInfo.ClassType;
             Blueprint mixinBlueprint = prototypeBlueprint.FindRuntimeBindingInBlueprintHierarchy(bindingType, propertyBlueprint);
             if (mixinBlueprint == null)
                 return false;
@@ -1107,7 +1107,7 @@ namespace MHServerEmu.Games.GameData.Calligraphy
             { PrototypeFieldType.ListAssetTypeRef,      ParseListUnmanaged64<AssetTypeId> },
             { PrototypeFieldType.ListPrototypeDataRef,  ParseListUnmanaged64<PrototypeId> },
             { PrototypeFieldType.ListPrototypePtr,      ParseListPrototypePtr },
-            { PrototypeFieldType.PropertyCollection,    ParsePropertyList },
+            { PrototypeFieldType.PropertyList,          ParsePropertyList },
         };
 
         /// <summary>
@@ -1219,7 +1219,7 @@ namespace MHServerEmu.Games.GameData.Calligraphy
 
             // Fall back to default if we don't have a parsed value (including the common case of invalid asset ref)
             if (hasValue == false)
-                value = @params.FieldInfo.GetDefaultEnumValue();
+                value = @params.FieldInfo.DefaultEnumValue;
 
             @params.FieldInfo.SetValue(@params.OwnerPrototype, value);
             return true;
@@ -1467,7 +1467,7 @@ namespace MHServerEmu.Games.GameData.Calligraphy
             if (!Verify.IsTrue(reader.Read(out short numItems))) return false;
 
             // We have only type info for our enum, so we have to use Array.CreateInstance() to create our enum array
-            Type elementType = @params.FieldInfo.ElementType;
+            Type elementType = @params.FieldInfo.ListElementType;
             Array values = Array.CreateInstance(elementType, numItems);
 
             for (int i = 0; i < numItems; i++)
@@ -1496,7 +1496,7 @@ namespace MHServerEmu.Games.GameData.Calligraphy
 
             if (!Verify.IsTrue(reader.Read(out short numItems))) return false;
 
-            Type elementType = @params.FieldInfo.ElementType;
+            Type elementType = @params.FieldInfo.ListElementType;
             Array values = Array.CreateInstance(elementType, numItems);
 
             for (int i = 0; i < numItems; i++)
