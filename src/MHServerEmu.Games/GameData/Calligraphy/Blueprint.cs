@@ -1,5 +1,4 @@
-﻿using System.Reflection;
-using MHServerEmu.Core.Extensions;
+﻿using MHServerEmu.Core.Extensions;
 using MHServerEmu.Core.Logging;
 using MHServerEmu.Games.GameData.Prototypes;
 
@@ -155,13 +154,14 @@ namespace MHServerEmu.Games.GameData.Calligraphy
             }
 
             // Bind non-property blueprint members to C# reflection metadata
+            PrototypeClassManager prototypeClassManager = GameDatabase.PrototypeClassManager;
             foreach (BlueprintMember member in _members.Values)
             {
                 Type currentClassType = RuntimeBindingClassType;
                 while (currentClassType != typeof(Prototype))
                 {
                     // Try to find a matching property info in our runtime binding
-                    member.RuntimeClassFieldInfo = currentClassType.GetProperty(member.FieldName, BindingFlags.DeclaredOnly | BindingFlags.Instance | BindingFlags.Public);
+                    member.RuntimeClassFieldInfo = prototypeClassManager.GetFieldInfo(currentClassType, member.FieldName);
                     if (member.RuntimeClassFieldInfo != null)
                         break;
 
@@ -361,7 +361,7 @@ namespace MHServerEmu.Games.GameData.Calligraphy
 
         public static bool IsSupportedType(CalligraphyBaseType baseType, CalligraphyStructureType structureType)
         {
-            if (structureType == CalligraphyStructureType.Simple)
+            if (structureType == CalligraphyStructureType.Single)
                 return true;
             
             if (structureType == CalligraphyStructureType.List)
@@ -390,7 +390,7 @@ namespace MHServerEmu.Games.GameData.Calligraphy
         public CalligraphyBaseType BaseType { get; }
         public CalligraphyStructureType StructureType { get; }
 
-        public PropertyInfo RuntimeClassFieldInfo { get; set; }     // This is C# reflection property info, not to be confused with entity properties
+        public PrototypeFieldInfo RuntimeClassFieldInfo { get; set; }
 
         public BlueprintMember(StringId fieldId, string fieldName, CalligraphyBaseType baseType, CalligraphyStructureType structureType)
         {
@@ -398,6 +398,81 @@ namespace MHServerEmu.Games.GameData.Calligraphy
             FieldName = fieldName;
             BaseType = baseType;
             StructureType = structureType;
+        }
+
+        public bool IsCompatibleWithType(PrototypeFieldType fieldType)
+        {
+            return true;
+
+            /* TODO: finish implementing this
+            switch (fieldType)
+            {
+                case PrototypeFieldType.Int8:
+                case PrototypeFieldType.Int16:
+                case PrototypeFieldType.Int32:
+                case PrototypeFieldType.Int64:
+                case PrototypeFieldType.UInt16:
+                case PrototypeFieldType.UInt32:
+                case PrototypeFieldType.UInt64:
+                    return StructureType == CalligraphyStructureType.Single && BaseType == CalligraphyBaseType.Long;
+
+                case PrototypeFieldType.Bool:
+                    return StructureType == CalligraphyStructureType.Single && (BaseType == CalligraphyBaseType.Long || BaseType == CalligraphyBaseType.Boolean);
+
+                case PrototypeFieldType.Float32:
+                case PrototypeFieldType.Float64:
+                    return StructureType == CalligraphyStructureType.Single && BaseType == CalligraphyBaseType.Double;
+
+                case PrototypeFieldType.Enum:
+                case PrototypeFieldType.FunctionPtr:
+                case PrototypeFieldType.AssetRef:
+                    return StructureType == CalligraphyStructureType.Single && BaseType == CalligraphyBaseType.Asset;
+
+                case PrototypeFieldType.PrototypeDataRef:
+                case PrototypeFieldType.PrototypeRefPtr:
+                    return StructureType == CalligraphyStructureType.Single && BaseType == CalligraphyBaseType.Prototype;
+
+                case PrototypeFieldType.AssetTypeRef:
+                    return StructureType == CalligraphyStructureType.Single && BaseType == CalligraphyBaseType.Type;
+
+                case PrototypeFieldType.CurveRef:
+                    return StructureType == CalligraphyStructureType.Single && BaseType == CalligraphyBaseType.Curve;
+
+                case PrototypeFieldType.Invalid:
+                case PrototypeFieldType.UnkType10:
+                case PrototypeFieldType.UnkType12:
+                case PrototypeFieldType.UnkType18:
+                case PrototypeFieldType.UnkType19:
+                case PrototypeFieldType.UnkType20:
+                case PrototypeFieldType.UnkType21:
+                case PrototypeFieldType.UnkType22:
+                case PrototypeFieldType.UnkType23:
+                case PrototypeFieldType.UnkType24:
+                case PrototypeFieldType.UnkType25:
+                case PrototypeFieldType.UnkType26:
+                case PrototypeFieldType.PrototypeGuid:
+                case PrototypeFieldType.UnkType29:
+                case PrototypeFieldType.Mixin:
+                case PrototypeFieldType.Prototype:
+                case PrototypeFieldType.ListBool:
+                case PrototypeFieldType.ListInt8:
+                case PrototypeFieldType.ListInt16:
+                case PrototypeFieldType.ListInt32:
+                case PrototypeFieldType.ListInt64:
+                case PrototypeFieldType.ListFloat32:
+                case PrototypeFieldType.ListFloat64:
+                case PrototypeFieldType.ListString:
+                case PrototypeFieldType.ListMixin:
+                case PrototypeFieldType.UnkType52:
+                case PrototypeFieldType.Vector:
+                case PrototypeFieldType.PropertyCollection:
+                    return false;
+
+                default:
+                    Verify.IsTrue(false, "Unknown field type in Blueprint::IsCompatibleWithType()");
+                    return false;
+            }
+            */
         }
     }
 

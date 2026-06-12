@@ -11,7 +11,7 @@ namespace MHServerEmu.Games.GameData.Calligraphy
     {
         private readonly PropertyEnum _propertyEnum;
         private readonly PropertyInfoTable _propertyInfoTable;
-        private readonly bool _isInitializing;
+        private readonly bool _gatheringPropertyInfo;
 
         private InlineArray4<ParamInfo> _paramInfos;
         private InlineArray4<PropertyParam> _paramValues;
@@ -26,15 +26,15 @@ namespace MHServerEmu.Games.GameData.Calligraphy
 
         public byte ParamsSetMask { get; private set; } = 0;
 
-        public PropertyBuilder(PropertyEnum propertyEnum, PropertyInfoTable propertyInfoTable, bool isInitializing)
+        public PropertyBuilder(PropertyEnum propertyEnum, PropertyInfoTable propertyInfoTable, bool gatheringPropertyInfo)
         {
             _propertyEnum = propertyEnum;
             _propertyInfoTable = propertyInfoTable;
-            _isInitializing = isInitializing;
+            _gatheringPropertyInfo = gatheringPropertyInfo;
 
             ((Span<ParamInfo>)_paramInfos).Fill(new());
 
-            if (isInitializing == false)
+            if (gatheringPropertyInfo == false)
             {
                 PropertyInfo info = propertyInfoTable.LookupPropertyInfo(propertyEnum);
                 PropertyValue = info.DefaultValue;
@@ -58,7 +58,7 @@ namespace MHServerEmu.Games.GameData.Calligraphy
 
         public void SetPropertyInfo()
         {
-            if (_isInitializing == false)
+            if (_gatheringPropertyInfo == false)
                 return;
 
             PropertyInfo info = _propertyInfoTable.LookupPropertyInfo(_propertyEnum);
@@ -131,7 +131,7 @@ namespace MHServerEmu.Games.GameData.Calligraphy
 
         public bool SetIntegerParam(int paramIndex, long field)
         {
-            if (_isInitializing)
+            if (_gatheringPropertyInfo)
             {
                 _paramInfos[paramIndex].Type = PropertyParamType.Integer;
                 // Integer params have no subtypes
@@ -144,7 +144,7 @@ namespace MHServerEmu.Games.GameData.Calligraphy
         {
             AssetDirectory assetDirectory = GameDatabase.DataDirectory.AssetDirectory;
 
-            if (_isInitializing)
+            if (_gatheringPropertyInfo)
             {
                 if (!Verify.IsTrue(field != AssetId.Invalid)) return false;
 
@@ -163,7 +163,7 @@ namespace MHServerEmu.Games.GameData.Calligraphy
         {
             BlueprintId blueprintRef;
 
-            if (_isInitializing)
+            if (_gatheringPropertyInfo)
             {
                 if (!Verify.IsTrue(field != PrototypeId.Invalid)) return false;
 

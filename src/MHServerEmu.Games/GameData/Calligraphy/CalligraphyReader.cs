@@ -5,6 +5,23 @@ using MHServerEmu.Core.Logging;
 
 namespace MHServerEmu.Games.GameData.Calligraphy
 {
+    [Flags]
+    public enum PrototypeDataDesc : byte
+    {
+        None                = 0,
+        ReferenceExists     = 1 << 0,
+        InstanceDataExists  = 1 << 1,
+        PolymorphicData     = 1 << 2,
+    }
+
+    public struct PrototypeDataHeader(bool referenceExists, bool instanceDataExists, bool polymorphicData, PrototypeId referenceType)
+    {
+        public bool ReferenceExists = referenceExists;
+        public bool InstanceDataExists = instanceDataExists;
+        public bool PolymorphicData = polymorphicData;
+        public PrototypeId ReferenceType = referenceType;  // Parent prototype id, invalid (0) for .defaults
+    }
+
     public readonly struct CalligraphyReader : IDisposable
     {
         // This combines Gazillion's implementation of BinaryReader with the CalligraphyReader subclass.
@@ -111,6 +128,37 @@ namespace MHServerEmu.Games.GameData.Calligraphy
 
             if (!Verify.IsTrue(expectedVersion == fileVersion, $"Version mismatch in {SectionName}.  Do you have the latest build?"))
                 return false;
+
+            return true;
+        }
+
+        public bool ReadPrototypeHeader(out PrototypeDataHeader header, string filepathBeingLoaded = "<unknown>")
+        {
+            header = default;
+
+            if (Read(out PrototypeDataDesc flags) == false)
+                return false;
+
+            header.ReferenceExists = flags.HasFlag(PrototypeDataDesc.ReferenceExists);
+            header.InstanceDataExists = flags.HasFlag(PrototypeDataDesc.InstanceDataExists);
+            header.PolymorphicData = flags.HasFlag(PrototypeDataDesc.PolymorphicData);
+
+            if (header.ReferenceExists)
+            {
+                if (Read(out header.ReferenceType) == false)
+                    return false;
+
+                if (header.ReferenceType != PrototypeId.Invalid)
+                {
+                    bool referenceValid = GameDatabase.PrototypeRefManager.ContainsDataRef(header.ReferenceType);
+                    if (!Verify.IsTrue(referenceValid, $"Prototype {filepathBeingLoaded} has hash {(ulong)header.ReferenceType} not found in directory.\n\nPlease make sure that the types of the fields in Calligraphy match the ones defined in the prototype class."))
+                        return false;
+                }
+            }
+            else
+            {
+                header.ReferenceType = PrototypeId.Invalid;
+            }
 
             return true;
         }

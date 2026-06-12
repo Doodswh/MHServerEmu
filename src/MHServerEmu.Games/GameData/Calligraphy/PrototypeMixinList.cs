@@ -13,7 +13,7 @@ namespace MHServerEmu.Games.GameData.Calligraphy
     public class PrototypeMixinListItem
     {
         public Prototype Prototype { get; set; }
-        public BlueprintId BlueprintId { get; set; }
+        public BlueprintId BlueprintRef { get; set; }
         public byte BlueprintCopyNum { get; set; }
     }
 }

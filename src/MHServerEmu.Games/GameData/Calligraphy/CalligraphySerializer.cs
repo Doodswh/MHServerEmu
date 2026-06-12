@@ -1,7 +1,5 @@
-﻿using System.Reflection;
-using MHServerEmu.Core.Extensions;
+﻿using MHServerEmu.Core.Extensions;
 using MHServerEmu.Core.Logging;
-using MHServerEmu.Games.GameData.Calligraphy.Attributes;
 using MHServerEmu.Games.GameData.Prototypes;
 using MHServerEmu.Games.Properties;
 
@@ -19,81 +17,95 @@ namespace MHServerEmu.Games.GameData.Calligraphy
         private CalligraphySerializer() { }
 
         /// <summary>
-        /// Deserializes a Calligraphy prototype from stream.
+        /// Deserializes a Calligraphy <see cref="Prototype"/> from the provided <see cref="Stream"/>.
         /// </summary>
         public override bool Deserialize(Prototype prototype, PrototypeId dataRef, Stream stream)
         {
             string prototypeName = GameDatabase.GetPrototypeName(dataRef);
+            using CalligraphyReader reader = new(stream, prototypeName);
 
-            using (BinaryReader reader = new(stream))
-            {
-                // Read Calligraphy header
-                CalligraphyHeader calligraphyHeader = new(reader);
+            if (!Verify.IsTrue(reader.ReadHeader("PTP"))) return false;
 
-                // Read prototype header and check it
-                PrototypeDataHeader prototypeHeader = new(reader);
-                if (prototypeHeader.ReferenceExists == false) return true;
-                if (prototypeHeader.PolymorphicData) return true;
+            if (!Verify.IsTrue(reader.ReadPrototypeHeader(out PrototypeDataHeader header))) return false;
 
-                // Begin deserialization
-                DoDeserialize(prototype, prototypeHeader, dataRef, prototypeName, reader);
-            }
+            if (!Verify.IsTrue(header.ReferenceExists)) return false;
+            if (!Verify.IsTrue(header.PolymorphicData == false)) return false;
 
-            return true;
+            return DoDeserialize(prototype, header, dataRef, prototypeName, reader);
         }
 
         /// <summary>
         /// Deserializes data for a Calligraphy prototype.
         /// </summary>
-        private static bool DoDeserialize(Prototype prototype, PrototypeDataHeader header, PrototypeId prototypeDataRef, string prototypeName, BinaryReader reader)
+        private static bool DoDeserialize(Prototype prototype, PrototypeDataHeader header, PrototypeId prototypeDataRef, string prototypeName, CalligraphyReader reader)
         {
             DataDirectory dataDirectory = GameDatabase.DataDirectory;
 
-            // Set prototype data ref
+            if (!Verify.IsNotNull(prototype, $"Expected prototype when deserializing {prototypeName}"))
+                return false;
+
             prototype.DataRef = prototypeDataRef;
 
-            // Get blueprint
             Blueprint blueprint = dataDirectory.GetPrototypeBlueprint(prototypeDataRef != PrototypeId.Invalid ? prototypeDataRef : header.ReferenceType);
-
-            // Make sure there is data to deserialize
-            if (header.ReferenceExists == false)
-                return Logger.ErrorReturn(false, $"DoDeserialize(): Missing reference, file name {prototypeName}");
+            if (!Verify.IsNotNull(blueprint, $"Unknown blueprint when deserializing {prototypeName}"))
+                return false;
 
             // Get class type (we get it from the blueprint's binding instead of calling GetRuntimeClassId())
             Type classType = blueprint.RuntimeBindingClassType;
 
+            // Make sure there is data to deserialize
+            if (!Verify.IsTrue(header.ReferenceExists, $"Expected reference exists in data for {prototypeName}"))
+                return false;
+
             // Copy parent data if there is any
             if (header.ReferenceType != PrototypeId.Invalid)
             {
-                CopyPrototypeDataRefFields(prototype, header.ReferenceType);
-                prototype.ParentDataRef = header.ReferenceType;
+                PrototypeId parentPrototypeDataRef = header.ReferenceType;
+                if (!Verify.IsTrue(CopyPrototypeDataRefFields(prototype, parentPrototypeDataRef), $"Error copying parent prototype fields for {prototypeName}"))
+                    return false;
+
+                prototype.ParentDataRef = parentPrototypeDataRef;
             }
 
             // Deserialize this prototype's data if there is any
-            if (header.InstanceDataExists == false) return true;
+            if (header.InstanceDataExists == false)
+                return true;
 
-            short numFieldGroups = reader.ReadInt16();
+            if (!Verify.IsTrue(reader.Read(out short numFieldGroups), $"Unable to read number of field groups for {prototypeName}"))
+                return false;
+
             for (int i = 0; i < numFieldGroups; i++)
             {
                 // Read blueprint information and get the specified blueprint
-                BlueprintId groupBlueprintDataRef = (BlueprintId)reader.ReadUInt64();
-                byte blueprintCopyNum = reader.ReadByte();
+                if (!Verify.IsTrue(reader.Read(out BlueprintId groupBlueprintDataRef), $"Error reading {i} group's declaring blueprint id from {prototypeName}"))
+                    return false;
+
+                Verify.IsTrue(blueprint.IsA(groupBlueprintDataRef), $"Prototype {prototypeName}'s blueprint parents do not match those loaded by the game database at startup.  (This can be caused by hotloading a prototype whose parents have changed)");
+
+                if (!Verify.IsTrue(reader.Read(out byte fieldGroupCopyNum), $"Error reading {i} group's blueprint copy number from {prototypeName}"))
+                    return false;
+
                 Blueprint groupBlueprint = GameDatabase.GetBlueprint(groupBlueprintDataRef);
+                if (!Verify.IsNotNull(groupBlueprint, $"Failed to get parent blueprint from id {(ulong)groupBlueprintDataRef} for:\n\tPrototype: {prototypeName}\n\tFieldGroup: {i}"))
+                    return false;
 
                 if (groupBlueprint.IsProperty)
                 {
-                    if (DeserializePropertyMixin(prototype, blueprint, groupBlueprint, blueprintCopyNum, prototypeDataRef, prototypeName, classType, reader) == false)
-                        return Logger.ErrorReturn(false, $"DoDeserialize(): Failed to deserialize property mixin, file name {prototypeName}");
+                    if (!Verify.IsTrue(DeserializePropertyMixin(prototype, blueprint, groupBlueprint, fieldGroupCopyNum, prototypeDataRef, prototypeName, prototypeName, classType, reader),
+                        $"Unable to deserialize property mixin {groupBlueprint} on {prototypeName}"))
+                        return false;
                 }
                 else
                 {
                     // Simple fields
-                    if (DeserializeFieldGroup(prototype, blueprint, blueprintCopyNum, prototypeName, classType, reader, "Simple Fields") == false)
-                        return Logger.ErrorReturn(false, $"DoDeserialize(): Failed to deserialize simple field group, file name {prototypeName}");
+                    if (!Verify.IsTrue(DeserializeFieldGroup(prototype, blueprint, fieldGroupCopyNum, prototypeName, classType, reader, "Simple Fields"),
+                        $"Unable to deserialize simple fields for {prototypeName}"))
+                        return false;
 
                     // List fields
-                    if (DeserializeFieldGroup(prototype, blueprint, blueprintCopyNum, prototypeName, classType, reader, "List Fields") == false)
-                        return Logger.ErrorReturn(false, $"DoDeserialize(): Failed to deserialize list field group, file name {prototypeName}");
+                    if (!Verify.IsTrue(DeserializeFieldGroup(prototype, blueprint, fieldGroupCopyNum, prototypeName, classType, reader, "List Fields"),
+                        $"Unable to deserialize list fields for {prototypeName}"))
+                        return false;
                 }
             }
 
@@ -103,29 +115,54 @@ namespace MHServerEmu.Games.GameData.Calligraphy
         /// <summary>
         /// Deserializes a field group of a Calligraphy prototype.
         /// </summary>
-        private static bool DeserializeFieldGroup(Prototype prototype, Blueprint blueprint, byte blueprintCopyNum, string prototypeName, Type classType, BinaryReader reader, string groupTag)
+        private static bool DeserializeFieldGroup(Prototype prototype, Blueprint blueprint, byte blueprintCopyNum, string prototypeName, Type classType, CalligraphyReader record, string groupTag)
         {
-            var classManager = GameDatabase.PrototypeClassManager;
+            string errorMessage = null;
+            BlueprintMemberInfo blueprintMemberInfo = default;
+            PrototypeClassManager classManager = GameDatabase.PrototypeClassManager;
 
-            short numFields = reader.ReadInt16();
+            if (!Verify.IsTrue(record.Read(out short numFields), $"Error reading number of fields in {prototypeName} in group {groupTag}"))
+                return false;
+
             for (int i = 0; i < numFields; i++)
             {
-                var fieldId = (StringId)reader.ReadUInt64();
-                var fieldBaseType = (CalligraphyBaseType)reader.ReadByte();
+                if (record.Read(out StringId fieldId) == false)
+                {
+                    errorMessage = "Unable to read field id";
+                    goto Error;
+                }
 
-                // Get blueprint member info for this field
-                if (blueprint.GetBlueprintMemberInfo(fieldId, out var blueprintMemberInfo) == false)
-                    return Logger.ErrorReturn(false, $"DeserializeFieldGroup(): Failed to find member id {fieldId} in blueprint {GameDatabase.GetBlueprintName(blueprint.BlueprintDataRef)}");
+                if (fieldId == StringId.Invalid)
+                {
+                    errorMessage = "Invalid blueprint field id encountered";
+                    goto Error;
+                }
 
-                // Check to make sure the type matches (do we need this?)
-                if (blueprintMemberInfo.Member.BaseType != fieldBaseType)
-                    return Logger.ErrorReturn(false, $"DeserializeFieldGroup(): Type mismatch between blueprint and prototype");
+                if (record.Read(out CalligraphyBaseType fieldBaseType) == false)
+                {
+                    errorMessage = "Field type not found";
+                    goto Error;
+                }
 
                 // Determine where this field belongs
                 Prototype fieldOwnerPrototype = prototype;
                 Blueprint fieldOwnerBlueprint = blueprint;
 
-                System.Reflection.PropertyInfo fieldInfo;
+                // Get blueprint member info for this field
+                if (blueprint.GetBlueprintMemberInfo(fieldId, out blueprintMemberInfo) == false)
+                {
+                    errorMessage = "Unable to get blueprint field info for field re";
+                    goto Error;
+                }
+
+                // Check to make sure the type matches
+                if (blueprintMemberInfo.Member.BaseType != fieldBaseType)
+                {
+                    errorMessage = "Type mismatch between blueprint and prototype";
+                    goto Error;
+                }
+
+                PrototypeFieldInfo fieldInfo;
                 if (blueprint.IsRuntimeChildOf(blueprintMemberInfo.Blueprint))
                 {
                     // For regular fields we just get field info straight away
@@ -136,6 +173,11 @@ namespace MHServerEmu.Games.GameData.Calligraphy
                     // The blueprint for this field is not a runtime child of our main blueprint, meaning it belongs to one of the mixins
                     fieldOwnerBlueprint = blueprintMemberInfo.Blueprint;
                     Type mixinType = blueprintMemberInfo.Blueprint.RuntimeBindingClassType;
+                    if (mixinType == null)
+                    {
+                        errorMessage = "Unknown field class";
+                        goto Error;
+                    }
 
                     // Currently known cases for non-property mixins:
                     // - LocomotorPrototype and PopulationInfoPrototype in AgentPrototype (simple mixins, PopulationInfoPrototype seems to be unused)
@@ -144,7 +186,7 @@ namespace MHServerEmu.Games.GameData.Calligraphy
                     // We use MixinAttribute and ListMixinAttribute to differentiate them from RHStructs.
 
                     // First we look for a non-list mixin field
-                    var mixinFieldInfo = classManager.GetMixinFieldInfo(classType, mixinType, PrototypeFieldType.Mixin);
+                    PrototypeFieldInfo mixinFieldInfo = classManager.GetMixinFieldInfo(classType, mixinType, PrototypeFieldType.Mixin);
                     if (mixinFieldInfo != null)
                     {
                         // Set owner prototype to the existing mixin instance or create a new instance if there isn't one
@@ -152,7 +194,7 @@ namespace MHServerEmu.Games.GameData.Calligraphy
                         if (fieldOwnerPrototype == null)
                         {
                             fieldOwnerPrototype = GameDatabase.PrototypeClassManager.AllocatePrototype(mixinType);
-                            mixinFieldInfo.SetValueFast(prototype, fieldOwnerPrototype);
+                            mixinFieldInfo.SetValue(prototype, fieldOwnerPrototype);
                         }
 
                         // Get the field info from our mixin
@@ -165,11 +207,15 @@ namespace MHServerEmu.Games.GameData.Calligraphy
                         if (mixinFieldInfo != null)
                         {
                             PrototypeMixinList list = AcquireOwnedMixinList(prototype, mixinFieldInfo, false);
+                            if (!Verify.IsNotNull(list)) return false;
 
                             // Get a matching list element
                             Prototype element = AcquireOwnedUniqueMixinListElement(prototype, list, mixinType, fieldOwnerBlueprint, blueprintCopyNum);
                             if (element == null)
-                                return Logger.ErrorReturn(false, $"DeserializeFieldGroup(): Failed to acquire element of a list mixin to deserialize field into");
+                            {
+                                errorMessage = "Unable to acquire unique list element of mixin list to deserialize field into";
+                                goto Error;
+                            }
 
                             fieldOwnerPrototype = element;
                             fieldInfo = classManager.GetFieldInfo(mixinType, blueprintMemberInfo, false);
@@ -177,25 +223,42 @@ namespace MHServerEmu.Games.GameData.Calligraphy
                         else
                         {
                             // Nowhere to put this field, something went very wrong, time to reevaluate life choices
-                            return Logger.ErrorReturn(false, $"DeserializeFieldGroup(): Failed to find field info for mixin {mixinType.Name}, field name {blueprintMemberInfo.Member.FieldName}");
+                            errorMessage = "Invalid mixin field info. Please make sure that the runtime bindings are correct, including those of child blueprints of any new ones you might've created.";
+                            goto Error;
                         }
                     }
                 }
 
-                // Parse
-                ParseDelegate parse = GetParser(classManager.GetPrototypeFieldTypeEnumValue(fieldInfo));
-                FieldParserParams @params = new(reader, fieldInfo, fieldOwnerPrototype, fieldOwnerBlueprint, prototypeName, blueprintMemberInfo);
-                
-                if (parse(@params) == false)
+                PrototypeFieldType fieldType = fieldInfo.Type;
+
+                if (blueprintMemberInfo.Member.IsCompatibleWithType(fieldType) == false)
                 {
-                    return Logger.ErrorReturn(false, string.Format("DeserializeFieldGroup(): Failed to parse field {0} of field group {1}, file name {2}",
-                        blueprintMemberInfo.Member.FieldName,
-                        GameDatabase.GetBlueprintName(blueprint.BlueprintDataRef),
-                        prototypeName));
+                    errorMessage = "Type mismatch between code field maps and Calligraphy field type";
+                    goto Error;
+                }
+
+                // Parse
+                FieldParser parser = GetParser(fieldType);
+                if (parser == null)
+                {
+                    errorMessage = "Unable to get field parser for field type";
+                    goto Error;
+                }
+
+                FieldParserParams @params = new(record, fieldInfo, fieldOwnerPrototype, fieldOwnerBlueprint, prototypeName, blueprintMemberInfo);
+                
+                if (parser(@params) == false)
+                {
+                    errorMessage = "Invalid field value(s)";
+                    goto Error;
                 };
             }
 
             return true;
+
+        Error:
+            Verify.IsTrue(false, $"Error: '{errorMessage}' [{groupTag}]\n Field Name: '{blueprintMemberInfo.Member?.FieldName}'\n Prototype: '{prototypeName}'\n");
+            return false;
         }
 
         #region Properties
@@ -204,8 +267,14 @@ namespace MHServerEmu.Games.GameData.Calligraphy
         /// Deserializes a property mixin field group of a Calligraphy prototype.
         /// </summary>
         private static bool DeserializePropertyMixin(Prototype prototype, Blueprint blueprint, Blueprint groupBlueprint, byte blueprintCopyNum,
-            PrototypeId prototypeDataRef, string prototypeFilePath, Type classType, BinaryReader reader)
+            PrototypeId prototypeDataRef, string prototypeName, string prototypeFilePath, Type classType, CalligraphyReader record)
         {
+            if (!Verify.IsNotNull(prototype)) return false;
+            if (!Verify.IsNotNull(blueprint)) return false;
+            if (!Verify.IsNotNull(classType)) return false;
+            //if (!Verify.IsTrue(prototype.GetType() == classType)) return false;   // not sure about performance for this
+            if (!Verify.IsTrue(groupBlueprint.IsProperty)) return false;
+
             // This whole mixin system is a huge mess.
             PrototypePropertyCollection collection = null;
 
@@ -213,6 +282,8 @@ namespace MHServerEmu.Games.GameData.Calligraphy
             // If this isn't a default prototype, it means the field group needs to be deserialized into a property collection.
             if (prototypeDataRef != groupBlueprint.DefaultPrototypeRef)
             {
+                PrototypeClassManager classManager = GameDatabase.PrototypeClassManager;
+
                 Type propertyHolderClassType = classType;
                 Prototype propertyHolderPrototype = prototype;
 
@@ -224,66 +295,73 @@ namespace MHServerEmu.Games.GameData.Calligraphy
                     // Iterate through all fields and check if if there are any mixin fields.
                     // NOTE: the client uses a nested loop here and iterates through all parents until it founds a mixin or reaches the top of the hierarchy.
                     // Since C# reflection already contains all inherited properties we can do it in a single foreach loop.
-                    bool foundMixin = false;
-                    foreach (var fieldInfo in classType.GetProperties())
+                    foreach (PrototypeFieldInfo fieldInfo in classManager.GetPrototypeFieldSet(classType))
                     {
-                        PrototypeFieldType fieldType = GameDatabase.PrototypeClassManager.GetPrototypeFieldTypeEnumValue(fieldInfo);
+                        PrototypeFieldType fieldType = fieldInfo.Type;
 
                         // If this is a mixin check if it has property collections we need to deserialize into
                         // We pass propertyHolderClassType and propertyHolderPrototype as refs so that CheckPropertyMixin can modify them
                         if (fieldType == PrototypeFieldType.Mixin || fieldType == PrototypeFieldType.ListMixin)
-                            foundMixin = CheckPropertyMixin(fieldInfo, fieldType, blueprint, groupBlueprint, blueprintCopyNum, prototype,
-                                ref propertyHolderClassType, ref propertyHolderPrototype);
-
-                        if (foundMixin) break;
+                        {
+                            bool found = CheckPropertyMixin(fieldInfo, fieldType, blueprint, groupBlueprint, blueprintCopyNum, prototype, ref propertyHolderClassType, ref propertyHolderPrototype);
+                            if (found)
+                                break;
+                        }
                     }
                 }
+
+                if (!Verify.IsNotNull(propertyHolderPrototype)) return false;
                 
                 // Get property collection to deserialize into from the property holder
                 // Note: going through the PrototypeClassManager to get property collection field info doesn't make a whole lot of sense
                 // in the context of our implementation, but that's how it's done in the client, so it's going to be this way (at least for now).
-                var collectionFieldInfo = GameDatabase.PrototypeClassManager.GetFieldInfo(propertyHolderClassType, null, true);
-                if (collectionFieldInfo == null)
-                    return Logger.WarnReturn(false, "DeserializePropertyMixin(): Failed to get property collection field info for property mixin");
-                collection = GetPropertyCollectionField(propertyHolderPrototype, collectionFieldInfo);
+                PrototypeFieldInfo propertyCollectionFieldInfo = classManager.GetFieldInfo(propertyHolderClassType, null, true);
+                if (!Verify.IsNotNull(propertyCollectionFieldInfo, $"Prototype class missing property collection field info. blueprint={blueprint}, groupBlueprint={groupBlueprint}, prototype={prototype}"))
+                    return false;
+
+                collection = GetPropertyCollectionField(propertyHolderPrototype, propertyCollectionFieldInfo);
+                if (!Verify.IsNotNull(collection, $"Prototype class missing property collection field. blueprint={blueprint}, groupBlueprint={groupBlueprint}, prototype={prototype}"))
+                    return false;
             }
 
             // This handles both cases (initialization and filling property collections)
-            DeserializeFieldGroupIntoProperty(collection, groupBlueprint, blueprintCopyNum, prototypeFilePath, reader, "Property Fields");
+            if (!Verify.IsTrue(DeserializeFieldGroupIntoProperty(collection, groupBlueprint, blueprintCopyNum, prototypeFilePath, record, "Property Fields"),
+                $"Unable to deserialize field group into property. groupBlueprint={groupBlueprint}, copyNum={blueprintCopyNum}, prototype={prototypeName}"))
+                return false;
 
             // Property field groups do not have any list fields, so numListFields should always be 0
-            short numListFields = reader.ReadInt16();
-            if (numListFields != 0)
-                return Logger.WarnReturn(false, $"DeserializePropertyMixin(): Property field group numListFields != 0");
+            if (!Verify.IsTrue(record.Read(out short numFields), $"Error reading number of fields in {prototypeName} in property mixin")) return false;
+            if (!Verify.IsTrue(numFields == 0)) return false;
+
             return true;
         }
 
         /// <summary>
         /// Deserializes a property field group.
         /// </summary>
-        private static bool DeserializeFieldGroupIntoProperty(PrototypePropertyCollection propertyCollection, Blueprint groupBlueprint, byte blueprintCopyNum,
-            string prototypeName, BinaryReader reader, string groupTag)
+        private static bool DeserializeFieldGroupIntoProperty(PrototypePropertyCollection propertyCollection, Blueprint blueprint, byte blueprintCopyNum,
+            string prototypeName, CalligraphyReader record, string groupTag)
         {
-            if (groupBlueprint.IsProperty == false) return false;
-
             PropertyInfoTable propertyInfoTable = GameDatabase.PropertyInfoTable;
 
-            PrototypeId propertyDataRef = groupBlueprint.PropertyDataRef;
+            PrototypeId propertyDataRef = blueprint.PropertyDataRef;
             PropertyEnum propertyEnum = propertyInfoTable.GetPropertyEnumFromPrototype(propertyDataRef);
-            bool isInitializing = propertyCollection == null;
+            if (!Verify.IsTrue(propertyEnum != PropertyEnum.Invalid)) return false;
 
-            PropertyBuilder propertyBuilder = new(propertyEnum, propertyInfoTable, isInitializing);
-            if (DeserializeFieldGroupIntoPropertyBuilder(ref propertyBuilder, groupBlueprint, prototypeName, reader, isInitializing, groupTag) == false)
-                return Logger.ErrorReturn(false, $"DeserializeFieldGroupIntoProperty(): Failed to deserialize field group into property builder");
+            bool gatheringPropertyInfo = propertyCollection == null;
 
-            if (isInitializing)
+            PropertyBuilder propertyBuilder = new(propertyEnum, propertyInfoTable, gatheringPropertyInfo);
+            if (!Verify.IsTrue(DeserializeFieldGroupIntoPropertyBuilder(ref propertyBuilder, blueprint, prototypeName, record, gatheringPropertyInfo, groupTag)))
+                return false;
+
+            if (gatheringPropertyInfo)
             {
                 propertyBuilder.SetPropertyInfo();
                 return true;
             }
 
             // We should get here only after we have already initialized all property infos
-            var info = GameDatabase.PropertyInfoTable.LookupPropertyInfo(propertyEnum);
+            PropertyInfo info = GameDatabase.PropertyInfoTable.LookupPropertyInfo(propertyEnum);
 
             // Build property id
             PropertyId propertyId = propertyBuilder.GetPropertyId();
@@ -304,16 +382,14 @@ namespace MHServerEmu.Games.GameData.Calligraphy
             }
             else
             {
-                // Set a curve property if we have a value
                 if (propertyBuilder.IsValueSet)
                 {
-                    // Get curve id and index property from the builder
-                    CurveId curveId = propertyBuilder.PropertyValue;
-                    if (curveId == CurveId.Invalid) Logger.WarnReturn(false, "DeserializeFieldGroupIntoProperty(): curveId is invalid");
-                    PropertyId indexProperty = propertyBuilder.CurveIndex;
+                    // Set a curve property if we have a value
+                    CurveId curveRef = propertyBuilder.PropertyValue;
+                    if (!Verify.IsTrue(curveRef != CurveId.Invalid)) return false;
 
-                    // Add a new curve property to the collection
-                    propertyCollection.SetCurvePropertyFromMixin(propertyId, curveId, indexProperty, info, blueprintCopyNum);
+                    PropertyId indexProperty = propertyBuilder.CurveIndex;
+                    propertyCollection.SetCurvePropertyFromMixin(propertyId, curveRef, indexProperty, info, blueprintCopyNum);
                 }
                 else
                 {
@@ -322,8 +398,9 @@ namespace MHServerEmu.Games.GameData.Calligraphy
                     {
                         // Override both the property id and the index property
                         PropertyId indexProperty = propertyBuilder.CurveIndex;
-                        if (indexProperty.Enum == PropertyEnum.Invalid)
-                            Logger.WarnReturn(false, "DeserializeFieldGroupIntoProperty(): Curve properties must have an index property");
+                        if (!Verify.IsTrue(indexProperty.Enum != PropertyEnum.Invalid, $"Curve properties must have an index property"))
+                            return false;
+
                         propertyCollection.ReplaceCurvePropertyIdFromMixin(propertyId, indexProperty, info, blueprintCopyNum, propertyBuilder.ParamsSetMask);
                     }
                     else
@@ -340,29 +417,55 @@ namespace MHServerEmu.Games.GameData.Calligraphy
         /// <summary>
         /// Deserializes a property field group into a <see cref="PropertyBuilder"/> instance.
         /// </summary>
-        private static bool DeserializeFieldGroupIntoPropertyBuilder(ref PropertyBuilder builder, Blueprint blueprint, string prototypeName, BinaryReader reader, bool isInitializing, string groupTag)
+        private static bool DeserializeFieldGroupIntoPropertyBuilder(ref PropertyBuilder builder, Blueprint blueprint, string prototypeName, CalligraphyReader record, bool gatheringPropertyInfo, string groupTag)
         {
+            string errorMessage = null;
+            BlueprintMemberInfo blueprintMemberInfo = default;
+
             PrototypeId propertyDataRef = blueprint.PropertyDataRef;
             PropertyEnum propertyEnum = GameDatabase.PropertyInfoTable.GetPropertyEnumFromPrototype(propertyDataRef);
+            if (!Verify.IsTrue(propertyEnum != PropertyEnum.Invalid)) return false;
 
             if (propertyEnum == PropertyEnum.Invalid)
                 return Logger.ErrorReturn(false, $"DeserializeFieldGroupIntoPropertyBuilder(): Failed to get property enum value, file name {prototypeName}");
 
-            short numFields = reader.ReadInt16();
+            if (!Verify.IsTrue(record.Read(out short numFields), $"Error reading number of fields in {prototypeName} in group {groupTag}"))
+                return false;
 
-            if (numFields <= 0)
-                return Logger.ErrorReturn(false, $"DeserializeFieldGroupIntoPropertyBuilder(): <= 0 fields in a property field group, file name {prototypeName}");
+            if (!Verify.IsTrue(numFields > 0, $"Read <= 0 for number of fields in {prototypeName} in group {groupTag}"))
+                return false;
 
             for (int i = 0; i < numFields; i++)
             {
-                var fieldId = (StringId)reader.ReadUInt64();
-                var type = (CalligraphyBaseType)reader.ReadByte();
+                if (record.Read(out StringId fieldId) == false)
+                {
+                    errorMessage = "Unable to read field id";
+                    goto Error;
+                }
 
                 if (fieldId == StringId.Invalid)
-                    return Logger.ErrorReturn(false, $"DeserializeFieldGroupIntoPropertyBuilder(): Invalid field id in a property field group, file name {prototypeName}");
+                {
+                    errorMessage = "Invalid blueprint field id encountered";
+                    goto Error;
+                }
 
-                if (blueprint.GetBlueprintMemberInfo(fieldId, out var blueprintMemberInfo) == false)
-                    return Logger.ErrorReturn(false, $"DeserializeFieldGroupIntoPropertyBuilder(): Failed to get blueprint member info for field id {fieldId}, file name {prototypeName}");
+                if (record.Read(out CalligraphyBaseType fieldBaseType) == false)
+                {
+                    errorMessage = "Field type not found";
+                    goto Error;
+                }
+
+                if (blueprint.GetBlueprintMemberInfo(fieldId, out blueprintMemberInfo) == false)
+                {
+                    errorMessage = "Unable to get blueprint field info for field ref";
+                    goto Error;
+                }
+
+                if (blueprintMemberInfo.Member.BaseType != fieldBaseType)
+                {
+                    errorMessage = "Type mismatch between blueprint and prototype";
+                    goto Error;
+                }
 
                 // Fields with the same name can have different field ids in different property prototypes
                 // (most likely due to how they are hashed), so we have no choice but to work with strings here.
@@ -370,63 +473,107 @@ namespace MHServerEmu.Games.GameData.Calligraphy
 
                 if (string.Equals(fieldName, "Value", StringComparison.OrdinalIgnoreCase))
                 {
-                    if (DeserializePropertyValue(blueprint, prototypeName, reader, blueprintMemberInfo, out PropertyValue value) == false)
-                        return Logger.ErrorReturn(false, $"DeserializeFieldGroupIntoPropertyBuilder(): Failed to deserialize property value field, file name {prototypeName}");
-
-                    if (builder.SetValue(value) == false)
-                        return Logger.ErrorReturn(false, $"DeserializeFieldGroupIntoPropertyBuilder(): Failed to set property value field, file name {prototypeName}");
+                    if (DeserializePropertyValue(blueprint, prototypeName, record, blueprintMemberInfo, out PropertyValue value) == false ||
+                        builder.SetValue(value) == false)
+                    {
+                        errorMessage = "Invalid property 'Value' field.";
+                        goto Error;
+                    }
                 }
                 else if (string.Equals(fieldName, "CurveIndex", StringComparison.OrdinalIgnoreCase))
                 {
-                    if (DeserializePropertyValue(blueprint, prototypeName, reader, blueprintMemberInfo, out PropertyValue curveIndex) == false)
-                        return Logger.ErrorReturn(false, $"DeserializeFieldGroupIntoPropertyBuilder(): Failed to deserialize property curve index field, file name {prototypeName}");
+                    if (DeserializePropertyValue(blueprint, prototypeName, record, blueprintMemberInfo, out PropertyValue curveIndex) == false)
+                    {
+                        errorMessage = "Invalid property 'CurveIndex' field.";
+                        goto Error;
+                    }
 
                     if (builder.SetCurveIndex((PrototypeId)curveIndex) == false)
-                        return Logger.ErrorReturn(false, $"DeserializeFieldGroupIntoPropertyBuilder(): Failed to set property curve index field, file name {prototypeName}");
+                    {
+                        errorMessage = "Invalid property 'CurveIndex' field (did you leave a CurveIndex field set to <none>?)";
+                        goto Error;
+                    }
                 }
                 else if (fieldName.StartsWith("Param", StringComparison.OrdinalIgnoreCase))
                 {
                     int paramIndex;
-                    if (fieldName.Length < 6)
+                    if (fieldName.Length >= 6)
                     {
-                        Logger.Trace($"DeserializeFieldGroupIntoPropertyBuilder(): Param field name '{fieldName}' does not contain param index, defaulting to 0, file name {prototypeName}");
-                        paramIndex = 0;
+                        paramIndex = int.Parse(fieldName.AsSpan(5, 1));
                     }
                     else
                     {
-                        paramIndex = int.Parse(fieldName[5].ToString());
+                        Logger.Trace($"DeserializeFieldGroupIntoPropertyBuilder(): Param field name '{fieldName}' does not contain param index, defaulting to 0, file name {prototypeName}");
+                        paramIndex = 0;     // This probably works out client-side because of the null terminator?
                     }
 
-                    if (paramIndex >= Property.MaxParamCount)
-                        return Logger.ErrorReturn(false, $"DeserializeFieldGroupIntoPropertyBuilder(): Property param index {paramIndex} out of range");
-
-                    if (DeserializePropertyParam(blueprintMemberInfo, prototypeName, reader, paramIndex, ref builder) == false)
-                        return Logger.ErrorReturn(false, $"DeserializeFieldGroupIntoPropertyBuilder(): Failed to deserialize property param field, file name {prototypeName}");
+                    if (paramIndex >= Property.MaxParamCount ||
+                        DeserializePropertyParam(blueprintMemberInfo, prototypeName, record, paramIndex, ref builder) == false)
+                    {
+                        errorMessage = "Invalid property 'Param' field.";
+                        goto Error;
+                    }
                 }
                 else
                 {
-                    return Logger.ErrorReturn(false, $"DeserializeFieldGroupIntoPropertyBuilder(): Unexpected field name '{fieldName}' in a property field group, file name {prototypeName}");
+                    // Custom error not present in the client, this probably shouldn't be happening.
+                    errorMessage = "Unexpected field name in a property field group";
+                    goto Error;
                 }
             }
 
             return true;
+
+        Error:
+            Verify.IsTrue(false, $"Error: '{errorMessage}' [{groupTag}]\n Field Name: '{blueprintMemberInfo.Member?.FieldName}'\n Prototype: '{prototypeName}'\n");
+            return false;
         }
 
         /// <summary>
         /// Deserializes a <see cref="PropertyValue"/> from a field group.
         /// </summary>
-        private static bool DeserializePropertyValue(Blueprint blueprint, string prototypeName, BinaryReader reader, BlueprintMemberInfo blueprintMemberInfo, out PropertyValue value)
+        private static bool DeserializePropertyValue(Blueprint blueprint, string prototypeName, CalligraphyReader record, BlueprintMemberInfo blueprintMemberInfo, out PropertyValue value)
         {
+            value = default;
+
+            if (!Verify.IsTrue(blueprintMemberInfo.Member.StructureType == CalligraphyStructureType.Single)) return false;
+
+            // NOTE: We read values here directly rather than going through FieldParser / FieldParserParams like the client does.
             switch (blueprintMemberInfo.Member.BaseType)
             {
-                case CalligraphyBaseType.Asset:     value = (AssetId)reader.ReadUInt64(); break;
-                case CalligraphyBaseType.Boolean:   value = Convert.ToBoolean(reader.ReadUInt64()); break;
-                case CalligraphyBaseType.Curve:     value = (CurveId)reader.ReadUInt64(); break;
-                case CalligraphyBaseType.Double:    value = (float)reader.ReadDouble(); break;
-                case CalligraphyBaseType.Long:      value = reader.ReadInt64(); break;
-                case CalligraphyBaseType.Prototype: value = (PrototypeId)reader.ReadUInt64(); break;
+                case CalligraphyBaseType.Asset:
+                    if (!Verify.IsTrue(record.Read(out AssetId assetId))) return false;
+                    value = assetId;
+                    break;
 
-                default: value = new(); return Logger.WarnReturn(false, "DeserializePropertyValue(): Unhandled base type for property value");
+                case CalligraphyBaseType.Boolean:
+                    if (!Verify.IsTrue(record.Read(out ulong boolean))) return false;
+                    value = boolean != 0;
+                    break;
+
+                case CalligraphyBaseType.Curve:
+                    if (!Verify.IsTrue(record.Read(out CurveId curveId))) return false;
+                    value = curveId;
+                    break;
+
+                case CalligraphyBaseType.Double:
+                    if (!Verify.IsTrue(record.Read(out double @double))) return false;
+                    value = (float)@double;
+                    break;
+
+                case CalligraphyBaseType.Long:
+                    if (!Verify.IsTrue(record.Read(out long @long))) return false;
+                    value = @long;
+                    break;
+
+                case CalligraphyBaseType.Prototype:
+                    if (!Verify.IsTrue(record.Read(out PrototypeId prototypeId))) return false;
+                    value = prototypeId;
+                    break;
+
+                default:
+                    Verify.IsTrue(false, "Unhandled base type for property value");
+                    return false;
             }
 
             return true;
@@ -435,33 +582,42 @@ namespace MHServerEmu.Games.GameData.Calligraphy
         /// <summary>
         /// Deserializes a <see cref="PropertyParam"/> from a field group and sets it in the provided <see cref="PropertyBuilder"/> instance.
         /// </summary>
-        private static bool DeserializePropertyParam(BlueprintMemberInfo blueprintMemberInfo, string prototypeName, BinaryReader reader, int paramIndex, ref PropertyBuilder builder)
+        private static bool DeserializePropertyParam(BlueprintMemberInfo blueprintMemberInfo, string prototypeName, CalligraphyReader record, int paramIndex, ref PropertyBuilder builder)
         {
-            if (blueprintMemberInfo.Member.StructureType == CalligraphyStructureType.List)
-                return Logger.ErrorReturn(false, $"DeserializePropertyParam(): Unhandled structure type for property param");
+            if (!Verify.IsTrue(blueprintMemberInfo.Member.StructureType == CalligraphyStructureType.Single, "Unhandled structure type for property value"))
+                return false;
 
+            // NOTE: We read values here directly rather than going through FieldParser / FieldParserParams like the client does.
             switch (blueprintMemberInfo.Member.BaseType)
             {
                 case CalligraphyBaseType.Long:
-                    long integerParam = reader.ReadInt64();
-                    if (builder.SetIntegerParam(paramIndex, integerParam) == false)
-                        return Logger.ErrorReturn(false, $"DeserializePropertyParam(): Failed to set property integer param, file name {prototypeName}");
+                    if (!Verify.IsTrue(record.Read(out long integerParam))) return false;
+
+                    if (!Verify.IsTrue(builder.SetIntegerParam(paramIndex, integerParam))) return false;
+
                     break;
 
                 case CalligraphyBaseType.Asset:
-                    var assetRef = (AssetId)reader.ReadUInt64();
-                    if (builder.SetAssetParam(paramIndex, assetRef) == false)
-                        return Logger.ErrorReturn(false, $"DeserializePropertyParam(): Failed to set property asset param, file name {prototypeName}");
+                    if (!Verify.IsTrue(record.Read(out AssetId assetParam))) return false;
+
+                    if (!Verify.IsTrue(builder.SetAssetParam(paramIndex, assetParam),
+                        $"Error: {prototypeName}\n 'Property Parameter of type Asset must contain a valid asset value.'\n Field Name: '{blueprintMemberInfo.Member.FieldName}'"))
+                        return false;
+
                     break;
 
                 case CalligraphyBaseType.Prototype:
-                    var field = (PrototypeId)reader.ReadUInt64();
-                    if (builder.SetPrototypeParam(paramIndex, field) == false)
-                        return Logger.ErrorReturn(false, $"DeserializePropertyParam(): Failed to set property prototype param, file name {prototypeName}");
+                    if (!Verify.IsTrue(record.Read(out PrototypeId prototypeParam))) return false;
+
+                    if (!Verify.IsTrue(builder.SetPrototypeParam(paramIndex, prototypeParam),
+                        $"Error: {prototypeName}\n 'Property Parameter of type Prototype must contain a valid value.'\n Field Name: '{blueprintMemberInfo.Member.FieldName}'"))
+                        return false;
+
                     break;
 
                 default:
-                    return Logger.ErrorReturn(false, "DeserializePropertyParam(): Unhandled base type for property param");
+                    Verify.IsTrue(false, "Unhandled base type for property param");
+                    return false;
             }
 
             return true;
@@ -470,22 +626,20 @@ namespace MHServerEmu.Games.GameData.Calligraphy
         /// <summary>
         /// Deserializes a standalone <see cref="PropertyId"/> from a field group.
         /// </summary>
-        private static bool DeserializeFieldGroupIntoPropertyId(ref PropertyId propertyId, Blueprint blueprint, string prototypeName, BinaryReader reader, string groupTag)
+        private static bool DeserializeFieldGroupIntoPropertyId(ref PropertyId id, Blueprint blueprint, string prototypeName, CalligraphyReader record, string groupTag)
         {
             PropertyInfoTable propertyInfoTable = GameDatabase.PropertyInfoTable;
 
             PrototypeId propertyPrototypeRef = blueprint.PropertyDataRef;
             PropertyEnum propertyEnum = propertyInfoTable.GetPropertyEnumFromPrototype(propertyPrototypeRef);
-            if (propertyEnum == PropertyEnum.Invalid)
-                return Logger.ErrorReturn(false, "DeserializeFieldGroupIntoPropertyId(): Invalid property enum");
+            if (!Verify.IsTrue(propertyEnum != PropertyEnum.Invalid)) return false;
 
             PropertyBuilder propertyBuilder = new(propertyEnum, propertyInfoTable, false);
-            if (DeserializeFieldGroupIntoPropertyBuilder(ref propertyBuilder, blueprint, prototypeName, reader, false, groupTag) == false)
-                return Logger.ErrorReturn(false, "DeserializeFieldGroupIntoPropertyId(): Failed to deserialize field group into property builder");
+            if (!Verify.IsTrue(DeserializeFieldGroupIntoPropertyBuilder(ref propertyBuilder, blueprint, prototypeName, record, false, groupTag)))
+                return false;
 
-            propertyId = propertyBuilder.GetPropertyId();
-            if (propertyId == PropertyId.Invalid)
-                return Logger.ErrorReturn(false, "DeserializeFieldGroupIntoPropertyId(): PropertyId is invalid");
+            id = propertyBuilder.GetPropertyId();
+            if (!Verify.IsTrue(id != PropertyId.Invalid)) return false;
 
             return true;
         }
@@ -502,15 +656,17 @@ namespace MHServerEmu.Games.GameData.Calligraphy
             // In all of our data there is never more than one PrototypePropertyCollection field,
             // and it's always called Properties, so we will make use of that to avoid iterating through
             // all fields.
-            var fieldInfo = prototype.GetType().GetProperty("Properties", typeof(PrototypePropertyCollection));
-            if (fieldInfo != null) return GetPropertyCollectionField(prototype, fieldInfo);
-            return null;
+            PrototypeFieldInfo fieldInfo = GameDatabase.PrototypeClassManager.GetFieldInfo(prototype.GetType(), "Properties");
+            if (fieldInfo != null)
+                return GetPropertyCollectionField(prototype, fieldInfo);
+            else
+                return null;
         }
 
         /// <summary>
         /// Returns the <see cref="PrototypePropertyCollection"/> belonging to the provided <see cref="Prototype"/>.
         /// </summary>
-        private static PrototypePropertyCollection GetPropertyCollectionField(Prototype prototype, System.Reflection.PropertyInfo fieldInfo)
+        private static PrototypePropertyCollection GetPropertyCollectionField(Prototype prototype, PrototypeFieldInfo fieldInfo)
         {
             fieldInfo.GetValue(prototype, out PrototypePropertyCollection collection);
 
@@ -519,7 +675,9 @@ namespace MHServerEmu.Games.GameData.Calligraphy
             {
                 // Copy parent collection if there is one, otherwise start with a blank one
                 collection = collection == null ? new() : collection.ShallowCopy();
-                fieldInfo.SetValueFast(prototype, collection);
+                if (!Verify.IsNotNull(collection)) return null;
+
+                fieldInfo.SetValue(prototype, collection);
                 prototype.SetDynamicFieldOwner(collection);
             }
 
@@ -529,15 +687,17 @@ namespace MHServerEmu.Games.GameData.Calligraphy
         /// <summary>
         /// Checks if a mixin field should hold the specified property in its collection.
         /// </summary>
-        private static bool CheckPropertyMixin(System.Reflection.PropertyInfo mixinFieldInfo, PrototypeFieldType fieldType, Blueprint prototypeBlueprint,
+        private static bool CheckPropertyMixin(PrototypeFieldInfo mixinFieldInfo, PrototypeFieldType fieldType, Blueprint prototypeBlueprint,
             Blueprint propertyBlueprint, byte blueprintCopyNum, Prototype parentPrototype, ref Type propertyHolderClassType, ref Prototype propertyHolderPrototype)
         {
-            Type bindingType = fieldType == PrototypeFieldType.ListMixin
-                ? mixinFieldInfo.GetCustomAttribute<ListMixinAttribute>().FieldType
-                : mixinFieldInfo.PropertyType;
+            if (!Verify.IsNotNull(mixinFieldInfo)) return false;
+            if (!Verify.IsNotNull(parentPrototype)) return false;
+            if (!Verify.IsTrue(mixinFieldInfo.Type == PrototypeFieldType.Mixin || mixinFieldInfo.Type == PrototypeFieldType.ListMixin)) return false;
 
+            Type bindingType = fieldType == PrototypeFieldType.ListMixin ? mixinFieldInfo.ListMixinType : mixinFieldInfo.ClassType;
             Blueprint mixinBlueprint = prototypeBlueprint.FindRuntimeBindingInBlueprintHierarchy(bindingType, propertyBlueprint);
-            if (mixinBlueprint == null) return false;
+            if (mixinBlueprint == null)
+                return false;
 
             propertyHolderClassType = mixinBlueprint.RuntimeBindingClassType;
             propertyHolderPrototype = AcquireMixinElement(parentPrototype, propertyHolderClassType, prototypeBlueprint,
@@ -554,12 +714,11 @@ namespace MHServerEmu.Games.GameData.Calligraphy
         /// </summary>
         public static bool CopyPrototypeDataRefFields(Prototype destPrototype, PrototypeId sourceDataRef)
         {
-            // Check to make sure our reference is valid
-            if (sourceDataRef == PrototypeId.Invalid)
-                return Logger.ErrorReturn(false, "CopyPrototypeDataRefFields(): invalid source ref");
+            if (!Verify.IsTrue(sourceDataRef != PrototypeId.Invalid)) return false;
 
-            // Get source prototype and copy fields from it
             Prototype sourcePrototype = GameDatabase.GetPrototype<Prototype>(sourceDataRef);
+            if (!Verify.IsNotNull(sourcePrototype)) return false;
+
             return CopyPrototypeFields(destPrototype, sourcePrototype);
         }
 
@@ -569,20 +728,18 @@ namespace MHServerEmu.Games.GameData.Calligraphy
         private static bool CopyPrototypeFields(Prototype destPrototype, Prototype sourcePrototype)
         {
             // In some cases (e.g. PopulationInfoPrototype mixin) destination and/or source may be null
-            if (destPrototype == null || sourcePrototype == null) return false;
+            if (destPrototype == null || sourcePrototype == null)
+                return true;
 
             // Get type information for both prototypes and make sure they are the same
-            Type destType = destPrototype.GetType();
             Type sourceType = sourcePrototype.GetType();
+            Type destType = destPrototype.GetType();
 
-            if (sourceType != destType)
-                return Logger.ErrorReturn(false, $"CopyPrototypeFields(): source type ({sourceType.Name}) does not match destination type ({destType.Name})");
+            if (!Verify.IsTrue(sourceType == destType)) return false;
 
-            foreach (PrototypeClassManager.CachedPrototypeField copyableField in GameDatabase.PrototypeClassManager.GetCopyablePrototypeFields(destType))
+            foreach (PrototypeFieldInfo fieldInfo in GameDatabase.PrototypeClassManager.GetPrototypeFieldSet(destType))
             {
-                System.Reflection.PropertyInfo fieldInfo = copyableField.FieldInfo;
-
-                switch (copyableField.FieldType)
+                switch (fieldInfo.Type)
                 {
                     case PrototypeFieldType.Bool:
                     case PrototypeFieldType.Int8:
@@ -631,8 +788,8 @@ namespace MHServerEmu.Games.GameData.Calligraphy
                         break;
 
                     default:
-                        Logger.Warn($"CopyPrototypeFields(): Trying to copy unhandled prototype field type {fieldInfo.PropertyType.Name}");
-                        continue;
+                        Verify.IsTrue(false, $"Unhandled prototype field info name: {fieldInfo.Name} type: {fieldInfo.Type} in prototype: {sourcePrototype}");
+                        break;
                 }
             }
 
@@ -642,7 +799,7 @@ namespace MHServerEmu.Games.GameData.Calligraphy
         /// <summary>
         /// Copies a field value from one <see cref="Prototype"/> instance to another.
         /// </summary>
-        private static void AssignPointedAtValues(Prototype destPrototype, Prototype sourcePrototype, System.Reflection.PropertyInfo fieldInfo)
+        private static void AssignPointedAtValues(Prototype destPrototype, Prototype sourcePrototype, PrototypeFieldInfo fieldInfo)
         {
             fieldInfo.CopyValue(sourcePrototype, destPrototype);
         }
@@ -650,7 +807,7 @@ namespace MHServerEmu.Games.GameData.Calligraphy
         /// <summary>
         /// Shallow copies a collection field from a source <see cref="Prototype"/>.
         /// </summary>
-        private static void ShallowCopyCollection(Prototype destPrototype, Prototype sourcePrototype, System.Reflection.PropertyInfo fieldInfo)
+        private static void ShallowCopyCollection(Prototype destPrototype, Prototype sourcePrototype, PrototypeFieldInfo fieldInfo)
         {
             fieldInfo.CopyArray(sourcePrototype, destPrototype);
         }
@@ -658,14 +815,15 @@ namespace MHServerEmu.Games.GameData.Calligraphy
         /// <summary>
         /// Copies a mixin field from a source <see cref="Prototype"/>.
         /// </summary>
-        private static void CopyMixin(Prototype destPrototype, Prototype sourcePrototype, System.Reflection.PropertyInfo fieldInfo)
+        private static void CopyMixin(Prototype destPrototype, Prototype sourcePrototype, PrototypeFieldInfo fieldInfo)
         {
             fieldInfo.GetValue(sourcePrototype, out Prototype sourceMixin);
-            if (sourceMixin == null) return;
+            if (sourceMixin == null)
+                return;
 
             // Create the mixin instance on the destination prototype if there is something to copy and copy data to it
-            var destMixin = GameDatabase.PrototypeClassManager.AllocatePrototype(fieldInfo.PropertyType);
-            fieldInfo.SetValueFast(destPrototype, destMixin);
+            Prototype destMixin = GameDatabase.PrototypeClassManager.AllocatePrototype(fieldInfo.ClassType);
+            fieldInfo.SetValue(destPrototype, destMixin);
 
             CopyPrototypeFields(destMixin, sourceMixin);
         }
@@ -673,18 +831,19 @@ namespace MHServerEmu.Games.GameData.Calligraphy
         /// <summary>
         /// Copies a <see cref="PrototypeMixinList"/> from a source <see cref="Prototype"/>.
         /// </summary>
-        private static void CopyMixinCollection(Prototype destPrototype, Prototype sourcePrototype, System.Reflection.PropertyInfo fieldInfo)
+        private static void CopyMixinCollection(Prototype destPrototype, Prototype sourcePrototype, PrototypeFieldInfo fieldInfo)
         {
             fieldInfo.GetValue(sourcePrototype, out PrototypeMixinList sourceList);
-            if (sourceList == null) return;
+            if (sourceList == null)
+                return;
 
             // Create a new list mixin on the destination prototype and take ownership of it
             PrototypeMixinList destList = new();
-            fieldInfo.SetValueFast(destPrototype, destList);
+            fieldInfo.SetValue(destPrototype, destList);
             destPrototype.SetDynamicFieldOwner(destList);
 
             // Copy all items from the old list
-            foreach (var sourceListItem in sourceList)
+            foreach (PrototypeMixinListItem sourceListItem in sourceList)
             {
                 // Create a new item in the destination list
                 PrototypeMixinListItem destListItem = new();
@@ -696,7 +855,7 @@ namespace MHServerEmu.Games.GameData.Calligraphy
                 destPrototype.SetDynamicFieldOwner(destListItem.Prototype);
 
                 // Copy list item metadata
-                destListItem.BlueprintId = sourceListItem.BlueprintId;
+                destListItem.BlueprintRef = sourceListItem.BlueprintRef;
                 destListItem.BlueprintCopyNum = sourceListItem.BlueprintCopyNum;
             }
         }
@@ -704,14 +863,15 @@ namespace MHServerEmu.Games.GameData.Calligraphy
         /// <summary>
         /// Copies a <see cref="PrototypePropertyCollection"/> from a source <see cref="Prototype"/>.
         /// </summary>
-        private static void CopyPrototypePropertyCollection(Prototype destPrototype, Prototype sourcePrototype, System.Reflection.PropertyInfo fieldInfo)
+        private static void CopyPrototypePropertyCollection(Prototype destPrototype, Prototype sourcePrototype, PrototypeFieldInfo fieldInfo)
         {
             fieldInfo.GetValue(sourcePrototype, out PrototypePropertyCollection sourcePropertyCollection);
-            if (sourcePropertyCollection == null) return;
+            if (sourcePropertyCollection == null)
+                return;
 
             // Create a copy of the source property collection and take ownership of it
-            var destPropertyCollection = sourcePropertyCollection.ShallowCopy();
-            fieldInfo.SetValueFast(destPrototype, destPropertyCollection);
+            PrototypePropertyCollection destPropertyCollection = sourcePropertyCollection.ShallowCopy();
+            fieldInfo.SetValue(destPrototype, destPropertyCollection);
             destPrototype.SetDynamicFieldOwner(destPropertyCollection);
         }
 
@@ -723,16 +883,21 @@ namespace MHServerEmu.Games.GameData.Calligraphy
         /// Acquires either the mixin itself or an element from a list mixin.
         /// </summary>
         private static Prototype AcquireMixinElement(Prototype ownerPrototype, Type elementClassType, Blueprint ownerBlueprint, Blueprint mixinBlueprint,
-            byte blueprintCopyNum, System.Reflection.PropertyInfo mixinFieldInfo, PrototypeFieldType fieldType)
+            byte blueprintCopyNum, PrototypeFieldInfo mixinFieldInfo, PrototypeFieldType fieldType)
         {
+            if (!Verify.IsNotNull(ownerPrototype)) return null;
+            if (!Verify.IsNotNull(ownerBlueprint)) return null;
+            if (!Verify.IsNotNull(mixinBlueprint)) return null;
+            if (!Verify.IsNotNull(mixinFieldInfo)) return null;
+
             if (fieldType == PrototypeFieldType.Mixin)
             {
                 // Allocate a simple mixin if needed and return it
                 mixinFieldInfo.GetValue(ownerPrototype, out Prototype element);
                 if (element == null)
                 {
-                    element = GameDatabase.PrototypeClassManager.AllocatePrototype(mixinFieldInfo.PropertyType);
-                    mixinFieldInfo.SetValueFast(ownerPrototype, element);
+                    element = GameDatabase.PrototypeClassManager.AllocatePrototype(mixinFieldInfo.ClassType);
+                    mixinFieldInfo.SetValue(ownerPrototype, element);
                 }
 
                 return element;
@@ -740,21 +905,22 @@ namespace MHServerEmu.Games.GameData.Calligraphy
             else if (fieldType == PrototypeFieldType.ListMixin)
             {
                 PrototypeMixinList list = AcquireOwnedMixinList(ownerPrototype, mixinFieldInfo, false);
-                if (list == null) Logger.ErrorReturn<Prototype>(null, "AcquireMixinElement(): failed to acquire mixin list");
+                if (!Verify.IsNotNull(list)) return null;
                 return AcquireOwnedUniqueMixinListElement(ownerPrototype, list, elementClassType, mixinBlueprint, blueprintCopyNum);
             }
 
-            return Logger.ErrorReturn<Prototype>(null, $"AcquireMixinElement(): {fieldType} is not a mixin");
+            Verify.IsTrue(false, "Field type not a mixin field!");
+            return null;
         }
 
         /// <summary>
         /// Creates if needed and returns a <see cref="PrototypeMixinList"/> from the specified field of the provided <see cref="Prototype"/> instance that belongs to it.
         /// </summary>
-        public static PrototypeMixinList AcquireOwnedMixinList(Prototype prototype, System.Reflection.PropertyInfo mixinFieldInfo, bool copyItemsFromParent)
+        public static PrototypeMixinList AcquireOwnedMixinList(Prototype prototype, PrototypeFieldInfo mixinFieldInfo, bool copyItemsFromParent)
         {
-            // Make sure the field info we have is for a list mixin
-            if (mixinFieldInfo.PropertyType != typeof(PrototypeMixinList))
-                return Logger.ErrorReturn<PrototypeMixinList>(null, $"AcquireOwnedMixinList(): Tried to acquire owned mixin list for a field that is not a list mixin");
+            if (!Verify.IsNotNull(prototype)) return null;
+            if (!Verify.IsNotNull(mixinFieldInfo)) return null;
+            if (!Verify.IsTrue(mixinFieldInfo.Type == PrototypeFieldType.ListMixin)) return null;
 
             // Create a new list if there isn't one or it belongs to another prototype
             mixinFieldInfo.GetValue(prototype, out PrototypeMixinList list);
@@ -768,7 +934,7 @@ namespace MHServerEmu.Games.GameData.Calligraphy
                     if (copyItemsFromParent)
                     {
                         // Create copies of all parent items and take ownership of those copies
-                        foreach (var item in list)
+                        foreach (PrototypeMixinListItem item in list)
                             AddMixinListItemCopy(prototype, newList, item);
                     }
                     else
@@ -780,7 +946,7 @@ namespace MHServerEmu.Games.GameData.Calligraphy
                 }
 
                 // Assign the new list to the field and take ownership of it
-                mixinFieldInfo.SetValueFast(prototype, newList);
+                mixinFieldInfo.SetValue(prototype, newList);
                 prototype.SetDynamicFieldOwner(newList);
 
                 list = newList;
@@ -795,18 +961,13 @@ namespace MHServerEmu.Games.GameData.Calligraphy
         private static Prototype AcquireOwnedUniqueMixinListElement(Prototype owner, PrototypeMixinList list, Type elementClassType,
             Blueprint elementBlueprint, byte blueprintCopyNum)
         {
+            if (!Verify.IsNotNull(owner)) return null;
+            if (!Verify.IsNotNull(list)) return null;
+            if (!Verify.IsNotNull(elementClassType)) return null;
+            if (!Verify.IsNotNull(elementBlueprint)) return null;
+
             // Look for a unique list element
-            // Instead of calling a separate findUniqueMixinListElement() method like the client does, we'll just look for it here
-            PrototypeMixinListItem uniqueListElement = null;
-            foreach (var element in list)
-            {
-                // Type check goes last because it's the most expensive one
-                if (element.BlueprintId == elementBlueprint.BlueprintDataRef && element.BlueprintCopyNum == blueprintCopyNum && element.Prototype.GetType() == elementClassType)
-                {
-                    uniqueListElement = element;
-                    break;
-                }
-            }
+            PrototypeMixinListItem uniqueListElement = FindUniqueMixinListElement(list, elementClassType, elementBlueprint.BlueprintDataRef, blueprintCopyNum);
 
             if (uniqueListElement == null)
             {
@@ -821,7 +982,7 @@ namespace MHServerEmu.Games.GameData.Calligraphy
                 PrototypeMixinListItem newListItem = new()
                 {
                     Prototype = prototype,
-                    BlueprintId = elementBlueprint.BlueprintDataRef,
+                    BlueprintRef = elementBlueprint.BlueprintDataRef,
                     BlueprintCopyNum = blueprintCopyNum
                 };
 
@@ -844,13 +1005,35 @@ namespace MHServerEmu.Games.GameData.Calligraphy
             }
         }
 
+        private static PrototypeMixinListItem FindUniqueMixinListElement(PrototypeMixinList list, Type elementClassType, BlueprintId blueprintRef, byte blueprintCopyNum)
+        {
+            if (!Verify.IsNotNull(elementClassType)) return null;
+
+            foreach (PrototypeMixinListItem element in list)
+            {
+                // Type check goes last because it's the most expensive one
+                if (element.BlueprintRef == blueprintRef &&
+                    element.BlueprintCopyNum == blueprintCopyNum &&
+                    element.Prototype.GetType() == elementClassType)
+                {
+                    return element;
+                }
+            }
+
+            return null;
+        }
+
         /// <summary>
         /// Creates a copy of a <see cref="Prototype"/> element from a parent <see cref="PrototypeMixinList"/> and assigns it to the child.
         /// </summary>
         private static Prototype AddMixinListItemCopy(Prototype owner, PrototypeMixinList list, PrototypeMixinListItem item)
         {
+            if (!Verify.IsNotNull(list)) return null;
+            if (!Verify.IsNotNull(owner)) return null;
+
             // Copy the prototype from the provided list item
             Prototype element = AllocateDynamicPrototype(item.Prototype.GetType(), PrototypeId.Invalid, item.Prototype);
+            if (!Verify.IsNotNull(element)) return null;
 
             // Update parent
             element.ParentDataRef = item.Prototype.DataRef;
@@ -871,17 +1054,19 @@ namespace MHServerEmu.Games.GameData.Calligraphy
         private static Prototype AllocateDynamicPrototype(Type classType, PrototypeId defaults, Prototype instanceToCopy)
         {
             // Create a new prototype of the specified type
-            var prototype = GameDatabase.PrototypeClassManager.AllocatePrototype(classType);
+            Prototype prototype = GameDatabase.PrototypeClassManager.AllocatePrototype(classType);
+            if (!Verify.IsNotNull(prototype)) return null;
 
             // Copy fields either from the specified defaults prototype or the provided prototype
             if (defaults != PrototypeId.Invalid && instanceToCopy == null)
             {
-                var defaultsProto = GameDatabase.GetPrototype<Prototype>(defaults);
-                CopyPrototypeFields(prototype, defaultsProto);
+                Prototype defaultsProto = GameDatabase.GetPrototype<Prototype>(defaults);
+                if (!Verify.IsNotNull(defaultsProto)) return null;
+                if (!Verify.IsTrue(CopyPrototypeFields(prototype, defaultsProto))) return null;
             }
             else if (instanceToCopy != null)
             {
-                CopyPrototypeFields(prototype, instanceToCopy);
+                if (!Verify.IsTrue(CopyPrototypeFields(prototype, instanceToCopy))) return null;
             }
 
             return prototype;
@@ -891,59 +1076,49 @@ namespace MHServerEmu.Games.GameData.Calligraphy
 
         #region Parsing
 
-        private delegate bool ParseDelegate(in FieldParserParams @params);
+        private delegate bool FieldParser(in FieldParserParams @params);
 
-        private static readonly Dictionary<PrototypeFieldType, ParseDelegate> ParseDelegateDict = new()
+        private static readonly Dictionary<PrototypeFieldType, FieldParser> FieldParsers = new()
         {
-            { PrototypeFieldType.Bool,                  ParseBool },
             { PrototypeFieldType.Int8,                  ParseInt8 },
             { PrototypeFieldType.Int16,                 ParseInt16 },
             { PrototypeFieldType.Int32,                 ParseInt32 },
-            { PrototypeFieldType.Int64,                 ParseInt64 },
+            { PrototypeFieldType.Int64,                 ParseUnmanaged64<long> },
+            { PrototypeFieldType.Bool,                  ParseBool },
             { PrototypeFieldType.Float32,               ParseFloat32 },
-            { PrototypeFieldType.Float64,               ParseFloat64 },
+            { PrototypeFieldType.Float64,               ParseUnmanaged64<double> },
             { PrototypeFieldType.Enum,                  ParseEnum },
-            { PrototypeFieldType.AssetRef,              ParseDataRef },
-            { PrototypeFieldType.AssetTypeRef,          ParseDataRef },
-            { PrototypeFieldType.CurveRef,              ParseDataRef },
-            { PrototypeFieldType.PrototypeDataRef,      ParseDataRef },
-            { PrototypeFieldType.LocaleStringId,        ParseDataRef },
+            { PrototypeFieldType.AssetRef,              ParseUnmanaged64<AssetId> },
+            { PrototypeFieldType.AssetTypeRef,          ParseUnmanaged64<AssetTypeId> },
+            { PrototypeFieldType.CurveRef,              ParseUnmanaged64<CurveId> },
+            { PrototypeFieldType.PrototypeDataRef,      ParseUnmanaged64<PrototypeId> },
+            { PrototypeFieldType.LocaleStringId,        ParseUnmanaged64<LocaleStringId> },
             { PrototypeFieldType.PrototypePtr,          ParsePrototypePtr },
             { PrototypeFieldType.PropertyId,            ParsePropertyId },
             { PrototypeFieldType.ListBool,              ParseListBool },
             { PrototypeFieldType.ListInt8,              ParseListInt8 },
             { PrototypeFieldType.ListInt16,             ParseListInt16 },
             { PrototypeFieldType.ListInt32,             ParseListInt32 },
-            { PrototypeFieldType.ListInt64,             ParseListInt64 },
+            { PrototypeFieldType.ListInt64,             ParseListUnmanaged64<long> },
             { PrototypeFieldType.ListFloat32,           ParseListFloat32 },
-            { PrototypeFieldType.ListFloat64,           ParseListFloat64 },
+            { PrototypeFieldType.ListFloat64,           ParseListUnmanaged64<double> },
             { PrototypeFieldType.ListEnum,              ParseListEnum },
-            { PrototypeFieldType.ListAssetRef,          ParseListAssetRef },
-            { PrototypeFieldType.ListAssetTypeRef,      ParseListAssetTypeRef },
-            { PrototypeFieldType.ListPrototypeDataRef,  ParseListPrototypeDataRef },
+            { PrototypeFieldType.ListAssetRef,          ParseListUnmanaged64<AssetId> },
+            { PrototypeFieldType.ListAssetTypeRef,      ParseListUnmanaged64<AssetTypeId> },
+            { PrototypeFieldType.ListPrototypeDataRef,  ParseListUnmanaged64<PrototypeId> },
             { PrototypeFieldType.ListPrototypePtr,      ParseListPrototypePtr },
             { PrototypeFieldType.PropertyCollection,    ParsePropertyList },
         };
 
         /// <summary>
-        /// Returns a <see cref="ParseDelegate"/> for the specified <see cref="PrototypeFieldType"/> enum value.
+        /// Returns a <see cref="FieldParser"/> for the specified <see cref="PrototypeFieldType"/> enum value.
         /// </summary>
-        private static ParseDelegate GetParser(PrototypeFieldType prototypeFieldType)
+        private static FieldParser GetParser(PrototypeFieldType fieldType)
         {
-            if (ParseDelegateDict.TryGetValue(prototypeFieldType, out ParseDelegate parser) == false)
-                return Logger.ErrorReturn<ParseDelegate>(null, $"GetParser(): Unsupported prototype field type {prototypeFieldType}");
+            if (!Verify.IsTrue(FieldParsers.TryGetValue(fieldType, out FieldParser parser), $"Failed to find parser for fieldType: {fieldType}"))
+                return null;
 
             return parser;
-        }
-
-        /// <summary>
-        /// Parses a <see cref="bool"/> value and assigns it to a prototype field.
-        /// </summary>
-        private static bool ParseBool(in FieldParserParams @params)
-        {
-            long rawValue = @params.Reader.ReadInt64();
-            @params.FieldInfo.SetValueFast(@params.OwnerPrototype, rawValue != 0);
-            return true;
         }
 
         /// <summary>
@@ -951,8 +1126,8 @@ namespace MHServerEmu.Games.GameData.Calligraphy
         /// </summary>
         private static bool ParseInt8(in FieldParserParams @params)
         {
-            long rawValue = @params.Reader.ReadInt64();
-            @params.FieldInfo.SetValueFast(@params.OwnerPrototype, (sbyte)rawValue);
+            if (!Verify.IsTrue(@params.Reader.Read(out long serializedValue))) return false;
+            @params.FieldInfo.SetValue(@params.OwnerPrototype, (sbyte)serializedValue);
             return true;
         }
 
@@ -961,8 +1136,8 @@ namespace MHServerEmu.Games.GameData.Calligraphy
         /// </summary>
         private static bool ParseInt16(in FieldParserParams @params)
         {
-            long rawValue = @params.Reader.ReadInt64();
-            @params.FieldInfo.SetValueFast(@params.OwnerPrototype, (short)rawValue);
+            if (!Verify.IsTrue(@params.Reader.Read(out long serializedValue))) return false;
+            @params.FieldInfo.SetValue(@params.OwnerPrototype, (short)serializedValue);
             return true;
         }
 
@@ -971,29 +1146,42 @@ namespace MHServerEmu.Games.GameData.Calligraphy
         /// </summary>
         private static bool ParseInt32(in FieldParserParams @params)
         {
-            long rawValue = @params.Reader.ReadInt64();
+            if (!Verify.IsTrue(@params.Reader.Read(out long serializedValue))) return false;
 
             // Some prototypes (e.g. ProceduralProfileDrDoomPhase1.defaults) use very high values for int fields that cause overflows.
             // The client handles this by taking the first 4 bytes of the value and throwing away everything else.
             // We handle this by setting those fields to int.MaxValue, since the intention is apparently to have the value be as high
             // as possible. This doesn't seem to happen with other types.
-            if (rawValue > int.MaxValue)
+            if (serializedValue > int.MaxValue)
             {
-                Logger.Trace($"ParseInt32(): Overflow for Int32 field {@params.BlueprintMemberInfo.Member.FieldName}, raw value {rawValue}, file name {@params.FileName}");
-                rawValue = int.MaxValue;
+                Logger.Trace($"ParseInt32(): Overflow for Int32 field {@params.BlueprintMemberInfo.Member.FieldName}, serialized value {serializedValue}, file name {@params.FileName}");
+                serializedValue = int.MaxValue;
             }
 
-            @params.FieldInfo.SetValueFast(@params.OwnerPrototype, (int)rawValue);
+            @params.FieldInfo.SetValue(@params.OwnerPrototype, (int)serializedValue);
             return true;
         }
 
         /// <summary>
-        /// Parses a <see cref="long"/> value and assigns it to a prototype field.
+        /// Parses an <see langword="unmanaged"/> 64-bit value and assigns it to a prototype field.
         /// </summary>
-        private static bool ParseInt64(in FieldParserParams @params)
+        /// <remarks>
+        /// We use this for any 64-bit values that don't need to be cast after reading.
+        /// </remarks>
+        private static bool ParseUnmanaged64<T>(in FieldParserParams @params) where T: unmanaged
         {
-            long rawValue = @params.Reader.ReadInt64();
-            @params.FieldInfo.SetValueFast(@params.OwnerPrototype, rawValue);
+            if (!Verify.IsTrue(@params.Reader.Read(out T serializedValue))) return false;
+            @params.FieldInfo.SetValue(@params.OwnerPrototype, serializedValue);
+            return true;
+        }
+
+        /// <summary>
+        /// Parses a <see cref="bool"/> value and assigns it to a prototype field.
+        /// </summary>
+        private static bool ParseBool(in FieldParserParams @params)
+        {
+            if (!Verify.IsTrue(@params.Reader.Read(out long serializedValue))) return false;
+            @params.FieldInfo.SetValue(@params.OwnerPrototype, serializedValue != 0);
             return true;
         }
 
@@ -1002,18 +1190,8 @@ namespace MHServerEmu.Games.GameData.Calligraphy
         /// </summary>
         private static bool ParseFloat32(in FieldParserParams @params)
         {
-            double rawValue = @params.Reader.ReadDouble();
-            @params.FieldInfo.SetValueFast(@params.OwnerPrototype, (float)rawValue);
-            return true;
-        }
-
-        /// <summary>
-        /// Parses a <see cref="double"/> value and assigns it to a prototype field.
-        /// </summary>
-        private static bool ParseFloat64(in FieldParserParams @params)
-        {
-            double rawValue = @params.Reader.ReadDouble();
-            @params.FieldInfo.SetValueFast(@params.OwnerPrototype, rawValue);
+            if (!Verify.IsTrue(@params.Reader.Read(out double serializedValue))) return false;
+            @params.FieldInfo.SetValue(@params.OwnerPrototype, (float)serializedValue);
             return true;
         }
 
@@ -1024,7 +1202,7 @@ namespace MHServerEmu.Games.GameData.Calligraphy
         {
             // Enums are represented in Calligraphy by assets.
             // We get asset name from the serialized asset id, and then parse the actual enum value from it.
-            AssetId assetId = (AssetId)@params.Reader.ReadUInt64();
+            if (!Verify.IsTrue(@params.Reader.Read(out AssetId assetId))) return false;
             string assetName = GameDatabase.GetAssetName(assetId);
 
             // Fix asset names that start with a digit (C# doesn't allow enum members to start with a digit)
@@ -1032,35 +1210,19 @@ namespace MHServerEmu.Games.GameData.Calligraphy
                 assetName = $"_{assetName}";
 
             // Try to parse enum value from its name
-            if (Enum.TryParse(@params.FieldInfo.PropertyType, assetName, true, out object value) == false)
+            if (Enum.TryParse(@params.FieldInfo.ClassType, assetName, true, out object value) == false)
             {
                 if (assetName != string.Empty)
-                    Logger.Trace(string.Format("ParseEnum(): Missing enum member {0} in {1}, field {2}, file name {3}",
-                        assetName,
-                        @params.FieldInfo.PropertyType.Name,
-                        @params.BlueprintMemberInfo.Member.RuntimeClassFieldInfo.Name,
-                        @params.FileName));
+                    Logger.Trace($"ParseEnum(): Missing enum member {assetName} in {@params.FieldInfo.ClassType.Name}, field {@params.FieldInfo.Name}, file name {@params.FileName}");
 
                 // Set value to default for enums we can't parse
-                AssetEnumAttribute attribute = @params.FieldInfo.PropertyType.GetCustomAttribute<AssetEnumAttribute>();
-                @params.FieldInfo.SetValueFast(@params.OwnerPrototype, attribute.DefaultValue);
+                int defaultValue = @params.FieldInfo.EnumDefaultValue;
+                @params.FieldInfo.SetValue(@params.OwnerPrototype, defaultValue);
                 return true;
             }
 
             // Set value to what we parsed if everything is okay
-            @params.FieldInfo.SetValueFast(@params.OwnerPrototype, (int)value);
-            return true;
-        }
-
-        /// <summary>
-        /// Parses a data reference and assigns it to a prototype field.
-        /// </summary>
-        private static bool ParseDataRef(in FieldParserParams @params)
-        {
-            // Data refs can be StringId, AssetTypeId, CurveId, PrototypeId, or LocaleStringId.
-            // C# enums are not picky when assigning values with reflection, so we can reuse the same code for all of them.
-            ulong value = @params.Reader.ReadUInt64();
-            @params.FieldInfo.SetValueFast(@params.OwnerPrototype, value);
+            @params.FieldInfo.SetValue(@params.OwnerPrototype, (int)value);
             return true;
         }
 
@@ -1072,8 +1234,10 @@ namespace MHServerEmu.Games.GameData.Calligraphy
             // The client nests multiple methods for deserializing embedded prototypes:
             // ParsePrototypePtr -> deserializePrototypePtr -> deserializePrototypePtrNoTemplate
             // We combine deserializePrototypePtr and deserializePrototypePtrNoTemplate in a single method.
-            DeserializePrototypePtr(@params, false, out var prototype);
-            @params.FieldInfo.SetValueFast(@params.OwnerPrototype, prototype);
+            if (DeserializePrototypePtr(@params, false, out Prototype prototype) == false)
+                return false;
+
+            @params.FieldInfo.SetValue(@params.OwnerPrototype, prototype);
             return true;
         }
 
@@ -1083,16 +1247,18 @@ namespace MHServerEmu.Games.GameData.Calligraphy
         private static bool DeserializePrototypePtr(in FieldParserParams @params, bool polymorphicSetAllowed, out Prototype prototype)
         {
             prototype = null;
-            BinaryReader reader = @params.Reader;
+            CalligraphyReader reader = @params.Reader;
 
             // Parse header
-            PrototypeDataHeader header = new(reader);
+            if (!Verify.IsTrue(reader.ReadPrototypeHeader(out PrototypeDataHeader header, @params.FileName))) return false;
 
             if (header.ReferenceExists == false)
                 return true;   // Early return if this is an empty prototype
 
-            if (header.PolymorphicData && (polymorphicSetAllowed == false))
-                return Logger.ErrorReturn(false, $"DeserializePrototypePtr(): Polymorphic prototype data encountered but not expected");
+            if (!Verify.IsTrue(header.ReferenceType != PrototypeId.Invalid)) return false;
+
+            if (!Verify.IsTrue(polymorphicSetAllowed || header.PolymorphicData == false, $"Polymorphic prototype data encountered but not expected"))
+                return false;
             
             // If this prototype has no data of its own, but it references a parent, we interpret it as its parent
             if (header.InstanceDataExists == false)
@@ -1105,8 +1271,7 @@ namespace MHServerEmu.Games.GameData.Calligraphy
             Type classType = GameDatabase.DataDirectory.GetPrototypeClassType(header.ReferenceType);
             prototype = GameDatabase.PrototypeClassManager.AllocatePrototype(classType);
 
-            DoDeserialize(prototype, header, PrototypeId.Invalid, @params.FileName, reader);
-            return true;
+            return DoDeserialize(prototype, header, PrototypeId.Invalid, @params.FileName, reader);
         }
 
         /// <summary>
@@ -1114,50 +1279,58 @@ namespace MHServerEmu.Games.GameData.Calligraphy
         /// </summary>
         private static bool ParsePropertyId(in FieldParserParams @params)
         {
-            BinaryReader reader = @params.Reader;
-            PrototypeDataHeader header = new(reader);
+            CalligraphyReader reader = @params.Reader;
+
+            if (!Verify.IsTrue(reader.ReadPrototypeHeader(out PrototypeDataHeader header, @params.FileName))) return false;
 
             if (header.InstanceDataExists)
             {
-                short numFieldGroups = reader.ReadInt16();
+                if (!Verify.IsTrue(reader.Read(out short numFieldGroups), $"Unable to read number of field groups for {@params.OwnerPrototype}"))
+                    return false;
+
                 for (int i = 0; i < numFieldGroups; i++)
                 {
-                    BlueprintId groupBlueprintId = (BlueprintId)reader.ReadUInt64();
-                    byte blueprintCopyNum = reader.ReadByte();
+                    if (!Verify.IsTrue(reader.Read(out BlueprintId groupBlueprintDataRef), $"Error reading declaring blueprint id from {@params.OwnerPrototype}"))
+                        return false;
 
-                    // Get the field group blueprint and make sure it is bound to a property
-                    Blueprint groupBlueprint = GameDatabase.GetBlueprint(groupBlueprintId);
-                    if (groupBlueprint.IsProperty == false)
-                        return Logger.ErrorReturn(false, "ParsePropertyId(): Group blueprint is not bound to a property");
+                    if (!Verify.IsTrue(groupBlueprintDataRef != BlueprintId.Invalid)) return false;
 
-                    // Deserialize the property id and assign it to the field
-                    PropertyId propertyId = PropertyId.Invalid;
-                    DeserializeFieldGroupIntoPropertyId(ref propertyId, groupBlueprint, @params.FileName, reader, "Property List");
-                    @params.FieldInfo.SetValueFast(@params.OwnerPrototype, propertyId);
+                    if (!Verify.IsTrue(reader.Read(out byte fieldGroupCopyNum), $"Error reading blueprint copy number from {@params.OwnerPrototype}"))
+                        return false;
+
+                    Blueprint groupBlueprint = GameDatabase.GetBlueprint(groupBlueprintDataRef);
+                    if (!Verify.IsNotNull(groupBlueprint, $"Failed to get declaring blueprint from id for {@params.OwnerPrototype}"))
+                        return false;
+
+                    if (Verify.IsTrue(groupBlueprint.IsProperty))
+                    {
+                        PropertyId id = PropertyId.Invalid;
+                        DeserializeFieldGroupIntoPropertyId(ref id, groupBlueprint, @params.FileName, reader, "Property List");
+                        Verify.IsTrue(id != PropertyId.Invalid);
+
+                        @params.FieldInfo.SetValue(@params.OwnerPrototype, id);
+                    }
 
                     // Same as in DeserializePropertyMixin(), there should be no list fields
-                    short numListFields = reader.ReadInt16();
-                    if (numListFields != 0)
-                        return Logger.ErrorReturn(false, $"ParsePropertyId(): Property field group numListFields != 0");
+                    if (!Verify.IsTrue(reader.Read(out short numFields))) return false;
+                    if (!Verify.IsTrue(numFields == 0)) return false;
                 }
             }
             else if (header.ReferenceExists)
             {
                 // If there is no data but a reference to a parent exists, get default property id from parent blueprint
-                Blueprint parentBlueprint = GameDatabase.DataDirectory.GetPrototypeBlueprint(header.ReferenceType);
+                Blueprint blueprint = GameDatabase.DataDirectory.GetPrototypeBlueprint(header.ReferenceType);
+                if (!Verify.IsTrue(blueprint != null && blueprint.IsProperty)) return false;
 
-                if (parentBlueprint.IsProperty == false)
-                    return Logger.ErrorReturn(false, "ParsePropertyId(): Parent blueprint is not bound to a property");
+                PrototypeId propertyDataRef = blueprint.PropertyDataRef;
+                PropertyEnum enumVal = GameDatabase.PropertyInfoTable.GetPropertyEnumFromPrototype(propertyDataRef);
+                if (!Verify.IsTrue(enumVal != PropertyEnum.Invalid)) return false;
+                PropertyInfo info = GameDatabase.PropertyInfoTable.LookupPropertyInfo(enumVal);
 
-                PrototypeId propertyDataRef = parentBlueprint.PropertyDataRef;
-                PropertyEnum propertyEnum = GameDatabase.PropertyInfoTable.GetPropertyEnumFromPrototype(propertyDataRef);
+                PropertyId id = new(enumVal, info.DefaultParamValues);
+                Verify.IsTrue(id != PropertyId.Invalid);
 
-                if (propertyEnum == PropertyEnum.Invalid)
-                    return Logger.ErrorReturn(false, "ParsePropertyId(): Parent property enum value is invalid");
-
-                Properties.PropertyInfo info = GameDatabase.PropertyInfoTable.LookupPropertyInfo(propertyEnum);
-                PropertyId defaultId = new(propertyEnum, info.DefaultParamValues);
-                @params.FieldInfo.SetValueFast(@params.OwnerPrototype, defaultId);
+                @params.FieldInfo.SetValue(@params.OwnerPrototype, id);
             }
 
             return true;
@@ -1168,16 +1341,18 @@ namespace MHServerEmu.Games.GameData.Calligraphy
         /// </summary>
         private static bool ParseListBool(in FieldParserParams @params)
         {
-            BinaryReader reader = @params.Reader;
+            CalligraphyReader reader = @params.Reader;
 
-            bool[] values = new bool[reader.ReadInt16()];
-            for (int i = 0; i < values.Length; i++)
+            if (!Verify.IsTrue(reader.Read(out short numItems))) return false;
+            bool[] values = new bool[numItems];
+
+            for (int i = 0; i < numItems; i++)
             {
-                long rawValue = reader.ReadInt64();
-                values[i] = rawValue != 0;
+                if (!Verify.IsTrue(reader.Read(out long serializedValue))) return false;
+                values[i] = serializedValue != 0;
             }
 
-            @params.FieldInfo.SetValueFast(@params.OwnerPrototype, values);
+            @params.FieldInfo.SetValue(@params.OwnerPrototype, values);
             return true;
         }
 
@@ -1186,16 +1361,18 @@ namespace MHServerEmu.Games.GameData.Calligraphy
         /// </summary>
         private static bool ParseListInt8(in FieldParserParams @params)
         {
-            BinaryReader reader = @params.Reader;
+            CalligraphyReader reader = @params.Reader;
 
-            sbyte[] values = new sbyte[reader.ReadInt16()];
-            for (int i = 0; i < values.Length; i++)
+            if (!Verify.IsTrue(reader.Read(out short numItems))) return false;
+            sbyte[] values = new sbyte[numItems];
+
+            for (int i = 0; i < numItems; i++)
             {
-                long rawValue = reader.ReadInt64();
-                values[i] = (sbyte)rawValue;
+                if (!Verify.IsTrue(reader.Read(out long serializedValue))) return false;
+                values[i] = (sbyte)serializedValue;
             }
 
-            @params.FieldInfo.SetValueFast(@params.OwnerPrototype, values);
+            @params.FieldInfo.SetValue(@params.OwnerPrototype, values);
             return true;
         }
 
@@ -1204,16 +1381,18 @@ namespace MHServerEmu.Games.GameData.Calligraphy
         /// </summary>
         private static bool ParseListInt16(in FieldParserParams @params)
         {
-            BinaryReader reader = @params.Reader;
+            CalligraphyReader reader = @params.Reader;
 
-            short[] values = new short[reader.ReadInt16()];
-            for (int i = 0; i < values.Length; i++)
+            if (!Verify.IsTrue(reader.Read(out short numItems))) return false;
+            short[] values = new short[numItems];
+
+            for (int i = 0; i < numItems; i++)
             {
-                long rawValue = reader.ReadInt64();
-                values[i] = (short)rawValue;
+                if (!Verify.IsTrue(reader.Read(out long serializedValue))) return false;
+                values[i] = (short)serializedValue;
             }
 
-            @params.FieldInfo.SetValueFast(@params.OwnerPrototype, values);
+            @params.FieldInfo.SetValue(@params.OwnerPrototype, values);
             return true;
         }
 
@@ -1222,34 +1401,40 @@ namespace MHServerEmu.Games.GameData.Calligraphy
         /// </summary>
         private static bool ParseListInt32(in FieldParserParams @params)
         {
-            BinaryReader reader = @params.Reader;
+            CalligraphyReader reader = @params.Reader;
 
-            int[] values = new int[reader.ReadInt16()];
-            for (int i = 0; i < values.Length; i++)
+            if (!Verify.IsTrue(reader.Read(out short numItems))) return false;
+            int[] values = new int[numItems];
+
+            for (int i = 0; i < numItems; i++)
             {
-                long rawValue = reader.ReadInt64();
-                values[i] = (int)rawValue;
+                if (!Verify.IsTrue(reader.Read(out long serializedValue))) return false;
+                values[i] = (int)serializedValue;
             }
 
-            @params.FieldInfo.SetValueFast(@params.OwnerPrototype, values);
+            @params.FieldInfo.SetValue(@params.OwnerPrototype, values);
             return true;
         }
 
         /// <summary>
-        /// Parses a collection of <see cref="long"/> values and assigns it to a prototype field.
+        /// Parses a collection of <see langword="unmanaged"/> 64-bit values and assigns it to a prototype field.
         /// </summary>
-        private static bool ParseListInt64(in FieldParserParams @params)
+        /// <remarks>
+        /// We use this for any 64-bit values that don't need to be cast after reading.
+        /// </remarks>
+        private static bool ParseListUnmanaged64<T>(in FieldParserParams @params) where T : unmanaged
         {
-            BinaryReader reader = @params.Reader;
+            CalligraphyReader reader = @params.Reader;
 
-            long[] values = new long[reader.ReadInt16()];
-            for (int i = 0; i < values.Length; i++)
+            if (!Verify.IsTrue(reader.Read(out short numItems))) return false;
+            T[] values = new T[numItems];
+
+            for (int i = 0; i < numItems; i++)
             {
-                long rawValue = reader.ReadInt64();
-                values[i] = rawValue;
+                if (!Verify.IsTrue(reader.Read(out values[i]))) return false;
             }
 
-            @params.FieldInfo.SetValueFast(@params.OwnerPrototype, values);
+            @params.FieldInfo.SetValue(@params.OwnerPrototype, values);
             return true;
         }
 
@@ -1258,34 +1443,18 @@ namespace MHServerEmu.Games.GameData.Calligraphy
         /// </summary>
         private static bool ParseListFloat32(in FieldParserParams @params)
         {
-            BinaryReader reader = @params.Reader;
+            CalligraphyReader reader = @params.Reader;
 
-            float[] values = new float[reader.ReadInt16()];
-            for (int i = 0; i < values.Length; i++)
+            if (!Verify.IsTrue(reader.Read(out short numItems))) return false;
+            float[] values = new float[numItems];
+
+            for (int i = 0; i < numItems; i++)
             {
-                double rawValue = reader.ReadDouble();
-                values[i] = (float)rawValue;
+                if (!Verify.IsTrue(reader.Read(out double serializedValue))) return false;
+                values[i] = (float)serializedValue;
             }
 
-            @params.FieldInfo.SetValueFast(@params.OwnerPrototype, values);
-            return true;
-        }
-
-        /// <summary>
-        /// Parses a collection of <see cref="double"/> values and assigns it to a prototype field.
-        /// </summary>
-        private static bool ParseListFloat64(in FieldParserParams @params)
-        {
-            BinaryReader reader = @params.Reader;
-
-            double[] values = new double[reader.ReadInt16()];
-            for (int i = 0; i < values.Length; i++)
-            {
-                double rawValue = reader.ReadDouble();
-                values[i] = rawValue;
-            }
-
-            @params.FieldInfo.SetValueFast(@params.OwnerPrototype, values);
+            @params.FieldInfo.SetValue(@params.OwnerPrototype, values);
             return true;
         }
 
@@ -1294,78 +1463,28 @@ namespace MHServerEmu.Games.GameData.Calligraphy
         /// </summary>
         private static bool ParseListEnum(in FieldParserParams @params)
         {
-            BinaryReader reader = @params.Reader;
+            CalligraphyReader reader = @params.Reader;
+
+            if (!Verify.IsTrue(reader.Read(out short numItems))) return false;
 
             // We have only type info for our enum, so we have to use Array.CreateInstance() to create our enum array
-            Array values = Array.CreateInstance(@params.FieldInfo.PropertyType.GetElementType(), reader.ReadInt16());
-            for (int i = 0; i < values.Length; i++)
+            Type elementType = @params.FieldInfo.ElementType;
+            Array values = Array.CreateInstance(elementType, numItems);
+
+            for (int i = 0; i < numItems; i++)
             {
                 // Enums are represented in Calligraphy by assets.
                 // We get asset name from the serialized asset id, and then parse the actual enum value from it.
-                AssetId assetId = (AssetId)reader.ReadUInt64();
+                if (!Verify.IsTrue(reader.Read(out AssetId assetId))) return false;
                 string assetName = GameDatabase.GetAssetName(assetId);
 
                 // Looks like there are no numeric or invalid enum values in list enums, so we can speed this up
                 // by just parsing whatever asset name we have as is.
-                object value = Enum.Parse(@params.FieldInfo.PropertyType.GetElementType(), assetName, true);
+                object value = Enum.Parse(elementType, assetName, true);
                 values.SetValue(value, i);
             }
 
-            @params.FieldInfo.SetValueFast(@params.OwnerPrototype, values);
-            return true;
-        }
-
-        /// <summary>
-        /// Parses a collection of <see cref="AssetId"/> values and assigns it to a prototype field.
-        /// </summary>
-        private static bool ParseListAssetRef(in FieldParserParams @params)
-        {
-            BinaryReader reader = @params.Reader;
-
-            AssetId[] values = new AssetId[reader.ReadInt16()];
-            for (int i = 0; i < values.Length; i++)
-            {
-                ulong rawValue = reader.ReadUInt64();
-                values[i] = (AssetId)rawValue;
-            }
-
-            @params.FieldInfo.SetValueFast(@params.OwnerPrototype, values);
-            return true;
-        }
-
-        /// <summary>
-        /// Parses a collection of <see cref="AssetTypeId"/> values and assigns it to a prototype field.
-        /// </summary>
-        private static bool ParseListAssetTypeRef(in FieldParserParams @params)
-        {
-            BinaryReader reader = @params.Reader;
-
-            AssetTypeId[] values = new AssetTypeId[reader.ReadInt16()];
-            for (int i = 0; i < values.Length; i++)
-            {
-                ulong rawValue = reader.ReadUInt64();
-                values[i] = (AssetTypeId)rawValue;
-            }
-
-            @params.FieldInfo.SetValueFast(@params.OwnerPrototype, values);
-            return true;
-        }
-
-        /// <summary>
-        /// Parses a collection of <see cref="PrototypeId"/> values and assigns it to a prototype field.
-        /// </summary>
-        private static bool ParseListPrototypeDataRef(in FieldParserParams @params)
-        {
-            BinaryReader reader = @params.Reader;
-
-            PrototypeId[] values = new PrototypeId[reader.ReadInt16()];
-            for (int i = 0; i < values.Length; i++)
-            {
-                ulong rawValue = reader.ReadUInt64();
-                values[i] = (PrototypeId)rawValue;
-            }
-
-            @params.FieldInfo.SetValueFast(@params.OwnerPrototype, values);
+            @params.FieldInfo.SetValue(@params.OwnerPrototype, values);
             return true;
         }
 
@@ -1374,16 +1493,22 @@ namespace MHServerEmu.Games.GameData.Calligraphy
         /// </summary>
         private static bool ParseListPrototypePtr(in FieldParserParams @params)
         {
-            BinaryReader reader = @params.Reader;
+            CalligraphyReader reader = @params.Reader;
 
-            Array values = Array.CreateInstance(@params.FieldInfo.PropertyType.GetElementType(), reader.ReadInt16());
-            for (int i = 0; i < values.Length; i++)
+            if (!Verify.IsTrue(reader.Read(out short numItems))) return false;
+
+            Type elementType = @params.FieldInfo.ElementType;
+            Array values = Array.CreateInstance(elementType, numItems);
+
+            for (int i = 0; i < numItems; i++)
             {
-                DeserializePrototypePtr(@params, true, out Prototype prototype);
+                if (DeserializePrototypePtr(@params, true, out Prototype prototype) == false)
+                    return false;
+
                 values.SetValue(prototype, i);
             }
 
-            @params.FieldInfo.SetValueFast(@params.OwnerPrototype, values);
+            @params.FieldInfo.SetValue(@params.OwnerPrototype, values);
             return true;
         }
 
@@ -1394,33 +1519,45 @@ namespace MHServerEmu.Games.GameData.Calligraphy
         {
             // PropertyList seems to be used only in ModPrototype
             PrototypePropertyCollection propertyCollection = GetPropertyCollectionField(@params.OwnerPrototype);
-            if (propertyCollection == null)
-                return Logger.ErrorReturn(false, $"ParsePropertyList(): Failed to get a property collection, file name {@params.FileName}");
+            if (!Verify.IsNotNull(propertyCollection)) return false;
 
-            BinaryReader reader = @params.Reader;
+            CalligraphyReader reader = @params.Reader;
 
-            short numItems = reader.ReadInt16();
+            if (!Verify.IsTrue(reader.Read(out short numItems))) return false;
+
+            if (numItems == 0)
+                return true;
+
             for (int i = 0; i < numItems; i++)
             {
-                PrototypeDataHeader header = new(reader);
-                if (header.InstanceDataExists == false) continue;
+                if (!Verify.IsTrue(reader.ReadPrototypeHeader(out PrototypeDataHeader header, @params.FileName))) return false;
 
-                short numFieldGroups = reader.ReadInt16();
+                if (header.InstanceDataExists == false)
+                    continue;
+
+                if (!Verify.IsTrue(reader.Read(out short numFieldGroups), $"Unable to read number of field groups for {@params.OwnerPrototype}"))
+                    return false;
+
                 for (int j = 0; j < numFieldGroups; j++)
                 {
-                    BlueprintId groupBlueprintId = (BlueprintId)reader.ReadUInt64();
-                    byte blueprintCopyNum = reader.ReadByte();
+                    if (!Verify.IsTrue(reader.Read(out BlueprintId groupBlueprintDataRef), $"Error reading {j} group's declaring blueprint id from {@params.OwnerPrototype}"))
+                        return false;
 
-                    // Get the field group blueprint and make sure it is bound to a property
-                    Blueprint groupBlueprint = GameDatabase.GetBlueprint(groupBlueprintId);
-                    if (groupBlueprint.IsProperty == false)
-                        return Logger.ErrorReturn(false, "ParsePropertyList(): Group blueprint is not bound to a property");
+                    if (!Verify.IsTrue(groupBlueprintDataRef != BlueprintId.Invalid)) return false;
 
-                    DeserializeFieldGroupIntoProperty(propertyCollection, groupBlueprint, blueprintCopyNum, @params.FileName, reader, "PropertyList");
+                    if (!Verify.IsTrue(reader.Read(out byte fieldGroupCopyNum), $"Error reading {j} group's blueprint copy number from {@params.OwnerPrototype}"))
+                        return false;
 
-                    short numListFields = reader.ReadInt16();
-                    if (numListFields != 0)
-                        return Logger.ErrorReturn(false, $"ParsePropertyList(): Property field group numListFields != 0");
+                    Blueprint groupBlueprint = GameDatabase.GetBlueprint(groupBlueprintDataRef);
+                    if (!Verify.IsNotNull(groupBlueprint, $"Failed to get {j} group's declaring blueprint from id for {@params.OwnerPrototype}"))
+                        return false;
+
+                    if (Verify.IsTrue(groupBlueprint.IsProperty))
+                        DeserializeFieldGroupIntoProperty(propertyCollection, groupBlueprint, fieldGroupCopyNum, @params.FileName, reader, "PropertyList");
+
+                    // Should be no list fields
+                    if (!Verify.IsTrue(reader.Read(out short numFields))) return false;
+                    if (!Verify.IsTrue(numFields == 0)) return false;
                 }
             }
 
@@ -1430,25 +1567,15 @@ namespace MHServerEmu.Games.GameData.Calligraphy
         /// <summary>
         /// Contains parameters for field parsing methods.
         /// </summary>
-        private readonly struct FieldParserParams
+        private readonly struct FieldParserParams(CalligraphyReader reader, PrototypeFieldInfo fieldInfo, Prototype ownerPrototype,
+            Blueprint ownerBlueprint, string fileName, BlueprintMemberInfo blueprintMemberInfo)
         {
-            public readonly BinaryReader Reader;
-            public readonly System.Reflection.PropertyInfo FieldInfo;
-            public readonly Prototype OwnerPrototype;
-            public readonly Blueprint OwnerBlueprint;
-            public readonly string FileName;
-            public readonly BlueprintMemberInfo BlueprintMemberInfo;
-
-            public FieldParserParams(BinaryReader reader, System.Reflection.PropertyInfo fieldInfo, Prototype ownerPrototype,
-                Blueprint ownerBlueprint, string fileName, BlueprintMemberInfo blueprintMemberInfo)
-            {
-                Reader = reader;
-                FieldInfo = fieldInfo;
-                OwnerPrototype = ownerPrototype;
-                OwnerBlueprint = ownerBlueprint;
-                FileName = fileName;
-                BlueprintMemberInfo = blueprintMemberInfo;
-            }
+            public readonly CalligraphyReader Reader = reader;
+            public readonly PrototypeFieldInfo FieldInfo = fieldInfo;
+            public readonly Prototype OwnerPrototype = ownerPrototype;
+            public readonly Blueprint OwnerBlueprint = ownerBlueprint;
+            public readonly string FileName = fileName;
+            public readonly BlueprintMemberInfo BlueprintMemberInfo = blueprintMemberInfo;
         }
 
         #endregion

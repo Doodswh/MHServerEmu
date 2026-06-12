@@ -3,33 +3,6 @@ using MHServerEmu.Games.GameData.Calligraphy;
 
 namespace MHServerEmu.Games.GameData.Prototypes
 {
-    public readonly struct PrototypeDataHeader
-    {
-        [Flags]
-        private enum PrototypeDataDesc : byte
-        {
-            None                = 0,
-            ReferenceExists     = 1 << 0,
-            InstanceDataExists  = 1 << 1,
-            PolymorphicData     = 1 << 2
-        }
-
-        public bool ReferenceExists { get; }
-        public bool InstanceDataExists { get; }
-        public bool PolymorphicData { get; }
-        public PrototypeId ReferenceType { get; }     // Parent prototype id, invalid (0) for .defaults
-
-        public PrototypeDataHeader(BinaryReader reader)
-        {
-            var flags = (PrototypeDataDesc)reader.ReadByte();
-            ReferenceExists = flags.HasFlag(PrototypeDataDesc.ReferenceExists);
-            InstanceDataExists = flags.HasFlag(PrototypeDataDesc.InstanceDataExists);
-            PolymorphicData = flags.HasFlag(PrototypeDataDesc.PolymorphicData);
-
-            ReferenceType = ReferenceExists ? (PrototypeId)reader.ReadUInt64() : PrototypeId.Invalid;
-        }
-    }
-
     public class Prototype
     {
         private static readonly Logger Logger = LogManager.CreateLogger();

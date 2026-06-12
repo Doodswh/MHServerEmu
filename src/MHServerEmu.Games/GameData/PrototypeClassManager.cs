@@ -18,12 +18,12 @@ namespace MHServerEmu.Games.GameData
 
         private readonly Dictionary<string, Type> _prototypeTypes = new();
         private readonly Dictionary<Type, Func<Prototype>> _prototypeConstructors;
-        private readonly Dictionary<System.Reflection.PropertyInfo, PrototypeFieldType> _prototypeFieldTypes = new();
 
-        private readonly Dictionary<Type, List<CachedPrototypeField>> _copyableFields = new();
-        private readonly Dictionary<Type, List<CachedPrototypeField>> _postProcessableFields = new();
+        private readonly Dictionary<(Type, string), PrototypeFieldInfo> _prototypeFieldInfos = new();
+        private readonly Dictionary<Type, List<PrototypeFieldInfo>> _prototypeFieldSets = new();
+        private readonly Dictionary<Type, List<PrototypeFieldInfo>> _postProcessableFields = new();
 
-        private static readonly Dictionary<Type, PrototypeFieldType> TypeToPrototypeFieldTypeEnumDict = new()
+        private static readonly Dictionary<Type, PrototypeFieldType> TypeToPrototypeFieldTypeEnumLookup = new()
         {
             { typeof(bool),                         PrototypeFieldType.Bool },
             { typeof(sbyte),                        PrototypeFieldType.Int8 },
@@ -144,9 +144,9 @@ namespace MHServerEmu.Games.GameData
         }
 
         /// <summary>
-        /// Returns a <see cref="System.Reflection.PropertyInfo"/> for a field in a Calligraphy prototype.
+        /// Returns a <see cref="PrototypeFieldInfo"/> for a field in a Calligraphy prototype.
         /// </summary>
-        public System.Reflection.PropertyInfo GetFieldInfo(Type prototypeClassType, BlueprintMemberInfo? blueprintMemberInfo, bool getPropertyCollection)
+        public PrototypeFieldInfo GetFieldInfo(Type prototypeClassType, BlueprintMemberInfo? blueprintMemberInfo, bool getPropertyCollection)
         {
             // Return the C# property info the blueprint member is bound to if we are not looking for a property collection
             if (getPropertyCollection == false)
@@ -156,45 +156,63 @@ namespace MHServerEmu.Games.GameData
             // Same as in CalligraphySerializer.GetPropertyCollection(), we make use of the fact that
             // all property collection fields in our data are called "Properties".
             // The client here iterates all fields to find the one that is the property collection.
-            return prototypeClassType.GetProperty("Properties");
+            return GetFieldInfo(prototypeClassType, "Properties");
+        }
+
+        public PrototypeFieldInfo GetFieldInfo(Type prototypeClassType, string memberName)
+        {
+            var key = (prototypeClassType, memberName);
+
+            if (_prototypeFieldInfos.TryGetValue(key, out PrototypeFieldInfo fieldInfo) == false)
+            {
+                fieldInfo = null;   // Cache the result of this lookup even if it fails to avoid doing it again.
+
+                foreach (PrototypeFieldInfo itFieldInfo in GetPrototypeFieldSet(prototypeClassType))
+                {
+                    if (itFieldInfo.Name == memberName)
+                    {
+                        fieldInfo = itFieldInfo;
+                        break;
+                    }
+                }
+
+                _prototypeFieldInfos.Add(key, fieldInfo);
+            }
+
+            return fieldInfo;
         }
 
         /// <summary>
-        /// Returns a <see cref="System.Reflection.PropertyInfo"/> for a mixin field in a Calligraphy prototype.
+        /// Returns a <see cref="PrototypeFieldInfo"/> for a mixin field in a Calligraphy prototype.
         /// </summary>
-        public System.Reflection.PropertyInfo GetMixinFieldInfo(Type ownerClassType, Type fieldClassType, PrototypeFieldType fieldType)
+        public PrototypeFieldInfo GetMixinFieldInfo(Type ownerClassType, Type fieldClassType, PrototypeFieldType fieldType)
         {
             // Make sure we have a valid field type enum value
             if ((fieldType == PrototypeFieldType.Mixin || fieldType == PrototypeFieldType.ListMixin) == false)
                 throw new ArgumentException($"{fieldType} is not a mixin field type.");
 
-            // Search the entire class hierarchy for a mixin of the matching type
+            // Search the entire class hierarchy for a mixin of the matching type (not sure if this is actually needed with reflection)
             while (ownerClassType != typeof(Prototype))
             {
                 // We do what PrototypeFieldSet::GetMixinFieldInfo() does right here using reflection
-                foreach (System.Reflection.PropertyInfo property in ownerClassType.GetProperties())
+                foreach (PrototypeFieldInfo fieldInfo in GetPrototypeFieldSet(ownerClassType))
                 {
                     if (fieldType == PrototypeFieldType.Mixin)
                     {
-                        // For simple mixins we just return the property if it matches our field type and has the correct attribute
-                        if (property.PropertyType != fieldClassType)
-                            continue;
-
-                        if (property.IsDefined(typeof(MixinAttribute)))
-                            return property;
+                        // For simple mixins we just return the mixin field that matches our class type
+                        if (fieldInfo.Type == PrototypeFieldType.Mixin && fieldInfo.ClassType == fieldClassType)
+                            return fieldInfo;
                     }
                     else if (fieldType == PrototypeFieldType.ListMixin)
                     {
                         // For list mixins we look for a list that is compatible with our requested field type
-                        if (property.PropertyType != typeof(PrototypeMixinList))
-                            continue;
 
                         // NOTE: While we check if the field type defined in the attribute matches our field class type argument exactly,
                         // the client checks if the argument type is derived from the type defined in the field info.
                         // This doesn't seem to cause any issues in 1.52, but may need to be changed if we run into issues with other versions.
-                        ListMixinAttribute attribute = property.GetCustomAttribute<ListMixinAttribute>();
-                        if (attribute.FieldType == fieldClassType)
-                            return property;
+
+                        if (fieldInfo.Type == PrototypeFieldType.ListMixin && fieldInfo.ListMixinType == fieldClassType)
+                            return fieldInfo;
                     }
                 }
 
@@ -206,53 +224,30 @@ namespace MHServerEmu.Games.GameData
             return null;
         }
 
-        /// <summary>
-        /// Returns a matching <see cref="PrototypeFieldType"/> enum value for a <see cref="System.Reflection.PropertyInfo"/>.
-        /// </summary>
-        public PrototypeFieldType GetPrototypeFieldTypeEnumValue(System.Reflection.PropertyInfo fieldInfo)
+        public List<PrototypeFieldInfo> GetPrototypeFieldSet(Type type)
         {
-            // In the client PrototypeFieldType values for all fields are defined in the code. In our implementation
-            // we use a combination of C# property types and attributes to determine approximate values.
-            // This relies on reflection, which is slow, so we cache the results in a dictionary.
-
-            // Retrieve an already matched enum value if we have one for this property
-            if (_prototypeFieldTypes.TryGetValue(fieldInfo, out PrototypeFieldType prototypeFieldTypeEnumValue) == false)
+            if (_prototypeFieldSets.TryGetValue(type, out List<PrototypeFieldInfo> fieldSet) == false)
             {
-                // There is an issue with using PropertyInfo as a key: PropertyInfos for inherited properties are different on each
-                // level of inheritance (because they contain ReflectedType), which causes this code to be called more often than necessary.
-                prototypeFieldTypeEnumValue = DeterminePrototypeFieldType(fieldInfo);
-                _prototypeFieldTypes.Add(fieldInfo, prototypeFieldTypeEnumValue);
-            }
+                fieldSet = new();
 
-            return prototypeFieldTypeEnumValue;
-        }
-
-        /// <summary>
-        /// Returns copyable fields for a given prototype type.
-        /// </summary>
-        public List<CachedPrototypeField> GetCopyablePrototypeFields(Type type)
-        {
-            // Cache reflection metadata for reuse
-            if (_copyableFields.TryGetValue(type, out List<CachedPrototypeField> copyableFields) == false)
-            {
-                copyableFields = new();
-
-                foreach (System.Reflection.PropertyInfo fieldInfo in type.GetProperties())
+                // NOTE: Without BindingFlags.DeclaredOnly this will include all base class properties as well.
+                foreach (System.Reflection.PropertyInfo propertyInfo in type.GetProperties())
                 {
-                    if (fieldInfo.DeclaringType == typeof(Prototype))
+                    if (propertyInfo.DeclaringType == typeof(Prototype))
                         continue;
 
-                    PrototypeFieldType fieldType = GetPrototypeFieldTypeEnumValue(fieldInfo);
+                    PrototypeFieldType fieldType = DeterminePrototypeFieldType(propertyInfo);
                     if (fieldType == PrototypeFieldType.Invalid)
                         continue;
 
-                    copyableFields.Add(new(fieldInfo, fieldType));
+                    PrototypeFieldInfo fieldInfo = new(propertyInfo, fieldType);
+                    fieldSet.Add(fieldInfo);
                 }
 
-                _copyableFields.Add(type, copyableFields);
+                _prototypeFieldSets.Add(type, fieldSet);
             }
 
-            return copyableFields;
+            return fieldSet;
         }
 
         public uint CalculateDataCRC(Prototype prototype)
@@ -268,16 +263,14 @@ namespace MHServerEmu.Games.GameData
         {
             bool hasPatch = PrototypePatchManager.Instance.PreCheck(prototype.DataRef);
 
-            foreach (CachedPrototypeField cachedField in GetPostProcessablePrototypeFields(prototype.GetType()))
+            foreach (PrototypeFieldInfo fieldInfo in GetPostProcessablePrototypeFields(prototype.GetType()))
             {
-                System.Reflection.PropertyInfo fieldInfo = cachedField.FieldInfo;
-
-                switch (cachedField.FieldType)
+                switch (fieldInfo.Type)
                 {
                     case PrototypeFieldType.PrototypePtr:
                     case PrototypeFieldType.Mixin:
                         // Simple embedded prototypes
-                        Prototype embeddedPrototype = (Prototype)fieldInfo.GetValue(prototype);
+                        fieldInfo.GetValue(prototype, out Prototype embeddedPrototype);
                         if (embeddedPrototype != null)
                         {
                             if (hasPatch) PrototypePatchManager.Instance.SetPath(prototype, embeddedPrototype, fieldInfo.Name);
@@ -287,8 +280,9 @@ namespace MHServerEmu.Games.GameData
 
                     case PrototypeFieldType.ListPrototypePtr:
                         // List / vector collections of embedded prototypes (that we implemented as arrays)
-                        IReadOnlyList<Prototype> prototypeCollection = (IReadOnlyList<Prototype>)fieldInfo.GetValue(prototype);
-                        if (prototypeCollection == null) continue;
+                        fieldInfo.GetValue(prototype, out IReadOnlyList<Prototype> prototypeCollection);
+                        if (prototypeCollection == null)
+                            continue;
 
                         int index = 0;
                         for (int i = 0; i < prototypeCollection.Count; i++)
@@ -301,7 +295,7 @@ namespace MHServerEmu.Games.GameData
                         break;
 
                     case PrototypeFieldType.ListMixin:
-                        PrototypeMixinList mixinList = (PrototypeMixinList)fieldInfo.GetValue(prototype);
+                        fieldInfo.GetValue(prototype, out PrototypeMixinList mixinList);
                         if (mixinList == null)
                             continue;
 
@@ -324,27 +318,21 @@ namespace MHServerEmu.Games.GameData
             if (hasPatch) PrototypePatchManager.Instance.PostOverride(prototype);
         }
 
-        private List<CachedPrototypeField> GetPostProcessablePrototypeFields(Type type)
+        private List<PrototypeFieldInfo> GetPostProcessablePrototypeFields(Type type)
         {
-            // Cache reflection metadata for reuse
-            if (_postProcessableFields.TryGetValue(type, out List<CachedPrototypeField> postProcessableFields) == false)
+            if (_postProcessableFields.TryGetValue(type, out List<PrototypeFieldInfo> postProcessableFields) == false)
             {
                 postProcessableFields = new();
 
-                foreach (System.Reflection.PropertyInfo fieldInfo in type.GetProperties())
+                foreach (PrototypeFieldInfo fieldInfo in GetPrototypeFieldSet(type))
                 {
-                    if (fieldInfo.DeclaringType == typeof(Prototype))
-                        continue;
-
-                    PrototypeFieldType fieldType = GetPrototypeFieldTypeEnumValue(fieldInfo);
-
-                    switch (fieldType)
+                    switch (fieldInfo.Type)
                     {
                         case PrototypeFieldType.PrototypePtr:
                         case PrototypeFieldType.Mixin:
                         case PrototypeFieldType.ListPrototypePtr:
                         case PrototypeFieldType.ListMixin:
-                            postProcessableFields.Add(new(fieldInfo, fieldType));
+                            postProcessableFields.Add(fieldInfo);
                             break;
                     }
                 }
@@ -358,7 +346,7 @@ namespace MHServerEmu.Games.GameData
         /// <summary>
         /// Determines a matching <see cref="PrototypeFieldType"/> enum value for a <see cref="System.Reflection.PropertyInfo"/>.
         /// </summary>
-        private PrototypeFieldType DeterminePrototypeFieldType(System.Reflection.PropertyInfo fieldInfo)
+        private static PrototypeFieldType DeterminePrototypeFieldType(System.Reflection.PropertyInfo fieldInfo)
         {
             // Skip if the field is marked to be ignored
             if (fieldInfo.IsDefined(typeof(DoNotCopyAttribute)))
@@ -400,16 +388,10 @@ namespace MHServerEmu.Games.GameData
             }
 
             // Try to match a C# type to a prototype field type enum value using a lookup dict
-            if (TypeToPrototypeFieldTypeEnumDict.TryGetValue(fieldType, out PrototypeFieldType prototypeFieldTypeEnumValue) == false)
+            if (TypeToPrototypeFieldTypeEnumLookup.TryGetValue(fieldType, out PrototypeFieldType prototypeFieldTypeEnumValue) == false)
                 return PrototypeFieldType.Invalid;
 
             return prototypeFieldTypeEnumValue;
-        }
-
-        public readonly struct CachedPrototypeField(System.Reflection.PropertyInfo fieldInfo, PrototypeFieldType fieldType)
-        {
-            public readonly System.Reflection.PropertyInfo FieldInfo = fieldInfo;
-            public readonly PrototypeFieldType FieldType = fieldType;
         }
     }
 }
