@@ -1,6 +1,4 @@
 ﻿using System.Diagnostics;
-using MHServerEmu.Core.Helpers;
-using MHServerEmu.Core.Logging;
 
 namespace MHServerEmu.Core.Collections
 {
@@ -9,8 +7,11 @@ namespace MHServerEmu.Core.Collections
     /// </summary>
     public class SymbolicLookup<T>
     {
-        // djb2 hash appears to be faster than using string keys? need to do more in-depth benchmarking here
-        private readonly Dictionary<uint, T> _lookupTable;
+        // Speed based on benchmark results: [djb2 key] > [linear no case] > [linear] > [string key] = [string key no case]
+        // String key dictionaries are the fastest, and there is no meaningful difference when using OrdinalIgnoreCase.
+        // Client-side implementation uses case insensitive linear search here.
+
+        private readonly Dictionary<string, T> _lookupTable;
         private readonly T _defaultValue;
 
         public SymbolicLookup(Type type, T defaultValue, bool ignoreUnderscorePrefix = true)
@@ -20,32 +21,27 @@ namespace MHServerEmu.Core.Collections
 
             // Multiple names can have the same value, so we need to iterate names and parse values and not vice versa.
             string[] enumNames = Enum.GetNames(type);
-            _lookupTable = new(enumNames.Length);
+            _lookupTable = new(enumNames.Length, StringComparer.OrdinalIgnoreCase);
 
             foreach (string enumName in enumNames)
             {
                 T enumValue = (T)Enum.Parse(type, enumName);
 
-                // Remove the underscore prefix we add for C# compatibility
-                ReadOnlySpan<char> chars = enumName;
-                if (ignoreUnderscorePrefix && chars[0] == '_')
-                    chars = chars[1..];
+                // Remove the underscore prefix we add to enum names that start with digits for C# compatibility.
+                string key = ignoreUnderscorePrefix && enumName[0] == '_' ? enumName[1..] : enumName;
 
-                uint hash = HashHelper.Djb2(chars);
-                _lookupTable.Add(hash, enumValue);
+                _lookupTable.Add(key, enumValue);
             }
 
             _defaultValue = defaultValue;
         }
 
-        public T ToLookupValue(ReadOnlySpan<char> name, out bool found)
+        public T ToLookupValue(string name, out bool found)
         {
-            found = false;
+            //if (!Verify.IsNotNull(_lookupTable)) return _defaultValue;
+            Debug.Assert(_lookupTable != null);
 
-            if (!Verify.IsNotNull(_lookupTable)) return _defaultValue;
-
-            uint hash = HashHelper.Djb2(name);
-            found = _lookupTable.TryGetValue(hash, out T lookupValue);
+            found = _lookupTable.TryGetValue(name, out T lookupValue);
 
             if (found == false)
                 lookupValue = _defaultValue;
