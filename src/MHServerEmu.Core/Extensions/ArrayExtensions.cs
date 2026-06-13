@@ -1,4 +1,5 @@
-﻿using System.Runtime.CompilerServices;
+﻿using System.Diagnostics;
+using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using System.Text;
 
@@ -134,10 +135,11 @@ namespace MHServerEmu.Core.Extensions
         /// </summary>
         public static void SetValueUnsafe<T>(this Array array, T value, nint index) where T: unmanaged
         {
+            Debug.Assert(array.GetType().GetElementType().IsValueType);
+
             // C devs be like "look what they need to mimic a fraction of our power"
-            ref byte memoryRef = ref Unsafe.AddByteOffset(ref MemoryMarshal.GetArrayDataReference(array), index * Unsafe.SizeOf<T>());
-            ref T elementRef = ref Unsafe.As<byte, T>(ref memoryRef);
-            elementRef = value;
+            ref byte elementRef = ref Unsafe.AddByteOffset(ref MemoryMarshal.GetArrayDataReference(array), index * Unsafe.SizeOf<T>());
+            Unsafe.As<byte, T>(ref elementRef) = value;
         }
 
         #endregion
