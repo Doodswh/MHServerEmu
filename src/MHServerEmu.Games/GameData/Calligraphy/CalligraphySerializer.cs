@@ -1,4 +1,5 @@
-﻿using MHServerEmu.Core.Collections;
+﻿using System.Runtime.CompilerServices;
+using MHServerEmu.Core.Collections;
 using MHServerEmu.Core.Extensions;
 using MHServerEmu.Core.Logging;
 using MHServerEmu.Games.GameData.Prototypes;
@@ -1352,10 +1353,10 @@ namespace MHServerEmu.Games.GameData.Calligraphy
         /// </summary>
         private static bool ParseListBool(in FieldParserParams @params)
         {
-            CalligraphyReader reader = @params.Reader;
+            if (AllocateCollectionForField(@params, out short numItems, out bool[] values) == false)
+                return false;
 
-            if (!Verify.IsTrue(reader.Read(out short numItems))) return false;
-            bool[] values = new bool[numItems];
+            CalligraphyReader reader = @params.Reader;
 
             for (int i = 0; i < numItems; i++)
             {
@@ -1372,10 +1373,10 @@ namespace MHServerEmu.Games.GameData.Calligraphy
         /// </summary>
         private static bool ParseListInt8(in FieldParserParams @params)
         {
-            CalligraphyReader reader = @params.Reader;
+            if (AllocateCollectionForField(@params, out short numItems, out sbyte[] values) == false)
+                return false;
 
-            if (!Verify.IsTrue(reader.Read(out short numItems))) return false;
-            sbyte[] values = new sbyte[numItems];
+            CalligraphyReader reader = @params.Reader;
 
             for (int i = 0; i < numItems; i++)
             {
@@ -1392,10 +1393,10 @@ namespace MHServerEmu.Games.GameData.Calligraphy
         /// </summary>
         private static bool ParseListInt16(in FieldParserParams @params)
         {
-            CalligraphyReader reader = @params.Reader;
+            if (AllocateCollectionForField(@params, out short numItems, out short[] values) == false)
+                return false;
 
-            if (!Verify.IsTrue(reader.Read(out short numItems))) return false;
-            short[] values = new short[numItems];
+            CalligraphyReader reader = @params.Reader;
 
             for (int i = 0; i < numItems; i++)
             {
@@ -1412,10 +1413,10 @@ namespace MHServerEmu.Games.GameData.Calligraphy
         /// </summary>
         private static bool ParseListInt32(in FieldParserParams @params)
         {
-            CalligraphyReader reader = @params.Reader;
+            if (AllocateCollectionForField(@params, out short numItems, out int[] values) == false)
+                return false;
 
-            if (!Verify.IsTrue(reader.Read(out short numItems))) return false;
-            int[] values = new int[numItems];
+            CalligraphyReader reader = @params.Reader;
 
             for (int i = 0; i < numItems; i++)
             {
@@ -1435,10 +1436,10 @@ namespace MHServerEmu.Games.GameData.Calligraphy
         /// </remarks>
         private static bool ParseListUnmanaged64<T>(in FieldParserParams @params) where T : unmanaged
         {
-            CalligraphyReader reader = @params.Reader;
+            if (AllocateCollectionForField(@params, out short numItems, out T[] values) == false)
+                return false;
 
-            if (!Verify.IsTrue(reader.Read(out short numItems))) return false;
-            T[] values = new T[numItems];
+            CalligraphyReader reader = @params.Reader;
 
             for (int i = 0; i < numItems; i++)
             {
@@ -1454,10 +1455,10 @@ namespace MHServerEmu.Games.GameData.Calligraphy
         /// </summary>
         private static bool ParseListFloat32(in FieldParserParams @params)
         {
-            CalligraphyReader reader = @params.Reader;
+            if (AllocateCollectionForField(@params, out short numItems, out float[] values) == false)
+                return false;
 
-            if (!Verify.IsTrue(reader.Read(out short numItems))) return false;
-            float[] values = new float[numItems];
+            CalligraphyReader reader = @params.Reader;
 
             for (int i = 0; i < numItems; i++)
             {
@@ -1474,11 +1475,10 @@ namespace MHServerEmu.Games.GameData.Calligraphy
         /// </summary>
         private static bool ParseListEnum(in FieldParserParams @params)
         {
+            if (AllocateCollectionForField(@params, out short numItems, out Array values) == false)
+                return false;
+
             CalligraphyReader reader = @params.Reader;
-
-            if (!Verify.IsTrue(reader.Read(out short numItems))) return false;
-
-            Array values = @params.FieldInfo.AllocateCollection(numItems);
 
             SymbolicLookup<int> symbolicEnum = @params.FieldInfo.SymbolicEnum;
             if (!Verify.IsNotNull(symbolicEnum)) return false;
@@ -1510,11 +1510,8 @@ namespace MHServerEmu.Games.GameData.Calligraphy
         /// </summary>
         private static bool ParseListPrototypePtr(in FieldParserParams @params)
         {
-            CalligraphyReader reader = @params.Reader;
-
-            if (!Verify.IsTrue(reader.Read(out short numItems))) return false;
-
-            Array values = @params.FieldInfo.AllocateCollection(numItems);
+            if (AllocateCollectionForField(@params, out short numItems, out Array values) == false)
+                return false;
 
             for (int i = 0; i < numItems; i++)
             {
@@ -1533,11 +1530,10 @@ namespace MHServerEmu.Games.GameData.Calligraphy
         /// </summary>
         private static bool ParseVectorPrototypeRefPtr(in FieldParserParams @params)
         {
+            if (AllocateCollectionForField(@params, out short numItems, out Array values) == false)
+                return false;
+
             CalligraphyReader reader = @params.Reader;
-
-            if (!Verify.IsTrue(reader.Read(out short numItems))) return false;
-
-            Array values = @params.FieldInfo.AllocateCollection(numItems);
 
             for (int i = 0; i < numItems; i++)
             {
@@ -1600,6 +1596,36 @@ namespace MHServerEmu.Games.GameData.Calligraphy
             }
 
             return true;
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        private static bool AllocateCollectionForField<T>(in FieldParserParams @params, out short numItems, out T[] collection)
+        {
+            if (Verify.IsTrue(@params.Reader.Read(out numItems)))
+            {
+                collection = numItems > 0 ? new T[numItems] : Array.Empty<T>();
+                return true;
+            }
+            else
+            {
+                collection = default;
+                return false;
+            }
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        private static bool AllocateCollectionForField(in FieldParserParams @params, out short numItems, out Array collection)
+        {
+            if (Verify.IsTrue(@params.Reader.Read(out numItems)))
+            {
+                collection = @params.FieldInfo.AllocateCollection(numItems);
+                return true;
+            }
+            else
+            {
+                collection = default;
+                return false;
+            }
         }
 
         /// <summary>
