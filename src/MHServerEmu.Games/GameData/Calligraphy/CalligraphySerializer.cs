@@ -1075,49 +1075,50 @@ namespace MHServerEmu.Games.GameData.Calligraphy
 
         private delegate bool FieldParser(in FieldParserParams @params);
 
-        private static readonly Dictionary<PrototypeFieldType, FieldParser> FieldParsers = new()
-        {
-            { PrototypeFieldType.Int8,                  ParseInt8 },
-            { PrototypeFieldType.Int16,                 ParseInt16 },
-            { PrototypeFieldType.Int32,                 ParseInt32 },
-            { PrototypeFieldType.Int64,                 ParseUnmanaged64<long> },
-            { PrototypeFieldType.Bool,                  ParseBool },
-            { PrototypeFieldType.Float32,               ParseFloat32 },
-            { PrototypeFieldType.Float64,               ParseUnmanaged64<double> },
-            { PrototypeFieldType.Enum,                  ParseEnum },
-            { PrototypeFieldType.AssetRef,              ParseUnmanaged64<AssetId> },
-            { PrototypeFieldType.AssetTypeRef,          ParseUnmanaged64<AssetTypeId> },
-            { PrototypeFieldType.CurveRef,              ParseUnmanaged64<CurveId> },
-            { PrototypeFieldType.PrototypeDataRef,      ParseUnmanaged64<PrototypeId> },
-            { PrototypeFieldType.LocaleStringId,        ParseUnmanaged64<LocaleStringId> },
-            { PrototypeFieldType.PrototypePtr,          ParsePrototypePtr },
-            { PrototypeFieldType.PrototypeRefPtr,       ParsePrototypeRefPtr },
-            { PrototypeFieldType.PropertyId,            ParsePropertyId },
-            { PrototypeFieldType.ListBool,              ParseListBool },
-            { PrototypeFieldType.ListInt8,              ParseListInt8 },
-            { PrototypeFieldType.ListInt16,             ParseListInt16 },
-            { PrototypeFieldType.ListInt32,             ParseListInt32 },
-            { PrototypeFieldType.ListInt64,             ParseListUnmanaged64<long> },
-            { PrototypeFieldType.ListFloat32,           ParseListFloat32 },
-            { PrototypeFieldType.ListFloat64,           ParseListUnmanaged64<double> },
-            { PrototypeFieldType.ListEnum,              ParseListEnum },
-            { PrototypeFieldType.ListAssetRef,          ParseListUnmanaged64<AssetId> },
-            { PrototypeFieldType.ListAssetTypeRef,      ParseListUnmanaged64<AssetTypeId> },
-            { PrototypeFieldType.ListPrototypeDataRef,  ParseListUnmanaged64<PrototypeId> },
-            { PrototypeFieldType.ListPrototypePtr,      ParseListPrototypePtr },
-            { PrototypeFieldType.VectorPrototypeRefPtr, ParseVectorPrototypeRefPtr },
-            { PrototypeFieldType.PropertyList,          ParsePropertyList },
-        };
-
         /// <summary>
         /// Returns a <see cref="FieldParser"/> for the specified <see cref="PrototypeFieldType"/> enum value.
         /// </summary>
         private static FieldParser GetParser(PrototypeFieldType fieldType)
         {
-            if (!Verify.IsTrue(FieldParsers.TryGetValue(fieldType, out FieldParser parser), $"Failed to find parser for fieldType: {fieldType}"))
-                return null;
+            // Delegate caching here should be handled by C# starting with C# 11 / .NET 7.
+            // https://devblogs.microsoft.com/dotnet/understanding-the-cost-of-csharp-delegates/#c#-11
+            switch (fieldType)
+            {
+                case PrototypeFieldType.Int8:                   return ParseInt8;
+                case PrototypeFieldType.Int16:                  return ParseInt16;
+                case PrototypeFieldType.Int32:                  return ParseInt32;
+                case PrototypeFieldType.Int64:                  return ParseUnmanaged64<long>;
+                case PrototypeFieldType.Bool:                   return ParseBool;
+                case PrototypeFieldType.Float32:                return ParseFloat32;
+                case PrototypeFieldType.Float64:                return ParseUnmanaged64<double>;
+                case PrototypeFieldType.Enum:                   return ParseEnum;
+                case PrototypeFieldType.AssetRef:               return ParseUnmanaged64<AssetId>;
+                case PrototypeFieldType.AssetTypeRef:           return ParseUnmanaged64<AssetTypeId>;
+                case PrototypeFieldType.CurveRef:               return ParseUnmanaged64<CurveId>;
+                case PrototypeFieldType.PrototypeDataRef:       return ParseUnmanaged64<PrototypeId>;
+                case PrototypeFieldType.LocaleStringId:         return ParseUnmanaged64<LocaleStringId>;
+                case PrototypeFieldType.PrototypePtr:           return ParsePrototypePtr;
+                case PrototypeFieldType.PrototypeRefPtr:        return ParsePrototypeRefPtr;
+                case PrototypeFieldType.PropertyId:             return ParsePropertyId;
+                case PrototypeFieldType.ListBool:               return ParseListBool;
+                case PrototypeFieldType.ListInt8:               return ParseListInt8;
+                case PrototypeFieldType.ListInt16:              return ParseListInt16;
+                case PrototypeFieldType.ListInt32:              return ParseListInt32;
+                case PrototypeFieldType.ListInt64:              return ParseListUnmanaged64<long>;
+                case PrototypeFieldType.ListFloat32:            return ParseListFloat32;
+                case PrototypeFieldType.ListFloat64:            return ParseListUnmanaged64<double>;
+                case PrototypeFieldType.ListEnum:               return ParseListEnum;
+                case PrototypeFieldType.ListAssetRef:           return ParseListUnmanaged64<AssetId>;
+                case PrototypeFieldType.ListAssetTypeRef:       return ParseListUnmanaged64<AssetTypeId>;
+                case PrototypeFieldType.ListPrototypeDataRef:   return ParseListUnmanaged64<PrototypeId>;
+                case PrototypeFieldType.ListPrototypePtr:       return ParseListPrototypePtr;
+                case PrototypeFieldType.VectorPrototypeRefPtr:  return ParseVectorPrototypeRefPtr;
+                case PrototypeFieldType.PropertyList:           return ParsePropertyList;
 
-            return parser;
+                default:
+                    Verify.IsTrue(false, $"Failed to find parser for fieldType: {fieldType}");
+                    return null;
+            }
         }
 
         /// <summary>
