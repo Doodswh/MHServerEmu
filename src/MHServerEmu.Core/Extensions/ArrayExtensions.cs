@@ -129,6 +129,17 @@ namespace MHServerEmu.Core.Extensions
             return Encoding.UTF8.GetString(buffer);
         }
 
+        /// <summary>
+        /// Sets a value in an <see cref="Array"/> of <see langword="unmanaged"/> elements using unsafe code to avoid boxing.
+        /// </summary>
+        public static void SetValueUnsafe<T>(this Array array, T value, nint index) where T: unmanaged
+        {
+            // C devs be like "look what they need to mimic a fraction of our power"
+            ref byte memoryRef = ref Unsafe.AddByteOffset(ref MemoryMarshal.GetArrayDataReference(array), index * Unsafe.SizeOf<T>());
+            ref T elementRef = ref Unsafe.As<byte, T>(ref memoryRef);
+            elementRef = value;
+        }
+
         #endregion
     }
 }

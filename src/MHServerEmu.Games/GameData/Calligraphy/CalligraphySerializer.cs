@@ -1213,9 +1213,9 @@ namespace MHServerEmu.Games.GameData.Calligraphy
                 SymbolicLookup<int> symbolicEnum = @params.FieldInfo.SymbolicEnum;
                 if (!Verify.IsNotNull(symbolicEnum)) return false;
 
-                value = symbolicEnum.ToLookupValue(assetName, out bool hasValue);
+                value = symbolicEnum.ToLookupValue(assetName, out bool found);
 
-                if (hasValue == false)
+                if (found == false)
                     Logger.Trace($"ParseEnum(): Missing enum member {assetName} in {@params.FieldInfo.ClassType.Name}, field {@params.FieldInfo.Name}, file name {@params.FileName}");
             }
 
@@ -1478,21 +1478,27 @@ namespace MHServerEmu.Games.GameData.Calligraphy
 
             if (!Verify.IsTrue(reader.Read(out short numItems))) return false;
 
-            // We have only type info for our enum, so we have to use Array.CreateInstance() to create our enum array
-            Type elementType = @params.FieldInfo.ListElementType;
-            Array values = Array.CreateInstance(elementType, numItems);
+            Array values = @params.FieldInfo.AllocateCollection(numItems);
+
+            SymbolicLookup<int> symbolicEnum = @params.FieldInfo.SymbolicEnum;
+            if (!Verify.IsNotNull(symbolicEnum)) return false;
 
             for (int i = 0; i < numItems; i++)
             {
-                // Enums are represented in Calligraphy by assets.
-                // We get asset name from the serialized asset id, and then parse the actual enum value from it.
                 if (!Verify.IsTrue(reader.Read(out AssetId assetId))) return false;
-                string assetName = GameDatabase.GetAssetName(assetId);
 
-                // Looks like there are no numeric or invalid enum values in list enums, so we can speed this up
-                // by just parsing whatever asset name we have as is.
-                object value = Enum.Parse(elementType, assetName, true);
-                values.SetValue(value, i);
+                int value = 0;
+
+                if (assetId != AssetId.Invalid)
+                {
+                    string assetName = GameDatabase.GetAssetName(assetId);
+                    value = symbolicEnum.ToLookupValue(assetName, out bool found);
+
+                    if (found == false)
+                        Logger.Trace($"ParseListEnum(): Missing enum member {assetName} in {@params.FieldInfo.ClassType.Name}, field {@params.FieldInfo.Name}, file name {@params.FileName}");
+                }
+
+                values.SetValueUnsafe(value, i);
             }
 
             @params.FieldInfo.SetValue(@params.OwnerPrototype, values);
@@ -1508,8 +1514,7 @@ namespace MHServerEmu.Games.GameData.Calligraphy
 
             if (!Verify.IsTrue(reader.Read(out short numItems))) return false;
 
-            Type elementType = @params.FieldInfo.ListElementType;
-            Array values = Array.CreateInstance(elementType, numItems);
+            Array values = @params.FieldInfo.AllocateCollection(numItems);
 
             for (int i = 0; i < numItems; i++)
             {
@@ -1532,8 +1537,7 @@ namespace MHServerEmu.Games.GameData.Calligraphy
 
             if (!Verify.IsTrue(reader.Read(out short numItems))) return false;
 
-            Type elementType = @params.FieldInfo.ListElementType;
-            Array values = Array.CreateInstance(elementType, numItems);
+            Array values = @params.FieldInfo.AllocateCollection(numItems);
 
             for (int i = 0; i < numItems; i++)
             {
