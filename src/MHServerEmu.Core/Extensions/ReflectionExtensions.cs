@@ -1,5 +1,4 @@
 ﻿using MHServerEmu.Core.Collections;
-using MHServerEmu.Core.Helpers;
 using System.Diagnostics;
 using System.Reflection;
 using System.Reflection.Emit;
@@ -12,8 +11,6 @@ namespace MHServerEmu.Core.Extensions
 
         private static readonly Dictionary<PropertyInfo, FieldInfo> PropertyBackingFields = new();
         private static readonly Dictionary<PropertyInfo, InlineArray4<Delegate>> PropertyDelegates = new();
-
-        private static readonly Dictionary<Type, Dictionary<uint, int>> EnumLookups = new();
 
         // Notes:
         // - Reflection.Emit is faster than expression trees.
@@ -38,9 +35,9 @@ namespace MHServerEmu.Core.Extensions
         }
 
         /// <summary>
-        /// Retrieves the value of the auto property represented by this <see cref="PropertyInfo"/> avoiding boxing.
+        /// Returns a delegate that retrieves the value of the auto property represented by this <see cref="PropertyInfo"/> avoiding boxing.
         /// </summary>
-        public static void GetValue<TInstance, TValue>(this PropertyInfo propertyInfo, TInstance instance, out TValue value)
+        public static Func<TInstance, TValue> CreateGetDelegate<TInstance, TValue>(this PropertyInfo propertyInfo)
         {
             ref Delegate getDelegate = ref GetDelegateRef(propertyInfo, PropertyDelegate.Get);
             if (getDelegate == null)
@@ -57,14 +54,13 @@ namespace MHServerEmu.Core.Extensions
                 getDelegate = dm.CreateDelegate<Func<TInstance, TValue>>();
             }
 
-            Func<TInstance, TValue> get = (Func<TInstance, TValue>)getDelegate;
-            value = get(instance);
+            return (Func<TInstance, TValue>)getDelegate;
         }
 
         /// <summary>
-        /// Sets the value of the auto property represented by this <see cref="PropertyInfo"/> avoiding boxing.
+        /// Returns a delegate that sets the value of the auto property represented by this <see cref="PropertyInfo"/> avoiding boxing.
         /// </summary>
-        public static void SetValueFast<TInstance, TValue>(this PropertyInfo propertyInfo, TInstance instance, TValue value)
+        public static Action<TInstance, TValue> CreateSetDelegate<TInstance, TValue>(this PropertyInfo propertyInfo)
         {
             ref Delegate setDelegate = ref GetDelegateRef(propertyInfo, PropertyDelegate.Set);
             if (setDelegate == null)
@@ -82,14 +78,13 @@ namespace MHServerEmu.Core.Extensions
                 setDelegate = dm.CreateDelegate<Action<TInstance, TValue>>();
             }
 
-            Action<TInstance, TValue> set = (Action<TInstance, TValue>)setDelegate;
-            set(instance, value);
+            return (Action<TInstance, TValue>)setDelegate;
         }
 
         /// <summary>
-        /// Copies the value of the auto property represented by this <see cref="PropertyInfo"/> from one instance to another.
+        /// Returns a delegate that copies the value of the auto property represented by this <see cref="PropertyInfo"/> from one instance to another.
         /// </summary>
-        public static void CopyValue<T>(this PropertyInfo propertyInfo, T source, T destination)
+        public static Action<T, T> CreateCopyDelegate<T>(this PropertyInfo propertyInfo)
         {
             ref Delegate copyDelegate = ref GetDelegateRef(propertyInfo, PropertyDelegate.Copy);
             if (copyDelegate == null)
@@ -108,15 +103,14 @@ namespace MHServerEmu.Core.Extensions
                 copyDelegate = dm.CreateDelegate<Action<T, T>>();
             }
 
-            Action<T, T> copy = (Action<T, T>)copyDelegate;
-            copy(source, destination);
+            return (Action<T, T>)copyDelegate;
         }
 
         /// <summary>
-        /// Creates a shallow copy of the array value of the auto property represented by this <see cref="PropertyInfo"/>
+        /// Returns a delegate that creates a shallow copy of the array value of the auto property represented by this <see cref="PropertyInfo"/>
         /// and assigns it to the destination instance.
         /// </summary>
-        public static void CopyArray<T>(this PropertyInfo propertyInfo, T source, T destination)
+        public static Action<T, T> CreateCopyArrayDelegate<T>(this PropertyInfo propertyInfo)
         {
             ref Delegate copyArrayDelegate = ref GetDelegateRef(propertyInfo, PropertyDelegate.CopyArray);
             if (copyArrayDelegate == null)
@@ -153,43 +147,7 @@ namespace MHServerEmu.Core.Extensions
                 copyArrayDelegate = dm.CreateDelegate<Action<T, T>>();
             }
 
-            Action<T, T> copyArray = (Action<T, T>)copyArrayDelegate;
-            copyArray(source, destination);
-        }
-
-        /// <summary>
-        /// Retrieves the <see cref="int"/> representation of an <see cref="Enum"/> value with the provided name.
-        /// </summary>
-        /// <remarks>
-        /// If an enum member name starts with an underscore prefix, the underscore character will be ignored.
-        /// </remarks>
-        public static bool TryGetEnumValue(this Type type, ReadOnlySpan<char> name, out int value)
-        {
-            Debug.Assert(type.IsEnum);
-            Debug.Assert(type.GetEnumUnderlyingType() == typeof(int));
-
-            if (EnumLookups.TryGetValue(type, out Dictionary<uint, int> enumLookup) == false)
-            {
-                enumLookup = new();
-
-                // Multiple names can have the same value, so we need to iterate names and parse values and not vice versa.
-                foreach (string enumName in Enum.GetNames(type))
-                {
-                    int enumValue = (int)Enum.Parse(type, enumName);
-
-                    // Remove the underscore prefix we add for C# compatibility
-                    ReadOnlySpan<char> chars = enumName;
-                    if (chars[0] == '_')
-                        chars = chars[1..];
-
-                    uint hash = HashHelper.Djb2(chars);
-                    enumLookup.Add(hash, enumValue);
-                }
-
-                EnumLookups.Add(type, enumLookup);
-            }
-
-            return enumLookup.TryGetValue(HashHelper.Djb2(name), out value);
+            return (Action<T, T>)copyArrayDelegate;
         }
 
         private static ref Delegate GetDelegateRef(PropertyInfo propertyInfo, PropertyDelegate delegateEnum)

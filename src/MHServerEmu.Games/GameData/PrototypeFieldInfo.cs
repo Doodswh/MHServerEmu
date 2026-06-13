@@ -1,4 +1,5 @@
 ﻿using System.Reflection;
+using MHServerEmu.Core.Collections;
 using MHServerEmu.Core.Extensions;
 using MHServerEmu.Games.GameData.Calligraphy;
 using MHServerEmu.Games.GameData.Prototypes;
@@ -11,11 +12,18 @@ namespace MHServerEmu.Games.GameData
     /// </summary>
     public class PrototypeFieldInfo
     {
+        private static readonly Dictionary<Type, SymbolicLookup<int>> EnumLookups = new();
+
+        private Delegate _getDelegate;
+        private Delegate _setDelegate;
+        private Action<Prototype, Prototype> _copyDelegate;
+        private Action<Prototype, Prototype> _copyArrayDelegate;
+
         public System.Reflection.PropertyInfo PropertyInfo { get; }
         public PrototypeFieldType Type { get; }
 
         public Type ListElementType { get; }
-        public int DefaultEnumValue { get; }
+        public SymbolicLookup<int> SymbolicEnum { get; }
 
         public string Name { get => PropertyInfo.Name; }
         public Type ClassType { get => PropertyInfo.PropertyType; }     // The client uses numeric class ids for this
@@ -29,9 +37,18 @@ namespace MHServerEmu.Games.GameData
             switch (fieldType)
             {
                 case PrototypeFieldType.Enum:
-                    AssetEnumAttribute assetEnumAttribute = PropertyInfo.PropertyType.GetCustomAttribute<AssetEnumAttribute>();
-                    if (assetEnumAttribute != null)
-                        DefaultEnumValue = assetEnumAttribute.DefaultValue;
+                    Type enumType = ClassType;
+
+                    // Cache lookups to reuse for different instances of PrototypeFieldInfo.
+                    if (EnumLookups.TryGetValue(enumType, out SymbolicLookup<int> enumLookup) == false)
+                    {
+                        AssetEnumAttribute assetEnumAttribute = PropertyInfo.PropertyType.GetCustomAttribute<AssetEnumAttribute>();
+                        int defaultValue = assetEnumAttribute != null ? assetEnumAttribute.DefaultValue : 0;
+                        enumLookup = new(enumType, defaultValue);
+                        EnumLookups.Add(enumType, enumLookup);
+                    }
+
+                    SymbolicEnum = enumLookup;
                     break;
 
                 case PrototypeFieldType.ListEnum:
@@ -55,22 +72,28 @@ namespace MHServerEmu.Games.GameData
 
         public void GetValue<T>(Prototype prototype, out T value)
         {
-            PropertyInfo.GetValue(prototype, out value);
+            _getDelegate ??= PropertyInfo.CreateGetDelegate<Prototype, T>();
+            Func<Prototype, T> get = (Func<Prototype, T>)_getDelegate;
+            value = get(prototype);
         }
 
         public void SetValue<T>(Prototype prototype, T value)
         {
-            PropertyInfo.SetValueFast(prototype, value);
+            _setDelegate ??= PropertyInfo.CreateSetDelegate<Prototype, T>();
+            Action<Prototype, T> set = (Action<Prototype, T>)_setDelegate;
+            set(prototype, value);
         }
 
         public void CopyValue(Prototype source, Prototype destination)
         {
-            PropertyInfo.CopyValue(source, destination);
+            _copyDelegate ??= PropertyInfo.CreateCopyDelegate<Prototype>();
+            _copyDelegate(source, destination);
         }
 
         public void CopyArray(Prototype source, Prototype destination)
         {
-            PropertyInfo.CopyArray(source, destination);
+            _copyArrayDelegate ??= PropertyInfo.CreateCopyArrayDelegate<Prototype>();
+            _copyArrayDelegate(source, destination);
         }
     }
 }

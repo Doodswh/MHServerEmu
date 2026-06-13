@@ -1,4 +1,5 @@
-﻿using MHServerEmu.Core.Extensions;
+﻿using MHServerEmu.Core.Collections;
+using MHServerEmu.Core.Extensions;
 using MHServerEmu.Core.Logging;
 using MHServerEmu.Games.GameData.Prototypes;
 using MHServerEmu.Games.Properties;
@@ -1199,25 +1200,23 @@ namespace MHServerEmu.Games.GameData.Calligraphy
         private static bool ParseEnum(in FieldParserParams @params)
         {
             // Enums are represented in Calligraphy by assets.
-            // We get asset name from the serialized asset id, and then parse the actual enum value from it.
+            // NOTE: Invalid asset refs should be interpreted as zero rather than the default value.
             if (!Verify.IsTrue(@params.Reader.Read(out AssetId assetId))) return false;
 
-            bool hasValue = false;
             int value = 0;
 
             if (assetId != AssetId.Invalid)
             {
-                // Try to parse enum value from its name
                 string assetName = GameDatabase.GetAssetName(assetId);
-                hasValue = @params.FieldInfo.ClassType.TryGetEnumValue(assetName, out value);
+
+                SymbolicLookup<int> symbolicEnum = @params.FieldInfo.SymbolicEnum;
+                if (!Verify.IsNotNull(symbolicEnum)) return false;
+
+                value = symbolicEnum.ToLookupValue(assetName, out bool hasValue);
 
                 if (hasValue == false)
                     Logger.Trace($"ParseEnum(): Missing enum member {assetName} in {@params.FieldInfo.ClassType.Name}, field {@params.FieldInfo.Name}, file name {@params.FileName}");
             }
-
-            // Fall back to default if we don't have a parsed value (including the common case of invalid asset ref)
-            if (hasValue == false)
-                value = @params.FieldInfo.DefaultEnumValue;
 
             @params.FieldInfo.SetValue(@params.OwnerPrototype, value);
             return true;
