@@ -1,5 +1,4 @@
-﻿using System.Runtime.CompilerServices;
-using System.Runtime.InteropServices;
+﻿using System.Runtime.InteropServices;
 using MHServerEmu.Core.Extensions;
 using MHServerEmu.Core.Logging;
 
@@ -53,16 +52,9 @@ namespace MHServerEmu.Games.GameData.Calligraphy
 
         public bool Read<T>(out T dest) where T: unmanaged
         {
-            Span<byte> buffer = stackalloc byte[Unsafe.SizeOf<T>()];
-
-            if (_stream.Read(buffer) != buffer.Length)
-            {
-                dest = default;
-                return false;
-            }
-
-            dest = Unsafe.ReadUnaligned<T>(ref MemoryMarshal.GetReference(buffer));
-            return true;
+            dest = default;
+            Span<byte> buffer = MemoryMarshal.Cast<T, byte>(MemoryMarshal.CreateSpan(ref dest, 1));
+            return _stream.Read(buffer) == buffer.Length;
         }
 
         public bool ReadBytes(Span<byte> dest)

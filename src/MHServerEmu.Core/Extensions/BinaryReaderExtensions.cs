@@ -1,5 +1,4 @@
-﻿using System.Runtime.CompilerServices;
-using System.Runtime.InteropServices;
+﻿using System.Runtime.InteropServices;
 using System.Text;
 
 namespace MHServerEmu.Core.Extensions
@@ -8,16 +7,9 @@ namespace MHServerEmu.Core.Extensions
     {
         public static bool Read<T>(this BinaryReader reader, out T dest) where T: unmanaged
         {
-            Span<byte> buffer = stackalloc byte[Unsafe.SizeOf<T>()];
-
-            if (reader.Read(buffer) != buffer.Length)
-            {
-                dest = default;
-                return false;
-            }
-
-            dest = Unsafe.ReadUnaligned<T>(ref MemoryMarshal.GetReference(buffer));
-            return true;
+            dest = default;
+            Span<byte> buffer = MemoryMarshal.Cast<T, byte>(MemoryMarshal.CreateSpan(ref dest, 1));
+            return reader.Read(buffer) == buffer.Length;
         }
 
         public static T Read<T>(this BinaryReader reader) where T: unmanaged
