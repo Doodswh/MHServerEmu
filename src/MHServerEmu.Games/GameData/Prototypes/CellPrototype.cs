@@ -51,13 +51,15 @@ namespace MHServerEmu.Games.GameData.Prototypes
 
     public class HeightMapPrototype : Prototype, IBinaryResource
     {
-        public Vector2 HeightMapSize { get; protected set; }
+        public int HeightMapSizeX { get; protected set; }
+        public int HeightMapSizeY { get; protected set; }
         public short[] HeightMapData { get; protected set; }
         public byte[] HotspotData { get; protected set; }
 
         public void Deserialize(BinaryReader reader)
         {
-            HeightMapSize = new(reader.ReadUInt32(), reader.ReadUInt32());
+            HeightMapSizeX = reader.ReadInt32();
+            HeightMapSizeY = reader.ReadInt32();
 
             if (BinaryResourceSerializer.ReadContainerFromBinaryReader(out short[] heightMapData, reader))
                 HeightMapData = heightMapData;

@@ -123,8 +123,8 @@ namespace MHServerEmu.Games.Navi
             if (cellProto == null || cellProto.HeightMap == null || cellProto.HeightMap.HeightMapData == null) return SweepResult.Failed;
 
             HeightMapPrototype heightMap = cellProto.HeightMap;
-            float mapX = heightMap.HeightMapSize.X;
-            float mapY = heightMap.HeightMapSize.Y;
+            float mapX = heightMap.HeightMapSizeX;
+            float mapY = heightMap.HeightMapSizeY;
 
             var regionBounds = cell.RegionBounds;
             Vector3 cellMin = regionBounds.Min;
@@ -247,8 +247,8 @@ namespace MHServerEmu.Games.Navi
         {
             if (cell == null) return SweepResult.Failed;
 
-            int mapX = (int)heightMap.HeightMapSize.X;
-            int mapY = (int)heightMap.HeightMapSize.Y;
+            int mapX = heightMap.HeightMapSizeX;
+            int mapY = heightMap.HeightMapSizeY;
 
             if (x < 0 || x >= mapX || y < 0 || y >= mapY) return SweepResult.Success; // Original code here y >= mapX !!!
 
@@ -441,8 +441,8 @@ namespace MHServerEmu.Games.Navi
             var cellProto = cell.Prototype;
             if (cellProto == null || cellProto.HeightMap.HeightMapData.IsNullOrEmpty()) return SweepResult.Failed;
 
-            float mapX = cellProto.HeightMap.HeightMapSize.X;
-            float mapY = cellProto.HeightMap.HeightMapSize.Y;
+            float mapX = cellProto.HeightMap.HeightMapSizeX;
+            float mapY = cellProto.HeightMap.HeightMapSizeY;
 
             var regionBounds = cell.RegionBounds;
             Vector3 cellMin = regionBounds.Min;
@@ -681,8 +681,8 @@ namespace MHServerEmu.Games.Navi
 
         public static short InternalGetHeightAtPoint(int x0, int y0, HeightMapPrototype heightMap, Cell cell)
         {
-            int mapX = (int)heightMap.HeightMapSize.X;
-            int mapY = (int)heightMap.HeightMapSize.Y;
+            int mapX = heightMap.HeightMapSizeX;
+            int mapY = heightMap.HeightMapSizeY;
             var regionBounds = cell.RegionBounds;
 
             if (x0 >= 0 && x0 < mapX && y0 >= 0 && y0 < mapY)
@@ -798,8 +798,8 @@ namespace MHServerEmu.Games.Navi
                 Vector3 cellMin = regionBounds.Min;
                 float cellWidth = regionBounds.Width;
                 float cellLength = regionBounds.Length;
-                float mapX = HeightMap.HeightMapSize.X;
-                float mapY = HeightMap.HeightMapSize.Y;
+                float mapX = HeightMap.HeightMapSizeX;
+                float mapY = HeightMap.HeightMapSizeY;
 
                 Vector3 pointX0Y0 = new (x / mapX * cellWidth, y / mapY * cellLength, 0.0f);
                 pointX0Y0 += cellMin;

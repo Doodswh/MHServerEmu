@@ -883,8 +883,8 @@ namespace MHServerEmu.Games.Entities
                     Vector3 cellPos = position - cell.RegionBounds.Min;
                     cellPos.X /= cellProto.BoundingBox.Width;
                     cellPos.Y /= cellProto.BoundingBox.Length;
-                    int mapX = (int)cellProto.HeightMap.HeightMapSize.X;
-                    int mapY = (int)cellProto.HeightMap.HeightMapSize.Y;
+                    int mapX = cellProto.HeightMap.HeightMapSizeX;
+                    int mapY = cellProto.HeightMap.HeightMapSizeY;
                     int x = Math.Clamp((int)(cellPos.X * mapX), 0, mapX - 1);
                     int y = Math.Clamp((int)(cellPos.Y * mapY), 0, mapY - 1);
                     int index = y * mapX + x;
