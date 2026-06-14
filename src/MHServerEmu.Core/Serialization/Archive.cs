@@ -879,8 +879,16 @@ namespace MHServerEmu.Core.Serialization
         {
             int length = bytes.Length;
 
-            for (int i = 0; i < length; i++)
-                bytes[i] = _cis.ReadRawByte();
+            try
+            {
+                for (int i = 0; i < length; i++)
+                    bytes[i] = _cis.ReadRawByte();
+            }
+            catch (Exception e)
+            {
+                Logger.ErrorException(e, nameof(ReadBytes));
+                return false;
+            }
 
             return true;
         }
@@ -888,9 +896,9 @@ namespace MHServerEmu.Core.Serialization
         // These methods are also used for FavorSpeed (disk mode).
 
         /// <summary>
-        /// Writes the provided <see cref="uint"/> value at the current position in the underlying stream. Returns <see langword="true"/> if successful.
+        /// Writes the provided <typeparamref name="T"/> value at the current position in the underlying stream. Returns <see langword="true"/> if successful.
         /// </summary>
-        public bool WriteUnencodedStream(uint value)
+        public bool WriteUnencodedStream<T>(T value) where T: unmanaged
         {
             Span<byte> bytes = MemoryMarshal.AsBytes(MemoryMarshal.CreateSpan(ref value, 1));
             return WriteBytes(bytes);
@@ -904,54 +912,17 @@ namespace MHServerEmu.Core.Serialization
             // NOTE: PropertyCollection::serializeWithDefault() manipulates the archive buffer directly. First it allocates 4 bytes
             // for the number of properties, than it writes all the properties, and then it goes back and updates the number.
             // NOTE2: Persistent archives also do this for all ISerialize objects, except it writes the number of bytes written.
+            // TODO: this can be done better similarly to GetSizeTokenAtOffset()
             return _buffer.WriteUInt32At(position, value);
         }
 
         /// <summary>
-        /// Writes the provided <see cref="ulong"/> value at the current position in the underlying stream. Returns <see langword="true"/> if successful.
+        /// Reads a <typeparamref name="T"/> value at the current position in the underlying stream. Returns <see langword="true"/> if successful.
         /// </summary>
-        public bool WriteUnencodedStream(ulong value)
+        public bool ReadUnencodedStream<T>(ref T value) where T: unmanaged
         {
             Span<byte> bytes = MemoryMarshal.AsBytes(MemoryMarshal.CreateSpan(ref value, 1));
-            return WriteBytes(bytes);
-        }
-
-        /// <summary>
-        /// Reads a <see cref="uint"/> value at the current position in the underlying stream. Returns <see langword="true"/> if successful.
-        /// </summary>
-        public bool ReadUnencodedStream(ref uint value)
-        {
-            try
-            {
-                Span<byte> bytes = stackalloc byte[sizeof(uint)];
-                ReadBytes(bytes);
-                value = MemoryMarshal.Read<uint>(bytes);
-                return true;
-            }
-            catch (Exception e)
-            {
-                Logger.ErrorException(e, nameof(ReadUnencodedStream));
-                return false;
-            }
-        }
-
-        /// <summary>
-        /// Reads a <see cref="ulong"/> value at the current position in the underlying stream. Returns <see langword="true"/> if successful.
-        /// </summary>
-        public bool ReadUnencodedStream(ref ulong value)
-        {
-            try
-            {
-                Span<byte> bytes = stackalloc byte[sizeof(ulong)];
-                ReadBytes(bytes);
-                value = MemoryMarshal.Read<ulong>(bytes);
-                return true;
-            }
-            catch (Exception e)
-            {
-                Logger.ErrorException(e, nameof(ReadUnencodedStream));
-                return false;
-            }
+            return ReadBytes(bytes);
         }
 
         /// <summary>

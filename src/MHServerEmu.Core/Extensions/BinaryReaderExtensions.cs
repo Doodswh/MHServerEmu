@@ -8,7 +8,7 @@ namespace MHServerEmu.Core.Extensions
         public static bool Read<T>(this BinaryReader reader, out T dest) where T: unmanaged
         {
             dest = default;
-            Span<byte> buffer = MemoryMarshal.Cast<T, byte>(MemoryMarshal.CreateSpan(ref dest, 1));
+            Span<byte> buffer = MemoryMarshal.AsBytes(MemoryMarshal.CreateSpan(ref dest, 1));
             return reader.Read(buffer) == buffer.Length;
         }
 

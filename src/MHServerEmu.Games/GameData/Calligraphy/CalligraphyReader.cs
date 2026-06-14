@@ -53,7 +53,7 @@ namespace MHServerEmu.Games.GameData.Calligraphy
         public bool Read<T>(out T dest) where T: unmanaged
         {
             dest = default;
-            Span<byte> buffer = MemoryMarshal.Cast<T, byte>(MemoryMarshal.CreateSpan(ref dest, 1));
+            Span<byte> buffer = MemoryMarshal.AsBytes(MemoryMarshal.CreateSpan(ref dest, 1));
             return _stream.Read(buffer) == buffer.Length;
         }
 
@@ -64,7 +64,8 @@ namespace MHServerEmu.Games.GameData.Calligraphy
 
         public bool Read<T>(T[] dest) where T: unmanaged
         {
-            return ReadBytes(MemoryMarshal.Cast<T, byte>(dest)); 
+            Span<byte> buffer = MemoryMarshal.AsBytes(dest.AsSpan());
+            return _stream.Read(buffer) == buffer.Length; 
         }
 
         public long Seek(SeekOrigin origin, long offset)
