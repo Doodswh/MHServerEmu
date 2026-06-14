@@ -1,6 +1,8 @@
 ﻿using System.Diagnostics;
 using System.Reflection;
+using MHServerEmu.Core.Collisions;
 using MHServerEmu.Core.Logging;
+using MHServerEmu.Core.VectorMath;
 using MHServerEmu.Games.GameData.Calligraphy;
 using MHServerEmu.Games.GameData.Prototypes;
 using MHServerEmu.Games.Properties;
@@ -18,12 +20,17 @@ namespace MHServerEmu.Games.GameData
             { typeof(long),                         PrototypeFieldType.Int64 },
             { typeof(float),                        PrototypeFieldType.Float32 },
             { typeof(double),                       PrototypeFieldType.Float64 },
+            { typeof(string),                       PrototypeFieldType.Text },
             { typeof(Enum),                         PrototypeFieldType.Enum },
+            { typeof(PrototypeId),                  PrototypeFieldType.PrototypeDataRef },
             { typeof(AssetId),                      PrototypeFieldType.AssetRef },
             { typeof(AssetTypeId),                  PrototypeFieldType.AssetTypeRef },
             { typeof(CurveId),                      PrototypeFieldType.CurveRef },
-            { typeof(PrototypeId),                  PrototypeFieldType.PrototypeDataRef },
+            { typeof(Vector3),                      PrototypeFieldType.Vector3 },
+            { typeof(Orientation),                  PrototypeFieldType.Orientation },
+            { typeof(Aabb),                         PrototypeFieldType.Aabb },
             { typeof(LocaleStringId),               PrototypeFieldType.LocaleStringId },
+            { typeof(PrototypeGuid),                PrototypeFieldType.PrototypeGuid },
             { typeof(Prototype),                    PrototypeFieldType.PrototypePtr },
             { typeof(PropertyId),                   PrototypeFieldType.PropertyId },
             { typeof(bool[]),                       PrototypeFieldType.ListBool },
@@ -39,6 +46,7 @@ namespace MHServerEmu.Games.GameData
             { typeof(PrototypeId[]),                PrototypeFieldType.ListPrototypeDataRef },
             { typeof(Prototype[]),                  PrototypeFieldType.ListPrototypePtr },
             { typeof(PrototypeMixinList),           PrototypeFieldType.ListMixin },
+            { typeof(PrototypeGuid[]),              PrototypeFieldType.Vector },
             { typeof(PrototypePropertyCollection),  PrototypeFieldType.PropertyCollection },
         };
 

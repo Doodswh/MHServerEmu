@@ -454,19 +454,19 @@ namespace MHServerEmu.Games.GameData.Calligraphy
                     return StructureType == CalligraphyStructureType.Single && (BaseType == CalligraphyBaseType.Prototype || BaseType == CalligraphyBaseType.RHStruct);
 
                 case PrototypeFieldType.Invalid:
-                case PrototypeFieldType.UnkType10:
+                case PrototypeFieldType.Text:
                 case PrototypeFieldType.UnkType12:
-                case PrototypeFieldType.UnkType18:
-                case PrototypeFieldType.UnkType19:
-                case PrototypeFieldType.UnkType20:
-                case PrototypeFieldType.UnkType21:
-                case PrototypeFieldType.UnkType22:
-                case PrototypeFieldType.UnkType23:
-                case PrototypeFieldType.UnkType24:
-                case PrototypeFieldType.UnkType25:
-                case PrototypeFieldType.UnkType26:
+                case PrototypeFieldType.Vector3:
+                case PrototypeFieldType.Point3:
+                case PrototypeFieldType.IPoint3:
+                case PrototypeFieldType.Point2:
+                case PrototypeFieldType.IPoint2:
+                case PrototypeFieldType.Orientation:
+                case PrototypeFieldType.Matrix4:
+                case PrototypeFieldType.Transform3:
+                case PrototypeFieldType.Aabb:
                 case PrototypeFieldType.PrototypeGuid:
-                case PrototypeFieldType.UnkType29:
+                case PrototypeFieldType.AssetName:
                 case PrototypeFieldType.Mixin:
                 case PrototypeFieldType.Prototype:
                 case PrototypeFieldType.ListBool:

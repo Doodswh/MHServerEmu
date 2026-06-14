@@ -13,7 +13,7 @@
         UInt64,
         Float32,
         Float64,
-        UnkType10,
+        Text,                   // utf-8 prefixed by int32 length
         Enum,
         UnkType12,
         FunctionPtr,
@@ -21,22 +21,22 @@
         AssetRef,
         AssetTypeRef,
         CurveRef,
-        UnkType18,
-        UnkType19,
-        UnkType20,
-        UnkType21,
-        UnkType22,
-        UnkType23,
-        UnkType24,
-        UnkType25,
-        UnkType26,
+        Vector3,
+        Point3,
+        IPoint3,
+        Point2,
+        IPoint2,
+        Orientation,
+        Matrix4,
+        Transform3,
+        Aabb,
         LocaleStringId,
         PrototypeGuid,
-        UnkType29,
+        AssetName,              // same as text
         Mixin,
         Prototype,
         PrototypePtr,
-        PrototypeRefPtr,           // "Resources should not use PrototypeRefPtrs, or you should implement them"
+        PrototypeRefPtr,        // "Resources should not use PrototypeRefPtrs, or you should implement them"
         VectorPrototypeDataRef,
         ListPrototypeDataRef,
         VectorAssetDataRef,
@@ -51,10 +51,10 @@
         ListFloat32,
         ListFloat64,
         ListString,
-        ListPrototypePtr,          // "Lists of PrototypePtrs are not parsed as a standard prototype field"
-        ListMixin,                 // "Mixin lists are not parsed as a standard prototype field"
-        VectorPrototypePtr,        // "Vectors of PrototypePtrs are not parsed as a standard prototype field"
-        VectorPrototypeRefPtr,     // "Resources should not use PrototypeRefPtrs, or you should implement them"
+        ListPrototypePtr,       // "Lists of PrototypePtrs are not parsed as a standard prototype field"
+        ListMixin,              // "Mixin lists are not parsed as a standard prototype field"
+        VectorPrototypePtr,     // "Vectors of PrototypePtrs are not parsed as a standard prototype field"
+        VectorPrototypeRefPtr,  // "Resources should not use PrototypeRefPtrs, or you should implement them"
         UnkType52,
         Vector,
         PropertyId,
