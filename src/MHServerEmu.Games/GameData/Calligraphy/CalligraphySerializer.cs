@@ -1436,15 +1436,12 @@ namespace MHServerEmu.Games.GameData.Calligraphy
         /// </remarks>
         private static bool ParseListUnmanaged64<T>(in FieldParserParams @params) where T : unmanaged
         {
-            if (AllocateCollectionForField(@params, out short numItems, out T[] values) == false)
+            if (AllocateCollectionForField(@params, out _, out T[] values) == false)
                 return false;
 
             CalligraphyReader reader = @params.Reader;
 
-            for (int i = 0; i < numItems; i++)
-            {
-                if (!Verify.IsTrue(reader.Read(out values[i]))) return false;
-            }
+            if (!Verify.IsTrue(reader.Read(values))) return false; // read the whole thing in one fell swoop
 
             @params.FieldInfo.SetValue(@params.OwnerPrototype, values);
             return true;

@@ -70,6 +70,11 @@ namespace MHServerEmu.Games.GameData.Calligraphy
             return _stream.Read(dest) == dest.Length;
         }
 
+        public bool Read<T>(T[] dest) where T: unmanaged
+        {
+            return ReadBytes(MemoryMarshal.Cast<T, byte>(dest)); 
+        }
+
         public long Seek(SeekOrigin origin, long offset)
         {
             return _stream.Seek(offset, origin);
