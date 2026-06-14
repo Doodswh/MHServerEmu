@@ -5,7 +5,6 @@ using MHServerEmu.Core.Memory;
 using MHServerEmu.Core.System.Random;
 using MHServerEmu.Games.Entities;
 using MHServerEmu.Games.GameData.Calligraphy;
-using MHServerEmu.Games.GameData.Calligraphy.Attributes;
 using MHServerEmu.Games.Loot;
 using MHServerEmu.Games.Properties;
 using MHServerEmu.Games.Properties.Evals;
@@ -357,7 +356,8 @@ namespace MHServerEmu.Games.GameData.Prototypes
         public LocaleStringId TooltipTitle { get; protected set; }
         public AssetId UIIcon { get; protected set; }
         public LocaleStringId TooltipDescription { get; protected set; }
-        public PrototypePropertyCollection Properties { get; protected set; }     // Property list, should this be a property collection?
+        [PrototypeField(PrototypeFieldType.PropertyList)]
+        public PrototypePropertyCollection Properties { get; protected set; }
         public PrototypeId[] PassivePowers { get; protected set; }
         public PrototypeId Type { get; protected set; }
         public int RanksMax { get; protected set; }

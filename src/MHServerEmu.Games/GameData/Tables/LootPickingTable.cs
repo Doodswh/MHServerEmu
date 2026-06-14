@@ -1,16 +1,11 @@
-﻿using System.Text.Json;
-using MHServerEmu.Core.Collections;
+﻿using MHServerEmu.Core.Collections;
 using MHServerEmu.Core.Collisions;
-using MHServerEmu.Core.Helpers;
-using MHServerEmu.Core.Logging;
 using MHServerEmu.Games.GameData.Prototypes;
 
 namespace MHServerEmu.Games.GameData.Tables
 {
     public class LootPickingTable
     {
-        private static readonly Logger Logger = LogManager.CreateLogger();
-
         private readonly Dictionary<AffixPosition, List<AffixPrototype>> _affixPositionDict = new();
 
         // For some reason the client here uses PrototypeDataRef instead of AssetRef as key here,
@@ -23,11 +18,12 @@ namespace MHServerEmu.Games.GameData.Tables
 
         public LootPickingTable()
         {
-            foreach (var affixRef in GameDatabase.DataDirectory.IteratePrototypesInHierarchy<AffixPrototype>(PrototypeIterateFlags.NoAbstractApprovedOnly))
+            foreach (PrototypeId affixRef in GameDatabase.DataDirectory.IteratePrototypesInHierarchy<AffixPrototype>(PrototypeIterateFlags.NoAbstractApprovedOnly))
             {
                 // Populate position -> AffixPrototype collection lookup
-                var affixProto = affixRef.As<AffixPrototype>();
-                if (affixProto.Weight <= 0 || affixProto.Position == AffixPosition.None) continue;
+                AffixPrototype affixProto = affixRef.As<AffixPrototype>();
+                if (affixProto.Weight <= 0 || affixProto.Position == AffixPosition.None)
+                    continue;
 
                 if (_affixPositionDict.TryGetValue(affixProto.Position, out List<AffixPrototype> positionAffixList) == false)
                 {
@@ -38,8 +34,10 @@ namespace MHServerEmu.Games.GameData.Tables
                 positionAffixList.Add(affixProto);
 
                 // Populate keyword Asset Ref -> AffixPrototype collection lookup
-                if (affixProto.Keywords == null || affixProto.Keywords.Length == 0) continue;
-                foreach (var keywordAssetRef in affixProto.Keywords)
+                if (affixProto.Keywords == null || affixProto.Keywords.Length == 0)
+                    continue;
+
+                foreach (AssetId keywordAssetRef in affixProto.Keywords)
                 {
                     if (_affixKeywordDict.TryGetValue(keywordAssetRef, out List<AffixPrototype> keywordAffixList) == false)
                     {
@@ -59,9 +57,9 @@ namespace MHServerEmu.Games.GameData.Tables
                 List<AffixPrototype> categoryAffixList = new();
                 _affixCategoryDict.Add(affixCategoryTableEntry.Category, categoryAffixList);
 
-                foreach (var affixRef in affixCategoryTableEntry.Affixes)
+                foreach (PrototypeId affixRef in affixCategoryTableEntry.Affixes)
                 {
-                    var affixProto = affixRef.As<AffixPrototype>();
+                    AffixPrototype affixProto = affixRef.As<AffixPrototype>();
                     categoryAffixList.Add(affixProto);
                 }
             }
@@ -148,34 +146,16 @@ namespace MHServerEmu.Games.GameData.Tables
                 pickerToFill.Add(element.Prototype, element.Weight);
         }
 
-        private readonly struct LootPickingPair
+        private readonly struct LootPickingPair(PrototypeId lootProtoRef, PrototypeId agentProtoRef)
         {
-            public readonly PrototypeId LootProtoRef;
-            public readonly PrototypeId AgentProtoRef;
-
-            public LootPickingPair(PrototypeId lootProtoRef, PrototypeId agentProtoRef)
-            {
-                LootProtoRef = lootProtoRef;
-                AgentProtoRef = agentProtoRef;
-            }
+            public readonly PrototypeId LootProtoRef = lootProtoRef;
+            public readonly PrototypeId AgentProtoRef = agentProtoRef;
         }
 
-        private readonly struct PickerElement
+        private readonly struct PickerElement(Prototype prototype, int weight)
         {
-            public readonly Prototype Prototype;
-            public readonly int Weight;
-
-            public PickerElement(Prototype prototype, int weight)
-            {
-                Prototype = prototype;
-                Weight = weight;
-            }
-        }
-
-        private class LootDropWeightMultiplierOverride
-        {
-            public string ItemPrototype { get; init; }
-            public float LootDropWeightMultiplier { get; init; }
+            public readonly Prototype Prototype = prototype;
+            public readonly int Weight = weight;
         }
     }
 }

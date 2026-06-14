@@ -4,46 +4,53 @@ namespace MHServerEmu.Games.GameData.Calligraphy
 {
     public sealed class CurveDirectory
     {
-        private static readonly Logger Logger = LogManager.CreateLogger();
-
-        private readonly Dictionary<CurveId, CurveRecord> _curveRecordDict = new();
+        private readonly Dictionary<CurveId, CurveRecord> _curves = new();
 
         public static CurveDirectory Instance { get; } = new();
 
-        public int RecordCount { get => _curveRecordDict.Count; }
+        public int RecordCount { get => _curves.Count; }
 
         private CurveDirectory() { }
 
-        public CurveRecord CreateCurveRecord(CurveId id, CurveRecordFlags flags)
+        public CurveRecord CreateCurveRecord(CurveId curveRef, CurveRecordFlags flags)
         {
-            CurveRecord record = new() { Flags = flags };
-            _curveRecordDict.Add(id, record);
+            if (!Verify.IsTrue(curveRef != CurveId.Invalid)) return null;
+
+            bool recordExists = _curves.TryGetValue(curveRef, out CurveRecord record);
+            if (!Verify.IsTrue(recordExists == false, "Curve record already exists, returning existing record"))
+                return record;
+
+            record = new() { Flags = flags };
+            _curves.Add(curveRef, record);
+
             return record;
         }
 
-        public CurveRecord GetCurveRecord(CurveId id)
+        public CurveRecord GetCurveRecord(CurveId curveRef)
         {
-            if (_curveRecordDict.TryGetValue(id, out CurveRecord record) == false)
+            if (_curves.TryGetValue(curveRef, out CurveRecord record) == false)
                 return null;
 
             return record;
         }
 
-        public Curve GetCurve(CurveId id)
+        public Curve GetCurve(CurveId curveRef)
         {
-            if (id == CurveId.Invalid)
-                return null;
-
-            // Look for a record for the specified id
-            if (_curveRecordDict.TryGetValue(id, out CurveRecord record) == false)
-                return Logger.WarnReturn<Curve>(null, $"Failed to get curve id {id}");
+            if (!Verify.IsTrue(curveRef != CurveId.Invalid)) return null;
+            if (!Verify.IsTrue(_curves.TryGetValue(curveRef, out CurveRecord record))) return null;
 
             // Load the curve if needed
             if (record.Curve == null)
             {
-                string filePath = $"Calligraphy/{GameDatabase.GetCurveName(id)}";
-                using (Stream stream = PakFileSystem.Instance.LoadFromPak(filePath, PakFileId.Calligraphy))
-                    record.Curve = new(stream, id);
+                string curveFilename = $"Calligraphy/{GameDatabase.GetCurveName(curveRef)}";
+                using Stream fileStream = PakFileSystem.Instance.LoadFromPak(curveFilename, (int)PakFileId.Calligraphy);
+                if (!Verify.IsNotNull(fileStream, $"Unable to open file %s"))
+                    return null;
+
+                using CalligraphyReader curveReader = new(fileStream, curveFilename);
+
+                record.Curve = new();
+                Verify.IsTrue(record.Curve.Load(curveReader, curveRef));
             }
             
             return record.Curve;

@@ -8,14 +8,16 @@ namespace MHServerEmu.Games.GameData.Prototypes
 {
     public class PropPackagePrototype : Prototype, IBinaryResource
     {
+        public ProceduralPropGroupPrototype[] PropGroups { get; protected set; }
+
+        //---
+
         private readonly Dictionary<uint, ProceduralPropGroupPrototype> _propGroupMap = new();
-        public ProceduralPropGroupPrototype[] PropGroups { get; private set; }
 
         public void Deserialize(BinaryReader reader)
         {
-            PropGroups = new ProceduralPropGroupPrototype[reader.ReadUInt32()];
-            for (int i = 0; i < PropGroups.Length; i++)
-                PropGroups[i] = new(reader);
+            if (BinaryResourceSerializer.ReadPrototypeContainer(out ProceduralPropGroupPrototype[] propGroups, reader))
+                PropGroups = propGroups;
         }
 
         public override void PostProcess()
@@ -47,27 +49,25 @@ namespace MHServerEmu.Games.GameData.Prototypes
         }
     }
 
-    public class ProceduralPropGroupPrototype : Prototype
+    public class ProceduralPropGroupPrototype : Prototype, IBinaryResource
     {
-        public string NameId { get; }
-        public string PrefabPath { get; }
-        public Vector3 MarkerPosition { get; }
-        public Vector3 MarkerRotation { get; }
-        public MarkerSetPrototype Objects { get; }
-        public NaviPatchSourcePrototype NaviPatchSource { get; }
-        public ushort RandomRotationDegrees { get; } // short
-        public ushort RandomPosition { get; } // short
+        public string NameId { get; protected set; }
+        public string PrefabPath { get; protected set; }
+        public Vector3 MarkerPosition { get; protected set; }
+        public Vector3 MarkerRotation { get; protected set; }
+        public MarkerSetPrototype Objects { get; protected set; } = new();
+        public NaviPatchSourcePrototype NaviPatchSource { get; protected set; } = new();
+        public ushort RandomRotationDegrees { get; protected set; } // short
+        public ushort RandomPosition { get; protected set; } // short
 
-        public ProceduralPropGroupPrototype(BinaryReader reader)
+        public void Deserialize(BinaryReader reader)
         {
-            var protoNameHash = (ResourcePrototypeHash)reader.ReadUInt32();
-
             NameId = reader.ReadFixedString32();
             PrefabPath = reader.ReadFixedString32();
-            MarkerPosition = reader.ReadVector3();
-            MarkerRotation = reader.ReadVector3();
-            Objects = new(reader);
-            NaviPatchSource = new(reader);
+            MarkerPosition = reader.Read<Vector3>();
+            MarkerRotation = reader.Read<Vector3>();
+            Objects.Deserialize(reader);
+            NaviPatchSource.Deserialize(reader);
             RandomRotationDegrees = reader.ReadUInt16();
             RandomPosition = reader.ReadUInt16();
         }

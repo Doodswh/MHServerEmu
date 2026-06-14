@@ -108,27 +108,27 @@ namespace MHServerEmu.Games.GameData.LiveTuning
             ServerManager.Instance.SendMessageToService(GameServiceType.GroupingManager, message);
         }
 
-        private bool InitializeEvents()
+        private void InitializeEvents()
         {
             _events.Clear();
             _rules.Clear();
 
             // Live Tuning events are not critical, so allow server initialization to proceed if any of the configuration files are missing or borked.
             string eventListFilePath = GetBaseFileOrOverride(EventListFilePath, EventListOverrideFilePath);
-            if (eventListFilePath == null)
-                return Logger.WarnReturn(true, "InitializeEvents(): Live Tuning event list file not found");
+            if (!Verify.IsNotNull(eventListFilePath, "Live Tuning event list file not found"))
+                return;
 
             string eventScheduleFilePath = GetBaseFileOrOverride(EventScheduleFilePath, EventScheduleOverrideFilePath);
-            if (eventScheduleFilePath == null)
-                return Logger.WarnReturn(true, "InitializeEvents(): Live Tuning event schedule file not found");
+            if (!Verify.IsNotNull(eventScheduleFilePath, "Live Tuning event schedule file not found"))
+                return;
 
             Dictionary<string, LiveTuningEvent> events = FileHelper.DeserializeJson<Dictionary<string, LiveTuningEvent>>(eventListFilePath, LiveTuningEvent.JsonOptions.Default);
-            if (events == null)
-                return Logger.WarnReturn(true, "InitializeEvents(): Failed to load Live Tuning event list");
+            if (!Verify.IsNotNull(events, "Failed to load Live Tuning event list"))
+                return;
 
             LiveTuningEventRule[] eventSchedule = FileHelper.DeserializeJson<LiveTuningEventRule[]>(eventScheduleFilePath, LiveTuningEvent.JsonOptions.Default);
-            if (eventSchedule == null)
-                return Logger.WarnReturn(true, "InitializeEvents(): Failed to load Live Tuning event schedule");
+            if (!Verify.IsNotNull(eventSchedule, "Failed to load Live Tuning event schedule"))
+                return;
 
             foreach (var kvp in events)
             {
@@ -141,18 +141,14 @@ namespace MHServerEmu.Games.GameData.LiveTuning
                 if (rule.IsEnabled == false)
                     continue;
 
-                if (rule.IsValid() == false)
-                {
-                    Logger.Warn($"InitializeEvents(): Live Tuning event rule {rule} failed validation, skipping...");
+                if (!Verify.IsTrue(rule.IsValid(), $"Live Tuning event rule {rule} failed validation"))
                     continue;
-                }
 
                 Logger.Trace($"InitializeEvents(): Registered Live Tuning event rule {rule}");
                 _rules.Add(rule);
             }
 
             Logger.Info("Finished initializing Live Tuning events");
-            return true;
         }
 
         private void InitializeRefreshTimer()
@@ -194,15 +190,16 @@ namespace MHServerEmu.Games.GameData.LiveTuning
             List<NetStructLiveTuningSettingProtoEnumValue> settings)
         {
             LiveTuningEvent activeEvent = GetEvent(activeEventName);
-            if (activeEvent == null) return Logger.WarnReturn(0, "AddActiveEvent(): activeEvent == null");
+            if (!Verify.IsNotNull(activeEvent)) return 0;
 
             string filePath = Path.Combine(LiveTuningManager.LiveTuningDataDirectory, activeEvent.FilePath);
-            if (File.Exists(filePath) == false)
-                return Logger.WarnReturn(0, $"AddActiveEvent(): Live Tuning data file not found for event {activeEvent} at {filePath}");
+            if (!Verify.IsTrue(File.Exists(filePath), $"Live Tuning data file not found for event {activeEvent} at {filePath}"))
+                return 0;
 
-            // Load static data 
-            if (LiveTuningManager.LoadLiveTuningDataFromFile(filePath, settings) == false)
-                return Logger.WarnReturn(0, $"AddActiveEvent(): Failed to load Live Tuning data for event {activeEvent} from {filePath}");
+            // Load static data
+            bool loaded = LiveTuningManager.LoadLiveTuningDataFromFile(filePath, settings);
+            if (!Verify.IsTrue(loaded, $"Failed to load Live Tuning data for event {activeEvent} from {filePath}"))
+                return 0;
 
             PrototypeId dailyGiftProtoRef = GetDailyGiftProtoRef(activeEvent.DailyGift);
             if (dailyGiftProtoRef != PrototypeId.Invalid)
@@ -215,11 +212,8 @@ namespace MHServerEmu.Games.GameData.LiveTuning
                 {
                     LiveTuningUpdateValue updateValue = new(missionProto, Enum.GetName(MissionTuningVar.eMTV_EventInstance), eventInstance);
                     NetStructLiveTuningSettingProtoEnumValue eventInstanceSetting = updateValue.ToProtobuf();
-                    if (eventInstanceSetting == null)
-                    {
-                        Logger.Warn($"GetLiveTuningSettings(): Failed to add eMTV_EventInstance setting for '{missionProto}' in event {activeEvent}");
+                    if (!Verify.IsNotNull(eventInstanceSetting, $"Failed to add eMTV_EventInstance setting for '{missionProto}' in event {activeEvent}"))
                         continue;
-                    }
 
                     settings.Add(eventInstanceSetting);
                 }
@@ -239,12 +233,12 @@ namespace MHServerEmu.Games.GameData.LiveTuning
                 return PrototypeId.Invalid;
 
             PrototypeId dailyGiftProtoRef = GameDatabase.GetPrototypeRefByName(dailyGiftName);
-            if (dailyGiftProtoRef == PrototypeId.Invalid)
-                return Logger.WarnReturn(PrototypeId.Invalid, $"GetDailyGiftProtoRef(): Invalid daily gift '{dailyGiftName}'");
+            if (!Verify.IsTrue(dailyGiftProtoRef != PrototypeId.Invalid, $"Invalid daily gift '{dailyGiftName}'"))
+                return PrototypeId.Invalid;
 
             ItemPrototype itemProto = dailyGiftProtoRef.As<ItemPrototype>();
-            if (itemProto == null)
-                return Logger.WarnReturn(PrototypeId.Invalid, $"GetDailyGiftProtoRef(): {dailyGiftProtoRef.GetName()} is not an ItemPrototype, which is not supported");
+            if (!Verify.IsNotNull(itemProto, $"{dailyGiftProtoRef.GetName()} is not an ItemPrototype, which is not supported"))
+                return PrototypeId.Invalid;
 
             return dailyGiftProtoRef;
         }

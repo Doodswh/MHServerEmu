@@ -20,7 +20,7 @@ namespace MHServerEmu.Games.GameData
         NoMultipleMatches   = 1 << 0,
         SortMatchesByName   = 1 << 1,
         ExactMatchesOnly    = 1 << 2,
-        CaseInsensitive     = 1 << 3    // Our custom flag not present in the client
+        IgnoreCase          = 1 << 3    // Our custom flag not present in the client
     }
 
     public static class GameDatabase
@@ -79,7 +79,7 @@ namespace MHServerEmu.Games.GameData
         static GameDatabase()
         {
             Logger.Info("Initializing game database...");
-            var stopwatch = Stopwatch.StartNew();
+            Stopwatch stopwatch = Stopwatch.StartNew();
 
             var config = ConfigManager.Instance.GetConfig<GameDataConfig>();
 
@@ -91,7 +91,7 @@ namespace MHServerEmu.Games.GameData
             DataDirectory.Initialize();
 
             // Initialize LocaleManager
-            LocaleManager.Instance.Initialize();
+            LocaleManager.Instance.Initialize(config.LoadLocaleFiles);
 
             // Initialize PropertyInfoTable
             PropertyInfoTable = new();
@@ -125,17 +125,17 @@ namespace MHServerEmu.Games.GameData
             // Preload all prototypes if needed
             if (config.LoadAllPrototypes)
             {
-                var loadAllWatch = Stopwatch.StartNew();
+                Stopwatch loadAllWatch = Stopwatch.StartNew();
 
-                foreach (PrototypeId prototypeId in DataDirectory.IterateAllPrototypes())
-                    DataDirectory.GetPrototype<Prototype>(prototypeId);
+                foreach (PrototypeId prototypeDataRef in DataDirectory.IterateAllPrototypes())
+                    DataDirectory.GetPrototype(prototypeDataRef);
 
                 loadAllWatch.Stop();
                 Logger.Info($"Loaded all prototypes in {loadAllWatch.ElapsedMilliseconds} ms");
             }
 
             // Initialize InteractionManager
-            var loadInteraction = Stopwatch.StartNew();
+            Stopwatch loadInteraction = Stopwatch.StartNew();
             InteractionManager = new();
             InteractionManager.Initialize();
             loadInteraction.Stop();
@@ -149,8 +149,8 @@ namespace MHServerEmu.Games.GameData
             LeaderboardInfoCache.Instance.Initialize();
 
             // Initialize game data tables
-            var tablesWatch = Stopwatch.StartNew();
-            var tables = GameDataTables.Instance;
+            Stopwatch tablesWatch = Stopwatch.StartNew();
+            GameDataTables tables = GameDataTables.Instance;
             tablesWatch.Stop();
             Logger.Info($"Initialized GameDataTables in {tablesWatch.ElapsedMilliseconds} ms");
 
@@ -165,7 +165,7 @@ namespace MHServerEmu.Games.GameData
         public static AssetType GetAssetType(AssetTypeId assetTypeId) => DataDirectory.AssetDirectory.GetAssetType(assetTypeId);
         public static Curve GetCurve(CurveId curveId) => DataDirectory.CurveDirectory.GetCurve(curveId);
         public static Blueprint GetBlueprint(BlueprintId blueprintId) => DataDirectory.GetBlueprint(blueprintId);
-        public static T GetPrototype<T>(PrototypeId prototypeId) where T: Prototype => DataDirectory.GetPrototype<T>(prototypeId);
+        public static T GetPrototype<T>(PrototypeId prototypeId) where T: Prototype => DataDirectory.GetPrototype(prototypeId) as T;
 
         public static string GetAssetName(AssetId assetId) => StringRefManager.GetReferenceName(assetId);
         public static string GetAssetTypeName(AssetTypeId assetTypeId) => AssetTypeRefManager.GetReferenceName(assetTypeId);
@@ -257,8 +257,8 @@ namespace MHServerEmu.Games.GameData
             foreach (AssetType type in DataDirectory.IterateAssetTypes())
             {
                 // Search only the type we need if one is specified
-                if (typeId != AssetTypeId.Invalid && type.Id != typeId) continue;
-                var asset = type.FindAssetByName(pattern, searchFlags);
+                if (typeId != AssetTypeId.Invalid && type.AssetTypeRef != typeId) continue;
+                var asset = type.FindAssetByName(pattern, searchFlags.HasFlag(DataFileSearchFlags.IgnoreCase));
                 if (asset != AssetId.Invalid) matches.Add(asset);
 
                 // Early return if no multiple matches is requested and there's more than one match
@@ -313,7 +313,7 @@ namespace MHServerEmu.Games.GameData
             {
                 foreach (Blueprint blueprint in DataDirectory.IterateBlueprints())
                 {
-                    BlueprintId blueprintId = blueprint.Id;
+                    BlueprintId blueprintId = blueprint.BlueprintDataRef;
                     string blueprintName = GetBlueprintName(blueprintId);
 
                     if (matchAllResults || CompareName(blueprintName, pattern, searchFlags))
@@ -335,7 +335,7 @@ namespace MHServerEmu.Games.GameData
             {
                 foreach (AssetType assetType in DataDirectory.IterateAssetTypes())
                 {
-                    AssetTypeId assetTypeId = assetType.Id;
+                    AssetTypeId assetTypeId = assetType.AssetTypeRef;
                     string assetTypeName = GetAssetTypeName(assetTypeId);
 
                     if (matchAllResults || CompareName(assetTypeName, pattern, searchFlags))
@@ -361,7 +361,7 @@ namespace MHServerEmu.Games.GameData
             if (flags.HasFlag(DataFileSearchFlags.ExactMatchesOnly))
                 return name == pattern;
 
-            if (flags.HasFlag(DataFileSearchFlags.CaseInsensitive))
+            if (flags.HasFlag(DataFileSearchFlags.IgnoreCase))
                 return name.Contains(pattern, StringComparison.InvariantCultureIgnoreCase);
 
             return name.Contains(pattern, StringComparison.InvariantCulture);

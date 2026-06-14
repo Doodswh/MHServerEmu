@@ -2,7 +2,6 @@
 using MHServerEmu.Core.Extensions;
 using MHServerEmu.Core.Helpers;
 using MHServerEmu.Games.GameData.Calligraphy;
-using MHServerEmu.Games.GameData.Calligraphy.Attributes;
 using MHServerEmu.Games.GameData.LiveTuning;
 using MHServerEmu.Games.MetaGames;
 using MHServerEmu.Games.MetaGames.GameModes;
@@ -97,8 +96,8 @@ namespace MHServerEmu.Games.GameData.Prototypes
         public PrototypeId[] Teams { get; protected set; }
         public PrototypeId[] GameModes { get; protected set; }
         public PrototypeId BodysliderOverride { get; protected set; }
-        public PrototypeId MetaGameMissionText { get; protected set; }
-        public PrototypeId MetaGameObjectiveText { get; protected set; }
+        public LocaleStringId MetaGameMissionText { get; protected set; }
+        public LocaleStringId MetaGameObjectiveText { get; protected set; }
         public PrototypeId MapInfoAvatarDefeatedOverride { get; protected set; }
         public bool DiscoverAvatarsForPlayers { get; protected set; }
         public int SoftLockRegionMode { get; protected set; }

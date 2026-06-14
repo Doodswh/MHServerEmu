@@ -7,15 +7,15 @@ namespace MHServerEmu.Games.GameData.Prototypes.Markers
     /// <summary>
     /// Base class for all MarkerPrototypes.
     /// </summary>
-    public class MarkerPrototype : Prototype
+    public class MarkerPrototype : Prototype, IBinaryResource
     {
         public Vector3 Position { get; protected set; }
         public Orientation Rotation { get; protected set; }
 
-        public void ReadMarker(BinaryReader reader)
+        public virtual void Deserialize(BinaryReader reader)
         {
-            Position = reader.ReadVector3();
-            Rotation = reader.ReadOrientation();
+            Position = reader.Read<Vector3>();
+            Rotation = reader.Read<Orientation>();
         }
     }
 
@@ -23,39 +23,14 @@ namespace MHServerEmu.Games.GameData.Prototypes.Markers
     {
     }
 
-    public class MarkerSetPrototype : Prototype
+    public class MarkerSetPrototype : Prototype, IBinaryResource
     {
-        public MarkerPrototype[] Markers { get; }
+        public MarkerPrototype[] Markers { get; private set; }
 
-        public MarkerSetPrototype(BinaryReader reader)
+        public void Deserialize(BinaryReader reader)
         {
-            Markers = new MarkerPrototype[reader.ReadInt32()];
-            for (int i = 0; i < Markers.Length; i++)
-                Markers[i] = ReadMarkerPrototype(reader);
-        }
-
-        private MarkerPrototype ReadMarkerPrototype(BinaryReader reader)
-        {
-            var hash = (ResourcePrototypeHash)reader.ReadUInt32();
-
-            switch (hash)
-            {
-                case ResourcePrototypeHash.CellConnectorMarkerPrototype:
-                    return new CellConnectorMarkerPrototype(reader);
-                case ResourcePrototypeHash.DotCornerMarkerPrototype:
-                    return new DotCornerMarkerPrototype(reader);
-                case ResourcePrototypeHash.EntityMarkerPrototype:
-                    return new EntityMarkerPrototype(reader);
-                case ResourcePrototypeHash.RoadConnectionMarkerPrototype:
-                    return new RoadConnectionMarkerPrototype(reader);
-                case ResourcePrototypeHash.ResourceMarkerPrototype:
-                    return new ResourceMarkerPrototype(reader);
-                case ResourcePrototypeHash.UnrealPropMarkerPrototype:
-                    return new UnrealPropMarkerPrototype(reader);
-
-                default:    // Throw an exception if there's a hash for a type we didn't expect
-                    throw new NotImplementedException($"Unknown ResourcePrototypeHash {(uint)hash}.");
-            }
+            if (BinaryResourceSerializer.ReadPrototypeContainer(out MarkerPrototype[] markers, reader))
+                Markers = markers;
         }
 
         public void GetContainedEntities(HashSet<PrototypeId> refs)
@@ -74,6 +49,5 @@ namespace MHServerEmu.Games.GameData.Prototypes.Markers
                 }
             }
         }
-
     }
 }

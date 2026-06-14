@@ -5,7 +5,7 @@ using MHServerEmu.Core.Extensions;
 using MHServerEmu.Core.Logging;
 using MHServerEmu.Core.Memory;
 using MHServerEmu.Games.Entities;
-using MHServerEmu.Games.GameData.Calligraphy.Attributes;
+using MHServerEmu.Games.GameData.Calligraphy;
 using MHServerEmu.Games.GameData.LiveTuning;
 using MHServerEmu.Games.GameData.Tables;
 using MHServerEmu.Games.Loot;
@@ -395,7 +395,7 @@ namespace MHServerEmu.Games.GameData.Prototypes
                 return LootRollResult.NoRoll;
 
             LiveTuningManager.GetLiveLootGroup(groupNum, out IReadOnlyList<WorldEntityPrototype> lootGroup);
-            if (lootGroup.Count == 0)
+            if (lootGroup == null || lootGroup.Count == 0)
                 return LootRollResult.NoRoll;
 
             LootRollResult result = LootRollResult.NoRoll;

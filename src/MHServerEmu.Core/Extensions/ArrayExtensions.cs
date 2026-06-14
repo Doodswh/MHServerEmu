@@ -1,4 +1,5 @@
-﻿using System.Runtime.CompilerServices;
+﻿using System.Diagnostics;
+using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using System.Text;
 
@@ -115,6 +116,30 @@ namespace MHServerEmu.Core.Extensions
             }
 
             return true;
+        }
+
+        public static string GetCString(this Span<byte> buffer)
+        {
+            int nullIndex = buffer.IndexOf((byte)0);
+
+            if (nullIndex > 0)
+                buffer = buffer[..nullIndex];
+            else if (nullIndex == 0)
+                return string.Empty;
+
+            return Encoding.UTF8.GetString(buffer);
+        }
+
+        /// <summary>
+        /// Sets a value in an <see cref="Array"/> of <see langword="unmanaged"/> elements using unsafe code to avoid boxing.
+        /// </summary>
+        public static void SetValueUnsafe<T>(this Array array, T value, nint index) where T: unmanaged
+        {
+            Debug.Assert(array.GetType().GetElementType().IsValueType);
+
+            // C devs be like "look what they need to mimic a fraction of our power"
+            ref byte elementRef = ref Unsafe.AddByteOffset(ref MemoryMarshal.GetArrayDataReference(array), index * Unsafe.SizeOf<T>());
+            Unsafe.As<byte, T>(ref elementRef) = value;
         }
 
         #endregion

@@ -24,7 +24,7 @@ namespace MHServerEmu.Games.GameData.LiveTuning
         private List<TuningVarArray> _perPublicEventTuningVars;
         private List<TuningVarArray> _perMetricsFrequencyTuningVars;
 
-        private readonly Dictionary<int, List<WorldEntityPrototype>> _lootGroupDict = new();
+        private readonly Dictionary<int, List<WorldEntityPrototype>> _lootGroups = new();
 
         private NetMessageLiveTuningUpdate _updateProtobuf = NetMessageLiveTuningUpdate.DefaultInstance;
         private bool _updateProtobufOutOfDate = false;
@@ -118,10 +118,10 @@ namespace MHServerEmu.Games.GameData.LiveTuning
 
             ClearLootGroups();
 
-            foreach (var kvp in other._lootGroupDict)
+            foreach (var kvp in other._lootGroups)
             {
                 List<WorldEntityPrototype> lootGroupCopy = new(kvp.Value);
-                _lootGroupDict.Add(kvp.Key, lootGroupCopy);
+                _lootGroups.Add(kvp.Key, lootGroupCopy);
             }
 
             ChangeNum = other.ChangeNum;
@@ -134,58 +134,42 @@ namespace MHServerEmu.Games.GameData.LiveTuning
             LiveTuningEventScheduler.Instance.GetDailyGifts(EventDailyGifts);
         }
 
-        public bool UpdateLiveGlobalTuningVar(GlobalTuningVar tuningVarEnum, float tuningVarValue)
+        public void UpdateLiveGlobalTuningVar(GlobalTuningVar tuningVarEnum, float tuningVarValue)
         {
-            if (tuningVarEnum < 0 || tuningVarEnum >= GlobalTuningVar.eGTV_NumGlobalTuningVars)
-                return Logger.WarnReturn(false, "UpdateLiveGlobalTuningVar(): tuningVarEnum < 0 || tuningVarEnum >= GlobalTuningVar.eGTV_NumGlobalTuningVars");
+            if (!Verify.IsTrue(tuningVarEnum >= 0 && tuningVarEnum < GlobalTuningVar.eGTV_NumGlobalTuningVars)) return;
 
             _globalTuningVars[(int)tuningVarEnum] = tuningVarValue;
             _updateProtobufOutOfDate = true;
-
-            return true;
         }
 
-        public bool UpdateLiveTuningVar(PrototypeId tuningVarProtoRef, int tuningVarEnum, float tuningVarValue)
+        public void UpdateLiveTuningVar(PrototypeId tuningVarProtoRef, int tuningVarEnum, float tuningVarValue)
         {
-            if (tuningVarProtoRef == PrototypeId.Invalid)
-                return Logger.WarnReturn(false, "UpdateLiveTuningVar(): tuningVarProtoRef == PrototypeId.Invalid");
+            if (!Verify.IsTrue(tuningVarProtoRef != PrototypeId.Invalid)) return;
 
             Prototype prototype = GameDatabase.GetPrototype<Prototype>(tuningVarProtoRef);
 
             if (prototype is AvatarPrototype)
-                return UpdateLiveAvatarTuningVar(tuningVarProtoRef, (AvatarEntityTuningVar)tuningVarEnum, tuningVarValue);
-
-            if (prototype is WorldEntityPrototype)
-                return UpdateLiveWorldEntityTuningVar(tuningVarProtoRef, (WorldEntityTuningVar)tuningVarEnum, tuningVarValue);
-
-            if (prototype is PowerPrototype)
-                return UpdateLivePowerTuningVar(tuningVarProtoRef, (PowerTuningVar)tuningVarEnum, tuningVarValue);
-
-            if (prototype is AreaPrototype)
-                return UpdateLiveAreaTuningVar(tuningVarProtoRef, (AreaTuningVar)tuningVarEnum, tuningVarValue);
-
-            if (prototype is RegionPrototype)
-                return UpdateLiveRegionTuningVar(tuningVarProtoRef, (RegionTuningVar)tuningVarEnum, tuningVarValue);
-
-            if (prototype is PopulationObjectPrototype)
-                return UpdateLivePopObjTuningVar(tuningVarProtoRef, (PopObjTuningVar)tuningVarEnum, tuningVarValue);
-
-            if (prototype is MissionPrototype)
-                return UpdateLiveMissionTuningVar(tuningVarProtoRef, (MissionTuningVar)tuningVarEnum, tuningVarValue);
-
-            if (prototype is LootTablePrototype)
-                return UpdateLiveLootTableTuningVar(tuningVarProtoRef, (LootTableTuningVar)tuningVarEnum, tuningVarValue);
-
-            if (prototype is ConditionPrototype)
-                return UpdateLiveConditionTuningVar(tuningVarProtoRef, (ConditionTuningVar)tuningVarEnum, tuningVarValue);
-
-            if (prototype is PublicEventPrototype)
-                return UpdateLivePublicEventTuningVar(tuningVarProtoRef, (PublicEventTuningVar)tuningVarEnum, tuningVarValue);
-
-            if (prototype is MetricsFrequencyPrototype)
-                return UpdateLiveMetricsFrequencyTuningVar(tuningVarProtoRef, (MetricsFrequencyTuningVar)tuningVarEnum, tuningVarValue);
-
-            return false;
+                UpdateLiveAvatarTuningVar(tuningVarProtoRef, (AvatarEntityTuningVar)tuningVarEnum, tuningVarValue);
+            else if (prototype is WorldEntityPrototype)
+                UpdateLiveWorldEntityTuningVar(tuningVarProtoRef, (WorldEntityTuningVar)tuningVarEnum, tuningVarValue);
+            else if (prototype is PowerPrototype)
+                UpdateLivePowerTuningVar(tuningVarProtoRef, (PowerTuningVar)tuningVarEnum, tuningVarValue);
+            else if (prototype is AreaPrototype)
+                UpdateLiveAreaTuningVar(tuningVarProtoRef, (AreaTuningVar)tuningVarEnum, tuningVarValue);
+            else if (prototype is RegionPrototype)
+                UpdateLiveRegionTuningVar(tuningVarProtoRef, (RegionTuningVar)tuningVarEnum, tuningVarValue);
+            else if (prototype is PopulationObjectPrototype)
+                UpdateLivePopObjTuningVar(tuningVarProtoRef, (PopObjTuningVar)tuningVarEnum, tuningVarValue);
+            else if (prototype is MissionPrototype)
+                UpdateLiveMissionTuningVar(tuningVarProtoRef, (MissionTuningVar)tuningVarEnum, tuningVarValue);
+            else if (prototype is LootTablePrototype)
+                UpdateLiveLootTableTuningVar(tuningVarProtoRef, (LootTableTuningVar)tuningVarEnum, tuningVarValue);
+            else if (prototype is ConditionPrototype)
+                UpdateLiveConditionTuningVar(tuningVarProtoRef, (ConditionTuningVar)tuningVarEnum, tuningVarValue);
+            else if (prototype is PublicEventPrototype)
+                UpdateLivePublicEventTuningVar(tuningVarProtoRef, (PublicEventTuningVar)tuningVarEnum, tuningVarValue);
+            else if (prototype is MetricsFrequencyPrototype)
+                UpdateLiveMetricsFrequencyTuningVar(tuningVarProtoRef, (MetricsFrequencyTuningVar)tuningVarEnum, tuningVarValue);
         }
 
         public NetMessageLiveTuningUpdate GetLiveTuningUpdate()
@@ -291,8 +275,8 @@ namespace MHServerEmu.Games.GameData.LiveTuning
 
                 for (int j = 0; j < (int)WorldEntityTuningVar.eWETV_NumWorldEntityTuningVars; j++)
                 {
-                    // Only these two world entity tuning vars are sent to the client
-                    if (j != (int)WorldEntityTuningVar.eWETV_Enabled && j != (int)WorldEntityTuningVar.eWETV_Visible)
+                    // Not all world entity tuning vars are sent to the client
+                    if (ShouldSendTuningVarToClient((WorldEntityTuningVar)j) == false)
                         continue;
 
                     float tuningVarValue = GetLiveWorldEntityTuningVar(i, (WorldEntityTuningVar)j);
@@ -338,7 +322,7 @@ namespace MHServerEmu.Games.GameData.LiveTuning
 
         public bool GetLiveLootGroup(int lootGroupNum, out IReadOnlyList<WorldEntityPrototype> lootGroup)
         {
-            bool found = _lootGroupDict.TryGetValue(lootGroupNum, out List<WorldEntityPrototype> worldEntityProtoList);
+            bool found = _lootGroups.TryGetValue(lootGroupNum, out List<WorldEntityPrototype> worldEntityProtoList);
             lootGroup = worldEntityProtoList;
             return found;
         }
@@ -357,17 +341,17 @@ namespace MHServerEmu.Games.GameData.LiveTuning
             // NOTE: Switch to using HashSet here to improve removal performance if needed
             if (currentLootGroupNum != DefaultTuningVarValue)
             {
-                if (_lootGroupDict.TryGetValue(currentLootGroupNum, out List<WorldEntityPrototype> lootGroup))
+                if (_lootGroups.TryGetValue(currentLootGroupNum, out List<WorldEntityPrototype> lootGroup))
                     lootGroup.Remove(worldEntityProto);
             }
 
             // Add to the new group if its not default value
             if (newLootGroupNum != DefaultTuningVarValue)
             {
-                if (_lootGroupDict.TryGetValue(newLootGroupNum, out List<WorldEntityPrototype> lootGroup) == false)
+                if (_lootGroups.TryGetValue(newLootGroupNum, out List<WorldEntityPrototype> lootGroup) == false)
                 {
                     lootGroup = new();
-                    _lootGroupDict.Add(newLootGroupNum, lootGroup);
+                    _lootGroups.Add(newLootGroupNum, lootGroup);
                 }
 
                 lootGroup.Add(worldEntityProto);
@@ -376,7 +360,7 @@ namespace MHServerEmu.Games.GameData.LiveTuning
 
         private void ClearLootGroups()
         {
-            _lootGroupDict.Clear();
+            _lootGroups.Clear();
         }
 
         public static string GetLiveTuningVarEnumName(int tuningVarEnum, PrototypeId tuningVarProtoRef = PrototypeId.Invalid)
@@ -400,144 +384,137 @@ namespace MHServerEmu.Games.GameData.LiveTuning
             return tuningVarEnum.ToString();
         }
 
+        private static bool ShouldSendTuningVarToClient(WorldEntityTuningVar tuningVarEnum)
+        {
+            // This is a more straightforward replacement for LiveTuningData::initClientWhitelistBits() and bit arrays from client code.
+
+            switch (tuningVarEnum)
+            {
+                case WorldEntityTuningVar.eWETV_Enabled:
+                case WorldEntityTuningVar.eWETV_EternitySplinterPrice:  // NOTE: EternitySplinterPrice is excluded in client code.
+                case WorldEntityTuningVar.eWETV_Visible:
+                    return true;
+
+                default:
+                    return false;
+            }
+        }
+
         #region Tuning Var Accesors
 
         public float GetLiveGlobalTuningVar(GlobalTuningVar tuningVarEnum)
         {
-            if (tuningVarEnum < 0 || tuningVarEnum >= GlobalTuningVar.eGTV_NumGlobalTuningVars)
-                return Logger.WarnReturn(DefaultTuningVarValue, $"GetLiveGlobalTuningVar(): tuningVarEnum < 0 || tuningVarEnum >= GlobalTuningVar.eGTV_NumGlobalTuningVars");
+            if (!Verify.IsTrue(tuningVarEnum >= 0 && tuningVarEnum < GlobalTuningVar.eGTV_NumGlobalTuningVars)) return DefaultTuningVarValue;
 
             return _globalTuningVars[(int)tuningVarEnum];
         }
 
         public float GetLiveAreaTuningVar(AreaPrototype areaProto, AreaTuningVar tuningVarEnum)
         {
-            if (tuningVarEnum < 0 || tuningVarEnum >= AreaTuningVar.eATV_NumAreaTuningVars)
-                return Logger.WarnReturn(DefaultTuningVarValue, $"GetLiveAreaTuningVar(): tuningVarEnum < 0 || tuningVarEnum >= AreaTuningVar.eATV_NumAreaTuningVars");
+            if (!Verify.IsTrue(tuningVarEnum >= 0 && tuningVarEnum < AreaTuningVar.eATV_NumAreaTuningVars)) return DefaultTuningVarValue;
 
             int areaEnumVal = areaProto.AreaPrototypeEnumValue;
-            if (areaEnumVal < 0 || areaEnumVal >= _perAreaTuningVars.Count)
-                return Logger.WarnReturn(DefaultTuningVarValue, $"GetLiveAreaTuningVar(): areaEnumVal < 0 || areaEnumVal >= _perAreaTuningVars.Count");
+            if (!Verify.IsTrue(areaEnumVal >= 0 && areaEnumVal < _perAreaTuningVars.Count)) return DefaultTuningVarValue;
 
             return _perAreaTuningVars[areaEnumVal][(int)tuningVarEnum];
         }
 
         public float GetLiveLootTableTuningVar(LootTablePrototype lootTableProto, LootTableTuningVar tuningVarEnum)
         {
-            if (tuningVarEnum < 0 || tuningVarEnum >= LootTableTuningVar.eLTTV_NumLootTableTuningVars)
-                return Logger.WarnReturn(DefaultTuningVarValue, $"GetLiveLootTableTuningVar(): tuningVarEnum < 0 || tuningVarEnum >= LootTableTuningVar.eLTTV_NumLootTableTuningVars");
+            if (!Verify.IsTrue(tuningVarEnum >= 0 && tuningVarEnum < LootTableTuningVar.eLTTV_NumLootTableTuningVars)) return DefaultTuningVarValue;
 
             int lootTableEnumVal = lootTableProto.LootTablePrototypeEnumValue;
-            if (lootTableEnumVal < 0 || lootTableEnumVal >= _perLootTableTuningVars.Count)
-                return Logger.WarnReturn(DefaultTuningVarValue, $"GetLiveLootTableTuningVar(): lootTableEnumVal < 0 || lootTableEnumVal >= _perLootTableTuningVars.Count");
+            if (!Verify.IsTrue(lootTableEnumVal >= 0 && lootTableEnumVal < _perLootTableTuningVars.Count)) return DefaultTuningVarValue;
 
             return _perLootTableTuningVars[lootTableEnumVal][(int)tuningVarEnum];
         }
 
         public float GetLiveMissionTuningVar(MissionPrototype missionProto, MissionTuningVar tuningVarEnum)
         {
-            if (tuningVarEnum < 0 || tuningVarEnum >= MissionTuningVar.eMTV_NumMissionTuningVars)
-                return Logger.WarnReturn(DefaultTuningVarValue, $"GetLiveMissionTuningVar(): tuningVarEnum < 0 || tuningVarEnum >= MissionTuningVar.eMTV_NumMissionTuningVars");
+            if (!Verify.IsTrue(tuningVarEnum >= 0 && tuningVarEnum < MissionTuningVar.eMTV_NumMissionTuningVars)) return DefaultTuningVarValue;
 
             int missionEnumVal = missionProto.MissionPrototypeEnumValue;
-            if (missionEnumVal < 0 || missionEnumVal >= _perMissionTuningVars.Count)
-                return Logger.WarnReturn(DefaultTuningVarValue, $"GetLiveLootTableTuningVar(): missionEnumVal < 0 || missionEnumVal >= _perMissionTuningVars.Count");
+            if (!Verify.IsTrue(missionEnumVal >= 0 && missionEnumVal < _perMissionTuningVars.Count)) return DefaultTuningVarValue;
 
             return _perMissionTuningVars[missionEnumVal][(int)tuningVarEnum];
         }
 
         public float GetLiveWorldEntityTuningVar(WorldEntityPrototype worldEntityProto, WorldEntityTuningVar tuningVarEnum)
         {
-            if (tuningVarEnum < 0 || tuningVarEnum >= WorldEntityTuningVar.eWETV_NumWorldEntityTuningVars)
-                return Logger.WarnReturn(DefaultTuningVarValue, $"GetLiveWorldEntityTuningVar(): tuningVarEnum < 0 || tuningVarEnum >= WorldEntityTuningVar.eWETV_NumWorldEntityTuningVars");
+            if (!Verify.IsTrue(tuningVarEnum >= 0 && tuningVarEnum < WorldEntityTuningVar.eWETV_NumWorldEntityTuningVars)) return DefaultTuningVarValue;
 
             int worldEntityEnumVal = worldEntityProto.WorldEntityPrototypeEnumValue;
-            if (worldEntityEnumVal < 0 || worldEntityEnumVal >= _perWorldEntityTuningVars.Count)
-                return Logger.WarnReturn(DefaultTuningVarValue, $"GetLiveWorldEntityTuningVar(): worldEntityEnumVal < 0 || worldEntityEnumVal >= _perWorldEntityTuningVars.Count");
+            if (!Verify.IsTrue(worldEntityEnumVal >= 0 && worldEntityEnumVal < _perWorldEntityTuningVars.Count)) return DefaultTuningVarValue;
 
             return _perWorldEntityTuningVars[worldEntityEnumVal][(int)tuningVarEnum];
         }
 
         public float GetLivePopObjTuningVar(PopulationObjectPrototype popObjProto, PopObjTuningVar tuningVarEnum)
         {
-            if (tuningVarEnum < 0 || tuningVarEnum >= PopObjTuningVar.ePOTV_NumPopulationObjectTuningVars)
-                return Logger.WarnReturn(DefaultTuningVarValue, $"GetLivePopObjTuningVar(): tuningVarEnum < 0 || tuningVarEnum >= PopObjTuningVar.ePOTV_NumPopulationObjectTuningVars");
+            if (!Verify.IsTrue(tuningVarEnum >= 0 && tuningVarEnum < PopObjTuningVar.ePOTV_NumPopulationObjectTuningVars)) return DefaultTuningVarValue;
 
             int popObjEnumVal = popObjProto.PopulationObjectPrototypeEnumValue;
-            if (popObjEnumVal < 0 || popObjEnumVal >= _perPopObjTuningVars.Count)
-                return Logger.WarnReturn(DefaultTuningVarValue, $"GetLivePopObjTuningVar(): popObjEnumVal < 0 || popObjEnumVal >= _perPopObjTuningVars.Count");
+            if (!Verify.IsTrue(popObjEnumVal >= 0 && popObjEnumVal < _perPopObjTuningVars.Count)) return DefaultTuningVarValue;
 
             return _perPopObjTuningVars[popObjEnumVal][(int)tuningVarEnum];
         }
 
         public float GetLivePowerTuningVar(PowerPrototype powerProto, PowerTuningVar tuningVarEnum)
         {
-            if (tuningVarEnum < 0 || tuningVarEnum >= PowerTuningVar.ePTV_NumPowerTuningVars)
-                return Logger.WarnReturn(DefaultTuningVarValue, $"GetLivePowerTuningVar(): tuningVarEnum < 0 || tuningVarEnum >= PowerTuningVar.ePTV_NumPowerTuningVars");
+            if (!Verify.IsTrue(tuningVarEnum >= 0 && tuningVarEnum < PowerTuningVar.ePTV_NumPowerTuningVars)) return DefaultTuningVarValue;
 
             int powerEnumVal = powerProto.PowerPrototypeEnumValue;
-            if (powerEnumVal < 0 || powerEnumVal >= _perPowerTuningVars.Count)
-                return Logger.WarnReturn(DefaultTuningVarValue, $"GetLivePowerTuningVar(): powerEnumVal < 0 || powerEnumVal >= _perPowerTuningVars.Count");
+            if (!Verify.IsTrue(powerEnumVal >= 0 && powerEnumVal < _perPowerTuningVars.Count)) return DefaultTuningVarValue;
 
             return _perPowerTuningVars[powerEnumVal][(int)tuningVarEnum];
         }
 
         public float GetLiveRegionTuningVar(RegionPrototype regionProto, RegionTuningVar tuningVarEnum)
         {
-            if (tuningVarEnum < 0 || tuningVarEnum >= RegionTuningVar.eRTV_NumRegionTuningVars)
-                return Logger.WarnReturn(DefaultTuningVarValue, $"GetLiveRegionTuningVar(): tuningVarEnum < 0 || tuningVarEnum >= RegionTuningVar.eRTV_NumRegionTuningVars");
+            if (!Verify.IsTrue(tuningVarEnum >= 0 && tuningVarEnum < RegionTuningVar.eRTV_NumRegionTuningVars)) return DefaultTuningVarValue;
 
             int regionEnumVal = regionProto.RegionPrototypeEnumValue;
-            if (regionEnumVal < 0 || regionEnumVal >= _perRegionTuningVars.Count)
-                return Logger.WarnReturn(DefaultTuningVarValue, $"GetLiveRegionTuningVar(): regionEnumVal < 0 || regionEnumVal >= _perRegionTuningVars.Count");
+            if (!Verify.IsTrue(regionEnumVal >= 0 && regionEnumVal < _perRegionTuningVars.Count)) return DefaultTuningVarValue;
 
             return _perRegionTuningVars[regionEnumVal][(int)tuningVarEnum];
         }
 
         public float GetLiveAvatarTuningVar(AvatarPrototype avatarProto, AvatarEntityTuningVar tuningVarEnum)
         {
-            if (tuningVarEnum < 0 || tuningVarEnum >= AvatarEntityTuningVar.eAETV_NumAvatarEntityTuningVars)
-                return Logger.WarnReturn(DefaultTuningVarValue, $"GetLiveAvatarTuningVar(): tuningVarEnum < 0 || tuningVarEnum >= AvatarEntityTuningVar.eAETV_NumAvatarEntityTuningVars");
+            if (!Verify.IsTrue(tuningVarEnum >= 0 && tuningVarEnum < AvatarEntityTuningVar.eAETV_NumAvatarEntityTuningVars)) return DefaultTuningVarValue;
 
             int avatarEnumVal = avatarProto.AvatarPrototypeEnumValue;
-            if (avatarEnumVal < 0 || avatarEnumVal >= _perAvatarTuningVars.Count)
-                return Logger.WarnReturn(DefaultTuningVarValue, $"GetLiveAvatarTuningVar(): avatarEnumVal < 0 || avatarEnumVal >= _perAvatarTuningVars.Count");
+            if (!Verify.IsTrue(avatarEnumVal >= 0 && avatarEnumVal < _perAvatarTuningVars.Count)) return DefaultTuningVarValue;
 
             return _perAvatarTuningVars[avatarEnumVal][(int)tuningVarEnum];
         }
 
         public float GetLiveConditionTuningVar(ConditionPrototype conditionProto, ConditionTuningVar tuningVarEnum)
         {
-            if (tuningVarEnum < 0 || tuningVarEnum >= ConditionTuningVar.eCTV_NumConditionTuningVars)
-                return Logger.WarnReturn(DefaultTuningVarValue, $"GetLiveConditionTuningVar(): tuningVarEnum < 0 || tuningVarEnum >= ConditionTuningVar.eCTV_NumConditionTuningVars");
+            if (!Verify.IsTrue(tuningVarEnum >= 0 && tuningVarEnum < ConditionTuningVar.eCTV_NumConditionTuningVars)) return DefaultTuningVarValue;
 
             int conditionEnumVal = conditionProto.ConditionPrototypeEnumValue;
-            if (conditionEnumVal < 0 || conditionEnumVal >= _perConditionTuningVars.Count)
-                return Logger.WarnReturn(DefaultTuningVarValue, $"GetLiveConditionTuningVar(): conditionEnumVal < 0 || conditionEnumVal >= _perConditionTuningVars.Count");
+            if (!Verify.IsTrue(conditionEnumVal >= 0 && conditionEnumVal < _perConditionTuningVars.Count)) return DefaultTuningVarValue;
 
             return _perConditionTuningVars[conditionEnumVal][(int)tuningVarEnum];
         }
 
         public float GetLivePublicEventTuningVar(PublicEventPrototype publicEventProto, PublicEventTuningVar tuningVarEnum)
         {
-            if (tuningVarEnum < 0 || tuningVarEnum >= PublicEventTuningVar.ePETV_NumPublicEventTuningVars)
-                return Logger.WarnReturn(DefaultTuningVarValue, $"GetLivePublicEventTuningVar(): tuningVarEnum < 0 || tuningVarEnum >= PublicEventTuningVar.ePETV_NumPublicEventTuningVars");
+            if (!Verify.IsTrue(tuningVarEnum >= 0 && tuningVarEnum < PublicEventTuningVar.ePETV_NumPublicEventTuningVars)) return DefaultTuningVarValue;
 
             int publicEventEnumVal = publicEventProto.PublicEventPrototypeEnumValue;
-            if (publicEventEnumVal < 0 || publicEventEnumVal >= _perPublicEventTuningVars.Count)
-                return Logger.WarnReturn(DefaultTuningVarValue, $"GetLivePublicEventTuningVar(): publicEventEnumVal < 0 || publicEventEnumVal >= _perPublicEventTuningVars.Count");
+            if (!Verify.IsTrue(publicEventEnumVal >= 0 && publicEventEnumVal < _perPublicEventTuningVars.Count)) return DefaultTuningVarValue;
 
             return _perPublicEventTuningVars[publicEventEnumVal][(int)tuningVarEnum];
         }
 
         public float GetLiveMetricsFrequencyTuningVar(MetricsFrequencyPrototype metricsFrequencyProto, MetricsFrequencyTuningVar tuningVarEnum)
         {
-            if (tuningVarEnum < 0 || tuningVarEnum >= MetricsFrequencyTuningVar.eMFTV_NumMetricsFrequencyTuningVars)
-                return Logger.WarnReturn(DefaultTuningVarValue, $"GetLivePublicEventTuningVar(): tuningVarEnum < 0 || tuningVarEnum >= MetricsFrequencyTuningVar.eMFTV_NumMetricsFrequencyTuningVars");
+            if (!Verify.IsTrue(tuningVarEnum >= 0 && tuningVarEnum < MetricsFrequencyTuningVar.eMFTV_NumMetricsFrequencyTuningVars)) return DefaultTuningVarValue;
 
             int metricsFrequencyEnumVal = metricsFrequencyProto.MetricsFrequencyPrototypeEnumValue;
-            if (metricsFrequencyEnumVal < 0 || metricsFrequencyEnumVal >= _perMetricsFrequencyTuningVars.Count)
-                return Logger.WarnReturn(DefaultTuningVarValue, $"GetLiveMetricsFrequencyTuningVar(): metricsFrequencyEnumVal < 0 || metricsFrequencyEnumVal >= _perMetricsFrequencyTuningVars.Count");
+            if (!Verify.IsTrue(metricsFrequencyEnumVal >= 0 && metricsFrequencyEnumVal < _perMetricsFrequencyTuningVars.Count)) return DefaultTuningVarValue;
 
             return _perMetricsFrequencyTuningVars[metricsFrequencyEnumVal][(int)tuningVarEnum];
         }
@@ -548,55 +525,40 @@ namespace MHServerEmu.Games.GameData.LiveTuning
 
         private float GetLiveWorldEntityTuningVar(int worldEntityEnumVal, WorldEntityTuningVar tuningVarEnum)
         {
-            if (tuningVarEnum < 0 || tuningVarEnum >= WorldEntityTuningVar.eWETV_NumWorldEntityTuningVars)
-                return Logger.WarnReturn(DefaultTuningVarValue, $"GetLiveWorldEntityTuningVar(): tuningVarEnum < 0 || tuningVarEnum >= WorldEntityTuningVar.eWETV_NumWorldEntityTuningVars");
-
-            if (worldEntityEnumVal < 0 || worldEntityEnumVal >= _perWorldEntityTuningVars.Count)
-                return Logger.WarnReturn(DefaultTuningVarValue, $"GetLiveWorldEntityTuningVar(): worldEntityEnumVal < 0 || worldEntityEnumVal >= _perWorldEntityTuningVars.Count");
+            if (!Verify.IsTrue(tuningVarEnum >= 0 && tuningVarEnum < WorldEntityTuningVar.eWETV_NumWorldEntityTuningVars)) return DefaultTuningVarValue;
+            if (!Verify.IsTrue(worldEntityEnumVal >= 0 && worldEntityEnumVal < _perWorldEntityTuningVars.Count)) return DefaultTuningVarValue;
 
             return _perWorldEntityTuningVars[worldEntityEnumVal][(int)tuningVarEnum];
         }
 
         private float GetLivePowerTuningVar(int powerEnumVal, PowerTuningVar tuningVarEnum)
         {
-            if (tuningVarEnum < 0 || tuningVarEnum >= PowerTuningVar.ePTV_NumPowerTuningVars)
-                return Logger.WarnReturn(DefaultTuningVarValue, $"GetLivePowerTuningVar(): tuningVarEnum < 0 || tuningVarEnum >= PowerTuningVar.ePTV_NumPowerTuningVars");
-
-            if (powerEnumVal < 0 || powerEnumVal >= _perPowerTuningVars.Count)
-                return Logger.WarnReturn(DefaultTuningVarValue, $"GetLivePowerTuningVar(): powerEnumVal < 0 || powerEnumVal >= _perPowerTuningVars.Count");
+            if (!Verify.IsTrue(tuningVarEnum >= 0 && tuningVarEnum < PowerTuningVar.ePTV_NumPowerTuningVars)) return DefaultTuningVarValue;
+            if (!Verify.IsTrue(powerEnumVal >= 0 && powerEnumVal < _perPowerTuningVars.Count)) return DefaultTuningVarValue;
 
             return _perPowerTuningVars[powerEnumVal][(int)tuningVarEnum];
         }
 
         private float GetLiveRegionTuningVar(int regionEnumVal, RegionTuningVar tuningVarEnum)
         {
-            if (tuningVarEnum < 0 || tuningVarEnum >= RegionTuningVar.eRTV_NumRegionTuningVars)
-                return Logger.WarnReturn(DefaultTuningVarValue, $"GetLiveRegionTuningVar(): tuningVarEnum < 0 || tuningVarEnum >= RegionTuningVar.eRTV_NumRegionTuningVars");
-
-            if (regionEnumVal < 0 || regionEnumVal >= _perRegionTuningVars.Count)
-                return Logger.WarnReturn(DefaultTuningVarValue, $"GetLiveRegionTuningVar(): regionEnumVal < 0 || regionEnumVal >= _perRegionTuningVars.Count");
+            if (!Verify.IsTrue(tuningVarEnum >= 0 && tuningVarEnum < RegionTuningVar.eRTV_NumRegionTuningVars)) return DefaultTuningVarValue;
+            if (!Verify.IsTrue(regionEnumVal >= 0 && regionEnumVal < _perRegionTuningVars.Count)) return DefaultTuningVarValue;
 
             return _perRegionTuningVars[regionEnumVal][(int)tuningVarEnum];
         }
 
         private float GetLiveAvatarTuningVar(int avatarEnumVal, AvatarEntityTuningVar tuningVarEnum)
         {
-            if (tuningVarEnum < 0 || tuningVarEnum >= AvatarEntityTuningVar.eAETV_NumAvatarEntityTuningVars)
-                return Logger.WarnReturn(DefaultTuningVarValue, $"GetLiveAvatarTuningVar(): tuningVarEnum < 0 || tuningVarEnum >= AvatarEntityTuningVar.eAETV_NumAvatarEntityTuningVars");
-
-            if (avatarEnumVal < 0 || avatarEnumVal >= _perAvatarTuningVars.Count)
-                return Logger.WarnReturn(DefaultTuningVarValue, $"GetLiveAvatarTuningVar(): avatarEnumVal < 0 || avatarEnumVal >= _perAvatarTuningVars.Count");
+            if (!Verify.IsTrue(tuningVarEnum >= 0 && tuningVarEnum < AvatarEntityTuningVar.eAETV_NumAvatarEntityTuningVars)) return DefaultTuningVarValue;
+            if (!Verify.IsTrue(avatarEnumVal >= 0 && avatarEnumVal < _perAvatarTuningVars.Count)) return DefaultTuningVarValue;
 
             return _perAvatarTuningVars[avatarEnumVal][(int)tuningVarEnum];
         }
 
         private float GetLivePublicEventTuningVar(int publicEventEnumVal, PublicEventTuningVar tuningVarEnum)
         {
-            if (tuningVarEnum < 0 || tuningVarEnum >= PublicEventTuningVar.ePETV_NumPublicEventTuningVars)
-                return Logger.WarnReturn(DefaultTuningVarValue, $"GetLivePublicEventTuningVar(): tuningVarEnum < 0 || tuningVarEnum >= PublicEventTuningVar.ePETV_NumPublicEventTuningVars");
-
-            if (publicEventEnumVal < 0 || publicEventEnumVal >= _perPublicEventTuningVars.Count)
-                return Logger.WarnReturn(DefaultTuningVarValue, $"GetLivePublicEventTuningVar(): publicEventEnumVal < 0 || publicEventEnumVal >= _perPublicEventTuningVars.Count");
+            if (!Verify.IsTrue(tuningVarEnum >= 0 && tuningVarEnum < PublicEventTuningVar.ePETV_NumPublicEventTuningVars)) return DefaultTuningVarValue;
+            if (!Verify.IsTrue(publicEventEnumVal >= 0 && publicEventEnumVal < _perPublicEventTuningVars.Count)) return DefaultTuningVarValue;
 
             return _perPublicEventTuningVars[publicEventEnumVal][(int)tuningVarEnum];
         }
@@ -608,12 +570,8 @@ namespace MHServerEmu.Games.GameData.LiveTuning
         public static BlueprintId GetAreaBlueprintDataRef()
         {
             GlobalsPrototype globalsProto = GameDatabase.GlobalsPrototype;
-
-            if (globalsProto == null)
-                return Logger.WarnReturn(BlueprintId.Invalid, "GetAreaBlueprintDataRef(): globalsProto == null");
-
-            if (globalsProto.AreaPrototype == PrototypeId.Invalid)
-                return Logger.WarnReturn(BlueprintId.Invalid, "GetAreaBlueprintDataRef(): globalsProto.AreaPrototype == PrototypeId.Invalid");
+            if (!Verify.IsNotNull(globalsProto)) return BlueprintId.Invalid;
+            if (!Verify.IsTrue(globalsProto.AreaPrototype != PrototypeId.Invalid)) return BlueprintId.Invalid;
 
             return DataDirectory.Instance.GetPrototypeBlueprintDataRef(globalsProto.AreaPrototype);
         }
@@ -621,12 +579,8 @@ namespace MHServerEmu.Games.GameData.LiveTuning
         public static BlueprintId GetLootTableBlueprintDataRef()
         {
             LootGlobalsPrototype lootGlobalsProto = GameDatabase.LootGlobalsPrototype;
-
-            if (lootGlobalsProto == null)
-                return Logger.WarnReturn(BlueprintId.Invalid, "GetLootTableBlueprintDataRef(): lootGlobalsProto == null");
-
-            if (lootGlobalsProto.LootTableBlueprint == PrototypeId.Invalid)
-                return Logger.WarnReturn(BlueprintId.Invalid, "GetLootTableBlueprintDataRef(): lootGlobalsProto.LootTableBlueprint == PrototypeId.Invalid");
+            if (!Verify.IsNotNull(lootGlobalsProto)) return BlueprintId.Invalid;
+            if (!Verify.IsTrue(lootGlobalsProto.LootTableBlueprint != PrototypeId.Invalid)) return BlueprintId.Invalid;
 
             return DataDirectory.Instance.GetPrototypeBlueprintDataRef(lootGlobalsProto.LootTableBlueprint);
         }
@@ -634,12 +588,8 @@ namespace MHServerEmu.Games.GameData.LiveTuning
         public static BlueprintId GetMissionBlueprintDataRef()
         {
             GlobalsPrototype globalsProto = GameDatabase.GlobalsPrototype;
-
-            if (globalsProto == null)
-                return Logger.WarnReturn(BlueprintId.Invalid, "GetMissionBlueprintDataRef(): globalsProto == null");
-
-            if (globalsProto.MissionPrototype == PrototypeId.Invalid)
-                return Logger.WarnReturn(BlueprintId.Invalid, "GetMissionBlueprintDataRef(): globalsProto.MissionPrototype == PrototypeId.Invalid");
+            if (!Verify.IsNotNull(globalsProto)) return BlueprintId.Invalid;
+            if (!Verify.IsTrue(globalsProto.MissionPrototype != PrototypeId.Invalid)) return BlueprintId.Invalid;
 
             return DataDirectory.Instance.GetPrototypeBlueprintDataRef(globalsProto.MissionPrototype);
         }
@@ -647,12 +597,8 @@ namespace MHServerEmu.Games.GameData.LiveTuning
         public static BlueprintId GetWorldEntityBlueprintDataRef()
         {
             GlobalsPrototype globalsProto = GameDatabase.GlobalsPrototype;
-
-            if (globalsProto == null)
-                return Logger.WarnReturn(BlueprintId.Invalid, "GetWorldEntityBlueprintDataRef(): globalsProto == null");
-
-            if (globalsProto.WorldEntityPrototype == PrototypeId.Invalid)
-                return Logger.WarnReturn(BlueprintId.Invalid, "GetWorldEntityBlueprintDataRef(): globalsProto.WorldEntityPrototype == PrototypeId.Invalid");
+            if (!Verify.IsNotNull(globalsProto)) return BlueprintId.Invalid;
+            if (!Verify.IsTrue(globalsProto.WorldEntityPrototype != PrototypeId.Invalid)) return BlueprintId.Invalid;
 
             return DataDirectory.Instance.GetPrototypeBlueprintDataRef(globalsProto.WorldEntityPrototype);
         }
@@ -660,12 +606,8 @@ namespace MHServerEmu.Games.GameData.LiveTuning
         public static BlueprintId GetPopulationObjectBlueprintDataRef()
         {
             GlobalsPrototype globalsProto = GameDatabase.GlobalsPrototype;
-
-            if (globalsProto == null)
-                return Logger.WarnReturn(BlueprintId.Invalid, "GetPopulationObjectBlueprintDataRef(): globalsProto == null");
-
-            if (globalsProto.PopulationObjectPrototype == PrototypeId.Invalid)
-                return Logger.WarnReturn(BlueprintId.Invalid, "GetPopulationObjectBlueprintDataRef(): globalsProto.PopulationObjectPrototype == PrototypeId.Invalid");
+            if (!Verify.IsNotNull(globalsProto)) return BlueprintId.Invalid;
+            if (!Verify.IsTrue(globalsProto.PopulationObjectPrototype != PrototypeId.Invalid)) return BlueprintId.Invalid;
 
             return DataDirectory.Instance.GetPrototypeBlueprintDataRef(globalsProto.PopulationObjectPrototype);
         }
@@ -673,12 +615,8 @@ namespace MHServerEmu.Games.GameData.LiveTuning
         public static BlueprintId GetPowerBlueprintDataRef()
         {
             GlobalsPrototype globalsProto = GameDatabase.GlobalsPrototype;
-
-            if (globalsProto == null)
-                return Logger.WarnReturn(BlueprintId.Invalid, "GetPowerBlueprintDataRef(): globalsProto == null");
-
-            if (globalsProto.PowerPrototype == PrototypeId.Invalid)
-                return Logger.WarnReturn(BlueprintId.Invalid, "GetPowerBlueprintDataRef(): globalsProto.PowerPrototype == PrototypeId.Invalid");
+            if (!Verify.IsNotNull(globalsProto)) return BlueprintId.Invalid;
+            if (!Verify.IsTrue(globalsProto.PowerPrototype != PrototypeId.Invalid)) return BlueprintId.Invalid;
 
             return DataDirectory.Instance.GetPrototypeBlueprintDataRef(globalsProto.PowerPrototype);
         }
@@ -686,12 +624,8 @@ namespace MHServerEmu.Games.GameData.LiveTuning
         public static BlueprintId GetRegionBlueprintDataRef()
         {
             GlobalsPrototype globalsProto = GameDatabase.GlobalsPrototype;
-
-            if (globalsProto == null)
-                return Logger.WarnReturn(BlueprintId.Invalid, "GetRegionBlueprintDataRef(): globalsProto == null");
-
-            if (globalsProto.RegionPrototype == PrototypeId.Invalid)
-                return Logger.WarnReturn(BlueprintId.Invalid, "GetRegionBlueprintDataRef(): globalsProto.RegionPrototype == PrototypeId.Invalid");
+            if (!Verify.IsNotNull(globalsProto)) return BlueprintId.Invalid;
+            if (!Verify.IsTrue(globalsProto.RegionPrototype != PrototypeId.Invalid)) return BlueprintId.Invalid;
 
             return DataDirectory.Instance.GetPrototypeBlueprintDataRef(globalsProto.RegionPrototype);
         }
@@ -699,12 +633,8 @@ namespace MHServerEmu.Games.GameData.LiveTuning
         public static BlueprintId GetAvatarBlueprintDataRef()
         {
             GlobalsPrototype globalsProto = GameDatabase.GlobalsPrototype;
-
-            if (globalsProto == null)
-                return Logger.WarnReturn(BlueprintId.Invalid, "GetAvatarBlueprintDataRef(): globalsProto == null");
-
-            if (globalsProto.AvatarPrototype == PrototypeId.Invalid)
-                return Logger.WarnReturn(BlueprintId.Invalid, "GetAvatarBlueprintDataRef(): globalsProto.AvatarPrototype == PrototypeId.Invalid");
+            if (!Verify.IsNotNull(globalsProto)) return BlueprintId.Invalid;
+            if (!Verify.IsTrue(globalsProto.AvatarPrototype != PrototypeId.Invalid)) return BlueprintId.Invalid;
 
             return DataDirectory.Instance.GetPrototypeBlueprintDataRef(globalsProto.AvatarPrototype);
         }
@@ -712,12 +642,8 @@ namespace MHServerEmu.Games.GameData.LiveTuning
         public static BlueprintId GetConditionBlueprintDataRef()
         {
             GlobalsPrototype globalsProto = GameDatabase.GlobalsPrototype;
-
-            if (globalsProto == null)
-                return Logger.WarnReturn(BlueprintId.Invalid, "GetConditionBlueprintDataRef(): globalsProto == null");
-
-            if (globalsProto.ConditionPrototype == PrototypeId.Invalid)
-                return Logger.WarnReturn(BlueprintId.Invalid, "GetConditionBlueprintDataRef(): globalsProto.ConditionPrototype == PrototypeId.Invalid");
+            if (!Verify.IsNotNull(globalsProto)) return BlueprintId.Invalid;
+            if (!Verify.IsTrue(globalsProto.ConditionPrototype != PrototypeId.Invalid)) return BlueprintId.Invalid;
 
             return DataDirectory.Instance.GetPrototypeBlueprintDataRef(globalsProto.ConditionPrototype);
         }
@@ -725,12 +651,8 @@ namespace MHServerEmu.Games.GameData.LiveTuning
         public static BlueprintId GetPublicEventBlueprintDataRef()
         {
             GlobalsPrototype globalsProto = GameDatabase.GlobalsPrototype;
-
-            if (globalsProto == null)
-                return Logger.WarnReturn(BlueprintId.Invalid, "GetPublicEventBlueprintDataRef(): globalsProto == null");
-
-            if (globalsProto.PublicEventPrototype == PrototypeId.Invalid)
-                return Logger.WarnReturn(BlueprintId.Invalid, "GetPublicEventBlueprintDataRef(): globalsProto.PublicEventPrototype == PrototypeId.Invalid");
+            if (!Verify.IsNotNull(globalsProto)) return BlueprintId.Invalid;
+            if (!Verify.IsTrue(globalsProto.PublicEventPrototype != PrototypeId.Invalid)) return BlueprintId.Invalid;
 
             return DataDirectory.Instance.GetPrototypeBlueprintDataRef(globalsProto.PublicEventPrototype);
         }
@@ -738,12 +660,8 @@ namespace MHServerEmu.Games.GameData.LiveTuning
         public static BlueprintId GetMetricsFrequencyBlueprintDataRef()
         {
             GlobalsPrototype globalsProto = GameDatabase.GlobalsPrototype;
-
-            if (globalsProto == null)
-                return Logger.WarnReturn(BlueprintId.Invalid, "GetMetricsFrequencyBlueprintDataRef(): globalsProto == null");
-
-            if (globalsProto.MetricsFrequencyPrototype == PrototypeId.Invalid)
-                return Logger.WarnReturn(BlueprintId.Invalid, "GetMetricsFrequencyBlueprintDataRef(): globalsProto.MetricsFrequencyPrototype == PrototypeId.Invalid");
+            if (!Verify.IsNotNull(globalsProto)) return BlueprintId.Invalid;
+            if (!Verify.IsTrue(globalsProto.MetricsFrequencyPrototype != PrototypeId.Invalid)) return BlueprintId.Invalid;
 
             return DataDirectory.Instance.GetPrototypeBlueprintDataRef(globalsProto.MetricsFrequencyPrototype);
         }
@@ -752,373 +670,297 @@ namespace MHServerEmu.Games.GameData.LiveTuning
 
         #region Data Init
 
-        private bool InitPerAreaTuningVars()
+        private void InitPerAreaTuningVars()
         {
             BlueprintId areaBlueprintRef = GetAreaBlueprintDataRef();
-            if (areaBlueprintRef == BlueprintId.Invalid) return Logger.WarnReturn(false, "InitPerAreaTuningVars(): areaBlueprintRef == BlueprintId.Invalid");
+            if (!Verify.IsTrue(areaBlueprintRef != BlueprintId.Invalid)) return;
 
             int numAreaPrototypes = DataDirectory.Instance.GetPrototypeMaxEnumValue(areaBlueprintRef) + 1;
             _perAreaTuningVars = new(numAreaPrototypes);
             for (int i = 0; i < numAreaPrototypes; i++)
                 _perAreaTuningVars.Add(new TuningVarArray((int)AreaTuningVar.eATV_NumAreaTuningVars));
-
-            return true;
         }
 
-        private bool InitPerLootTableTuningVars()
+        private void InitPerLootTableTuningVars()
         {
             BlueprintId lootTableBlueprintRef = GetLootTableBlueprintDataRef();
-            if (lootTableBlueprintRef == BlueprintId.Invalid) return Logger.WarnReturn(false, "InitPerLootTableTuningVars(): lootTableBlueprintRef == BlueprintId.Invalid");
+            if (!Verify.IsTrue(lootTableBlueprintRef != BlueprintId.Invalid)) return;
 
             int numLootTablePrototypes = DataDirectory.Instance.GetPrototypeMaxEnumValue(lootTableBlueprintRef) + 1;
             _perLootTableTuningVars = new(numLootTablePrototypes);
             for (int i = 0; i < numLootTablePrototypes; i++)
                 _perLootTableTuningVars.Add(new TuningVarArray((int)LootTableTuningVar.eLTTV_NumLootTableTuningVars));
-
-            return true;
         }
 
-        private bool InitPerMissionTuningVars()
+        private void InitPerMissionTuningVars()
         {
             BlueprintId missionBlueprintRef = GetMissionBlueprintDataRef();
-            if (missionBlueprintRef == BlueprintId.Invalid) return Logger.WarnReturn(false, "InitPerMissionTuningVars(): missionBlueprintRef == BlueprintId.Invalid");
+            if (!Verify.IsTrue(missionBlueprintRef != BlueprintId.Invalid)) return;
 
             int numMissionPrototypes = DataDirectory.Instance.GetPrototypeMaxEnumValue(missionBlueprintRef) + 1;
             _perMissionTuningVars = new(numMissionPrototypes);
             for (int i = 0; i < numMissionPrototypes; i++)
                 _perMissionTuningVars.Add(new TuningVarArray((int)MissionTuningVar.eMTV_NumMissionTuningVars));
-
-            return true;
         }
 
-        private bool InitPerWorldEntityTuningVars()
+        private void InitPerWorldEntityTuningVars()
         {
             BlueprintId worldEntityBlueprintRef = GetWorldEntityBlueprintDataRef();
-            if (worldEntityBlueprintRef == BlueprintId.Invalid) return Logger.WarnReturn(false, "InitPerWorldEntityTuningVars(): worldEntityBlueprintRef == BlueprintId.Invalid");
+            if (!Verify.IsTrue(worldEntityBlueprintRef != BlueprintId.Invalid)) return;
 
             int numWorldEntityPrototypes = DataDirectory.Instance.GetPrototypeMaxEnumValue(worldEntityBlueprintRef) + 1;
             _perWorldEntityTuningVars = new(numWorldEntityPrototypes);
             for (int i = 0; i < numWorldEntityPrototypes; i++)
                 _perWorldEntityTuningVars.Add(new TuningVarArray((int)WorldEntityTuningVar.eWETV_NumWorldEntityTuningVars));
-
-            return true;
         }
 
-        private bool InitPerPopObjTuningVars()
+        private void InitPerPopObjTuningVars()
         {
             BlueprintId popObjBlueprintRef = GetPopulationObjectBlueprintDataRef();
-            if (popObjBlueprintRef == BlueprintId.Invalid) return Logger.WarnReturn(false, "InitPerPopObjTuningVars(): popObjBlueprintRef == BlueprintId.Invalid");
+            if (!Verify.IsTrue(popObjBlueprintRef != BlueprintId.Invalid)) return;
 
             int numPopObjPrototypes = DataDirectory.Instance.GetPrototypeMaxEnumValue(popObjBlueprintRef) + 1;
             _perPopObjTuningVars = new(numPopObjPrototypes);
             for (int i = 0; i < numPopObjPrototypes; i++)
                 _perPopObjTuningVars.Add(new TuningVarArray((int)PopObjTuningVar.ePOTV_NumPopulationObjectTuningVars));
-
-            return true;
         }
 
-        private bool InitPerPowerTuningVars()
+        private void InitPerPowerTuningVars()
         {
             BlueprintId powerBlueprintRef = GetPowerBlueprintDataRef();
-            if (powerBlueprintRef == BlueprintId.Invalid) return Logger.WarnReturn(false, "InitPerPowerTuningVars(): powerBlueprintRef == BlueprintId.Invalid");
+            if (!Verify.IsTrue(powerBlueprintRef != BlueprintId.Invalid)) return;
 
             int numPowerPrototypes = DataDirectory.Instance.GetPrototypeMaxEnumValue(powerBlueprintRef) + 1;
             _perPowerTuningVars = new(numPowerPrototypes);
             for (int i = 0; i < numPowerPrototypes; i++)
                 _perPowerTuningVars.Add(new TuningVarArray((int)PowerTuningVar.ePTV_NumPowerTuningVars));
-
-            return true;
         }
 
-        private bool InitPerRegionTuningVars()
+        private void InitPerRegionTuningVars()
         {
             BlueprintId regionBlueprintRef = GetRegionBlueprintDataRef();
-            if (regionBlueprintRef == BlueprintId.Invalid) return Logger.WarnReturn(false, "InitPerRegionTuningVars(): regionBlueprintRef == BlueprintId.Invalid");
+            if (!Verify.IsTrue(regionBlueprintRef != BlueprintId.Invalid)) return;
 
             int numRegionPrototypes = DataDirectory.Instance.GetPrototypeMaxEnumValue(regionBlueprintRef) + 1;
             _perRegionTuningVars = new(numRegionPrototypes);
             for (int i = 0; i < numRegionPrototypes; i++)
                 _perRegionTuningVars.Add(new TuningVarArray((int)RegionTuningVar.eRTV_NumRegionTuningVars));
-
-            return true;
         }
 
-        private bool InitPerAvatarTuningVars()
+        private void InitPerAvatarTuningVars()
         {
             BlueprintId avatarBlueprintRef = GetAvatarBlueprintDataRef();
-            if (avatarBlueprintRef == BlueprintId.Invalid) return Logger.WarnReturn(false, "InitPerAvatarTuningVars(): avatarBlueprintRef == BlueprintId.Invalid");
+            if (!Verify.IsTrue(avatarBlueprintRef != BlueprintId.Invalid)) return;
 
             int numAvatarPrototypes = DataDirectory.Instance.GetPrototypeMaxEnumValue(avatarBlueprintRef) + 1;
             _perAvatarTuningVars = new(numAvatarPrototypes);
             for (int i = 0; i < numAvatarPrototypes; i++)
                 _perAvatarTuningVars.Add(new TuningVarArray((int)AvatarEntityTuningVar.eAETV_NumAvatarEntityTuningVars));
-
-            return true;
         }
 
-        private bool InitPerConditionTuningVars()
+        private void InitPerConditionTuningVars()
         {
             BlueprintId conditionBlueprintRef = GetConditionBlueprintDataRef();
-            if (conditionBlueprintRef == BlueprintId.Invalid) return Logger.WarnReturn(false, "InitPerConditionTuningVars(): conditionBlueprintRef == BlueprintId.Invalid");
+            if (!Verify.IsTrue(conditionBlueprintRef != BlueprintId.Invalid)) return;
 
             int numConditionPrototypes = DataDirectory.Instance.GetPrototypeMaxEnumValue(conditionBlueprintRef) + 1;
             _perConditionTuningVars = new(numConditionPrototypes);
             for (int i = 0; i < numConditionPrototypes; i++)
                 _perConditionTuningVars.Add(new TuningVarArray((int)ConditionTuningVar.eCTV_NumConditionTuningVars));
-
-            return true;
         }
 
-        private bool InitPerPublicEventTuningVars()
+        private void InitPerPublicEventTuningVars()
         {
             BlueprintId publicEventBlueprintRef = GetPublicEventBlueprintDataRef();
-            if (publicEventBlueprintRef == BlueprintId.Invalid) return Logger.WarnReturn(false, "InitPerPublicEventTuningVars(): publicEventBlueprintRef == BlueprintId.Invalid");
+            if (!Verify.IsTrue(publicEventBlueprintRef != BlueprintId.Invalid)) return;
 
             int numPublicEventPrototypes = DataDirectory.Instance.GetPrototypeMaxEnumValue(publicEventBlueprintRef) + 1;
             _perPublicEventTuningVars = new(numPublicEventPrototypes);
             for (int i = 0; i < numPublicEventPrototypes; i++)
                 _perPublicEventTuningVars.Add(new TuningVarArray((int)PublicEventTuningVar.ePETV_NumPublicEventTuningVars));
-
-            return true;
         }
 
-        private bool InitPerMetricsFrequencyTuningVars()
+        private void InitPerMetricsFrequencyTuningVars()
         {
             BlueprintId metricsFrequencyBlueprintRef = GetMetricsFrequencyBlueprintDataRef();
-            if (metricsFrequencyBlueprintRef == BlueprintId.Invalid) return Logger.WarnReturn(false, "InitPerMetricsFrequencyTuningVars(): metricsFrequencyBlueprintRef == BlueprintId.Invalid");
+            if (!Verify.IsTrue(metricsFrequencyBlueprintRef != BlueprintId.Invalid)) return;
 
             int numMetricsFrequencyPrototypes = DataDirectory.Instance.GetPrototypeMaxEnumValue(metricsFrequencyBlueprintRef) + 1;
             _perMetricsFrequencyTuningVars = new(numMetricsFrequencyPrototypes);
             for (int i = 0; i < numMetricsFrequencyPrototypes; i++)
                 _perMetricsFrequencyTuningVars.Add(new TuningVarArray((int)MetricsFrequencyTuningVar.eMFTV_NumMetricsFrequencyTuningVars));
-
-            return true;
         }
 
         #endregion
 
         #region Tuning Var Update Methods
 
-        private bool UpdateLiveAvatarTuningVar(PrototypeId avatarProtoRef, AvatarEntityTuningVar tuningVarEnum, float tuningVarValue)
+        private void UpdateLiveAvatarTuningVar(PrototypeId avatarProtoRef, AvatarEntityTuningVar tuningVarEnum, float tuningVarValue)
         {
-            if (tuningVarEnum < 0 || tuningVarEnum >= AvatarEntityTuningVar.eAETV_NumAvatarEntityTuningVars)
-                return Logger.WarnReturn(false, $"UpdateLiveAvatarTuningVar(): tuningVarEnum < 0 || tuningVarEnum >= AvatarEntityTuningVar.eAETV_NumAvatarEntityTuningVars");
-
-            if (avatarProtoRef == PrototypeId.Invalid) return Logger.WarnReturn(false, $"UpdateLiveAvatarTuningVar(): avatarProtoRef == PrototypeId.Invalid");
+            if (!Verify.IsTrue(tuningVarEnum >= 0 && tuningVarEnum < AvatarEntityTuningVar.eAETV_NumAvatarEntityTuningVars)) return;
+            if (!Verify.IsTrue(avatarProtoRef != PrototypeId.Invalid)) return;
 
             BlueprintId avatarBlueprintRef = GetAvatarBlueprintDataRef();
-            if (avatarBlueprintRef == BlueprintId.Invalid) return Logger.WarnReturn(false, $"UpdateLiveAvatarTuningVar(): avatarBlueprintRef == BlueprintId.Invalid");
+            if (!Verify.IsTrue(avatarBlueprintRef != BlueprintId.Invalid)) return;
 
             int avatarEnumVal = DataDirectory.Instance.GetPrototypeEnumValue(avatarProtoRef, avatarBlueprintRef);
-            if (avatarEnumVal < 0 || avatarEnumVal >= _perAvatarTuningVars.Count)
-                return Logger.WarnReturn(false, $"UpdateLiveAvatarTuningVar(): avatarEnumVal < 0 || avatarEnumVal >= _perAvatarTuningVars.Count");
+            if (!Verify.IsTrue(avatarEnumVal >= 0 && avatarEnumVal < _perAvatarTuningVars.Count)) return;
 
             _perAvatarTuningVars[avatarEnumVal][(int)tuningVarEnum] = tuningVarValue;
             _updateProtobufOutOfDate = true;
-
-            return true;
         }
 
-        private bool UpdateLiveWorldEntityTuningVar(PrototypeId worldEntityProtoRef, WorldEntityTuningVar tuningVarEnum, float tuningVarValue)
+        private void UpdateLiveWorldEntityTuningVar(PrototypeId worldEntityProtoRef, WorldEntityTuningVar tuningVarEnum, float tuningVarValue)
         {
-            if (tuningVarEnum < 0 || tuningVarEnum >= WorldEntityTuningVar.eWETV_NumWorldEntityTuningVars)
-                return Logger.WarnReturn(false, $"UpdateLiveWorldEntityTuningVar(): tuningVarEnum < 0 || tuningVarEnum >= WorldEntityTuningVar.eWETV_NumWorldEntityTuningVars");
+            if (!Verify.IsTrue(tuningVarEnum >= 0 && tuningVarEnum < WorldEntityTuningVar.eWETV_NumWorldEntityTuningVars)) return;
 
             WorldEntityPrototype worldEntityProto = GameDatabase.GetPrototype<WorldEntityPrototype>(worldEntityProtoRef);
-            if (worldEntityProto == null) return Logger.WarnReturn(false, "UpdateLiveWorldEntityTuningVar(): worldEntityProto == null");
+            if (!Verify.IsNotNull(worldEntityProto)) return;
 
             int worldEntityEnumVal = worldEntityProto.WorldEntityPrototypeEnumValue;
 
             if (tuningVarEnum == WorldEntityTuningVar.eWETV_LootGroupNum)
                 UpdateLiveLootGroup(worldEntityProto, tuningVarValue);
 
-            if (worldEntityEnumVal < 0 || worldEntityEnumVal >= _perWorldEntityTuningVars.Count)
-                return Logger.WarnReturn(false, $"UpdateLiveWorldEntityTuningVar(): worldEntityEnumVal < 0 || worldEntityEnumVal >= _perWorldEntityTuningVars.Count");
+            if (!Verify.IsTrue(worldEntityEnumVal >= 0 && worldEntityEnumVal < _perWorldEntityTuningVars.Count)) return;
 
             _perWorldEntityTuningVars[worldEntityEnumVal][(int)tuningVarEnum] = tuningVarValue;
-            // No update protobuf invalidation?
-
-            return true;
+            _updateProtobufOutOfDate |= ShouldSendTuningVarToClient(tuningVarEnum); // NOTE: No invalidation in client code here
         }
 
-        private bool UpdateLivePowerTuningVar(PrototypeId powerProtoRef, PowerTuningVar tuningVarEnum, float tuningVarValue)
+        private void UpdateLivePowerTuningVar(PrototypeId powerProtoRef, PowerTuningVar tuningVarEnum, float tuningVarValue)
         {
-            if (tuningVarEnum < 0 || tuningVarEnum >= PowerTuningVar.ePTV_NumPowerTuningVars)
-                return Logger.WarnReturn(false, $"UpdateLivePowerTuningVar(): tuningVarEnum < 0 || tuningVarEnum >= PowerTuningVar.ePTV_NumPowerTuningVars");
-
-            if (powerProtoRef == PrototypeId.Invalid) return Logger.WarnReturn(false, $"UpdateLivePowerTuningVar(): powerProtoRef == PrototypeId.Invalid");
+            if (!Verify.IsTrue(tuningVarEnum >= 0 && tuningVarEnum < PowerTuningVar.ePTV_NumPowerTuningVars)) return;
+            if (!Verify.IsTrue(powerProtoRef != PrototypeId.Invalid)) return;
 
             BlueprintId powerBlueprintRef = GetPowerBlueprintDataRef();
-            if (powerBlueprintRef == BlueprintId.Invalid) return Logger.WarnReturn(false, $"UpdateLivePowerTuningVar(): powerBlueprintRef == BlueprintId.Invalid");
+            if (!Verify.IsTrue(powerBlueprintRef != BlueprintId.Invalid)) return;
 
             int powerEnumVal = DataDirectory.Instance.GetPrototypeEnumValue(powerProtoRef, powerBlueprintRef);
-            if (powerEnumVal < 0 || powerEnumVal >= _perPowerTuningVars.Count)
-                return Logger.WarnReturn(false, $"UpdateLivePowerTuningVar(): powerEnumVal < 0 || powerEnumVal >= _perPowerTuningVars.Count");
+            if (!Verify.IsTrue(powerEnumVal >= 0 && powerEnumVal < _perPowerTuningVars.Count)) return;
 
             _perPowerTuningVars[powerEnumVal][(int)tuningVarEnum] = tuningVarValue;
             _updateProtobufOutOfDate = true;
-
-            return true;
         }
 
-        private bool UpdateLiveAreaTuningVar(PrototypeId areaProtoRef, AreaTuningVar tuningVarEnum, float tuningVarValue)
+        private void UpdateLiveAreaTuningVar(PrototypeId areaProtoRef, AreaTuningVar tuningVarEnum, float tuningVarValue)
         {
-            if (tuningVarEnum < 0 || tuningVarEnum >= AreaTuningVar.eATV_NumAreaTuningVars)
-                return Logger.WarnReturn(false, $"UpdateLiveAreaTuningVar(): tuningVarEnum < 0 || tuningVarEnum >= AreaTuningVar.eATV_NumAreaTuningVars");
-
-            if (areaProtoRef == PrototypeId.Invalid) return Logger.WarnReturn(false, $"UpdateLiveAreaTuningVar(): areaProtoRef == PrototypeId.Invalid");
+            if (!Verify.IsTrue(tuningVarEnum >= 0 && tuningVarEnum < AreaTuningVar.eATV_NumAreaTuningVars)) return;
+            if (!Verify.IsTrue(areaProtoRef != PrototypeId.Invalid)) return;
 
             BlueprintId areaBlueprintRef = GetAreaBlueprintDataRef();
-            if (areaBlueprintRef == BlueprintId.Invalid) return Logger.WarnReturn(false, $"UpdateLiveAreaTuningVar(): areaBlueprintRef == BlueprintId.Invalid");
+            if (!Verify.IsTrue(areaBlueprintRef != BlueprintId.Invalid)) return;
 
             int areaEnumVal = DataDirectory.Instance.GetPrototypeEnumValue(areaProtoRef, areaBlueprintRef);
-            if (areaEnumVal < 0 || areaEnumVal >= _perAreaTuningVars.Count)
-                return Logger.WarnReturn(false, $"UpdateLiveAreaTuningVar(): areaEnumVal < 0 || areaEnumVal >= _perAreaTuningVars.Count");
+            if (!Verify.IsTrue(areaEnumVal >= 0 && areaEnumVal < _perAreaTuningVars.Count)) return;
 
             _perAreaTuningVars[areaEnumVal][(int)tuningVarEnum] = tuningVarValue;
             // Server-only live tuning?
-
-            return true;
         }
 
-        private bool UpdateLiveRegionTuningVar(PrototypeId regionProtoRef, RegionTuningVar tuningVarEnum, float tuningVarValue)
+        private void UpdateLiveRegionTuningVar(PrototypeId regionProtoRef, RegionTuningVar tuningVarEnum, float tuningVarValue)
         {
-            if (tuningVarEnum < 0 || tuningVarEnum >= RegionTuningVar.eRTV_NumRegionTuningVars)
-                return Logger.WarnReturn(false, $"UpdateLiveRegionTuningVar(): tuningVarEnum < 0 || tuningVarEnum >= RegionTuningVar.eRTV_NumRegionTuningVars");
-
-            if (regionProtoRef == PrototypeId.Invalid) return Logger.WarnReturn(false, $"UpdateLiveRegionTuningVar(): regionProtoRef == PrototypeId.Invalid");
+            if (!Verify.IsTrue(tuningVarEnum >= 0 && tuningVarEnum < RegionTuningVar.eRTV_NumRegionTuningVars)) return;
+            if (!Verify.IsTrue(regionProtoRef != PrototypeId.Invalid)) return;
 
             BlueprintId regionBlueprintRef = GetRegionBlueprintDataRef();
-            if (regionBlueprintRef == BlueprintId.Invalid) return Logger.WarnReturn(false, $"UpdateLiveRegionTuningVar(): regionBlueprintRef == BlueprintId.Invalid");
-
+            if (!Verify.IsTrue(regionBlueprintRef != BlueprintId.Invalid)) return;
+            
             int regionEnumVal = DataDirectory.Instance.GetPrototypeEnumValue(regionProtoRef, regionBlueprintRef);
-            if (regionEnumVal < 0 || regionEnumVal >= _perRegionTuningVars.Count)
-                return Logger.WarnReturn(false, $"UpdateLiveRegionTuningVar(): regionEnumVal < 0 || regionEnumVal >= _perRegionTuningVars.Count");
+            if (!Verify.IsTrue(regionEnumVal >= 0 && regionEnumVal < _perRegionTuningVars.Count)) return;
 
             _perRegionTuningVars[regionEnumVal][(int)tuningVarEnum] = tuningVarValue;
             _updateProtobufOutOfDate = true;
-
-            return true;
         }
 
-        private bool UpdateLivePopObjTuningVar(PrototypeId popObjProtoRef, PopObjTuningVar tuningVarEnum, float tuningVarValue)
+        private void UpdateLivePopObjTuningVar(PrototypeId popObjProtoRef, PopObjTuningVar tuningVarEnum, float tuningVarValue)
         {
-            if (tuningVarEnum < 0 || tuningVarEnum >= PopObjTuningVar.ePOTV_NumPopulationObjectTuningVars)
-                return Logger.WarnReturn(false, $"UpdateLivePopObjTuningVar(): tuningVarEnum < 0 || tuningVarEnum >= PopObjTuningVar.ePOTV_NumPopulationObjectTuningVars");
-
-            if (popObjProtoRef == PrototypeId.Invalid) return Logger.WarnReturn(false, $"UpdateLivePopObjTuningVar(): popObjProtoRef == PrototypeId.Invalid");
-
+            if (!Verify.IsTrue(tuningVarEnum >= 0 && tuningVarEnum < PopObjTuningVar.ePOTV_NumPopulationObjectTuningVars)) return;
+            if (!Verify.IsTrue(popObjProtoRef != PrototypeId.Invalid)) return;
+            
             BlueprintId popObjBlueprintRef = GetPopulationObjectBlueprintDataRef();
-            if (popObjBlueprintRef == BlueprintId.Invalid) return Logger.WarnReturn(false, $"UpdateLivePopObjTuningVar(): popObjBlueprintRef == BlueprintId.Invalid");
-
+            if (!Verify.IsTrue(popObjBlueprintRef != BlueprintId.Invalid)) return;
+            
             int popObjEnumVal = DataDirectory.Instance.GetPrototypeEnumValue(popObjProtoRef, popObjBlueprintRef);
-            if (popObjEnumVal < 0 || popObjEnumVal >= _perPopObjTuningVars.Count)
-                return Logger.WarnReturn(false, $"UpdateLivePopObjTuningVar(): popObjEnumVal < 0 || popObjEnumVal >= _perPopObjTuningVars.Count");
+            if (!Verify.IsTrue(popObjEnumVal >= 0 && popObjEnumVal < _perPopObjTuningVars.Count)) return;
 
             _perPopObjTuningVars[popObjEnumVal][(int)tuningVarEnum] = tuningVarValue;
             // Server-only live tuning?
-
-            return true;
         }
 
-        private bool UpdateLiveMissionTuningVar(PrototypeId missionProtoRef, MissionTuningVar tuningVarEnum, float tuningVarValue)
+        private void UpdateLiveMissionTuningVar(PrototypeId missionProtoRef, MissionTuningVar tuningVarEnum, float tuningVarValue)
         {
-            if (tuningVarEnum < 0 || tuningVarEnum >= MissionTuningVar.eMTV_NumMissionTuningVars)
-                return Logger.WarnReturn(false, $"UpdateLiveMissionTuningVar(): tuningVarEnum < 0 || tuningVarEnum >= MissionTuningVar.eMTV_NumMissionTuningVars");
-
-            if (missionProtoRef == PrototypeId.Invalid) return Logger.WarnReturn(false, $"UpdateLiveMissionTuningVar(): missionProtoRef == PrototypeId.Invalid");
-
+            if (!Verify.IsTrue(tuningVarEnum >= 0 && tuningVarEnum < MissionTuningVar.eMTV_NumMissionTuningVars)) return;
+            if (!Verify.IsTrue(missionProtoRef != PrototypeId.Invalid)) return;
+            
             BlueprintId missionBlueprintRef = GetMissionBlueprintDataRef();
-            if (missionBlueprintRef == BlueprintId.Invalid) return Logger.WarnReturn(false, $"UpdateLiveMissionTuningVar(): missionBlueprintRef == BlueprintId.Invalid");
+            if (!Verify.IsTrue(missionBlueprintRef != BlueprintId.Invalid)) return;
 
             int missionEnumVal = DataDirectory.Instance.GetPrototypeEnumValue(missionProtoRef, missionBlueprintRef);
-            if (missionEnumVal < 0 || missionEnumVal >= _perMissionTuningVars.Count)
-                return Logger.WarnReturn(false, $"UpdateLiveMissionTuningVar(): missionEnumVal < 0 || missionEnumVal >= _perMissionTuningVars.Count");
-
+            if (!Verify.IsTrue(missionEnumVal >= 0 && missionEnumVal < _perMissionTuningVars.Count)) return;
+            
             _perMissionTuningVars[missionEnumVal][(int)tuningVarEnum] = tuningVarValue;
             // Server-only live tuning?
-
-            return true;
         }
 
-        private bool UpdateLiveLootTableTuningVar(PrototypeId lootTableProtoRef, LootTableTuningVar tuningVarEnum, float tuningVarValue)
+        private void UpdateLiveLootTableTuningVar(PrototypeId lootTableProtoRef, LootTableTuningVar tuningVarEnum, float tuningVarValue)
         {
-            if (tuningVarEnum < 0 || tuningVarEnum >= LootTableTuningVar.eLTTV_NumLootTableTuningVars)
-                return Logger.WarnReturn(false, $"UpdateLiveLootTableTuningVar(): tuningVarEnum < 0 || tuningVarEnum >= LootTableTuningVar.eLTTV_NumLootTableTuningVars");
-
-            if (lootTableProtoRef == PrototypeId.Invalid) return Logger.WarnReturn(false, $"UpdateLiveLootTableTuningVar(): lootTableProtoRef == PrototypeId.Invalid");
+            if (!Verify.IsTrue(tuningVarEnum >= 0 && tuningVarEnum < LootTableTuningVar.eLTTV_NumLootTableTuningVars)) return;
+            if (!Verify.IsTrue(lootTableProtoRef != PrototypeId.Invalid)) return;
 
             BlueprintId lootTableBlueprintRef = GetLootTableBlueprintDataRef();
-            if (lootTableBlueprintRef == BlueprintId.Invalid) return Logger.WarnReturn(false, $"UpdateLiveLootTableTuningVar(): lootTableBlueprintRef == BlueprintId.Invalid");
-
+            if (!Verify.IsTrue(lootTableBlueprintRef != BlueprintId.Invalid)) return;
+            
             int lootTableEnumVal = DataDirectory.Instance.GetPrototypeEnumValue(lootTableProtoRef, lootTableBlueprintRef);
-            if (lootTableEnumVal < 0 || lootTableEnumVal >= _perLootTableTuningVars.Count)
-                return Logger.WarnReturn(false, $"UpdateLiveLootTableTuningVar(): lootTableEnumVal < 0 || lootTableEnumVal >= _perLootTableTuningVars.Count");
-
+            if (!Verify.IsTrue(lootTableEnumVal >= 0 && lootTableEnumVal < _perLootTableTuningVars.Count)) return;
+            
             _perLootTableTuningVars[lootTableEnumVal][(int)tuningVarEnum] = tuningVarValue;
             // Server-only live tuning?
-
-            return true;
         }
 
-        private bool UpdateLiveConditionTuningVar(PrototypeId conditionProtoRef, ConditionTuningVar tuningVarEnum, float tuningVarValue)
+        private void UpdateLiveConditionTuningVar(PrototypeId conditionProtoRef, ConditionTuningVar tuningVarEnum, float tuningVarValue)
         {
-            if (tuningVarEnum < 0 || tuningVarEnum >= ConditionTuningVar.eCTV_NumConditionTuningVars)
-                return Logger.WarnReturn(false, $"UpdateLiveConditionTuningVar(): tuningVarEnum < 0 || tuningVarEnum >= ConditionTuningVar.eCTV_NumConditionTuningVars");
-
-            if (conditionProtoRef == PrototypeId.Invalid) return Logger.WarnReturn(false, $"UpdateLiveConditionTuningVar(): conditionProtoRef == PrototypeId.Invalid");
+            if (!Verify.IsTrue(tuningVarEnum >= 0 && tuningVarEnum < ConditionTuningVar.eCTV_NumConditionTuningVars)) return;
+            if (!Verify.IsTrue(conditionProtoRef != PrototypeId.Invalid)) return;
 
             BlueprintId conditionBlueprintRef = GetConditionBlueprintDataRef();
-            if (conditionBlueprintRef == BlueprintId.Invalid) return Logger.WarnReturn(false, $"UpdateLiveConditionTuningVar(): conditionBlueprintRef == BlueprintId.Invalid");
+            if (!Verify.IsTrue(conditionBlueprintRef != BlueprintId.Invalid)) return;
 
             int conditionEnumVal = DataDirectory.Instance.GetPrototypeEnumValue(conditionProtoRef, conditionBlueprintRef);
-            if (conditionEnumVal < 0 || conditionEnumVal >= _perConditionTuningVars.Count)
-                return Logger.WarnReturn(false, $"UpdateLiveConditionTuningVar(): conditionEnumVal < 0 || conditionEnumVal >= _perConditionTuningVars.Count");
+            if (!Verify.IsTrue(conditionEnumVal >= 0 && conditionEnumVal < _perConditionTuningVars.Count)) return;
 
             _perConditionTuningVars[conditionEnumVal][(int)tuningVarEnum] = tuningVarValue;
             _updateProtobufOutOfDate = true;
-
-            return true;
         }
 
-        private bool UpdateLivePublicEventTuningVar(PrototypeId publicEventProtoRef, PublicEventTuningVar tuningVarEnum, float tuningVarValue)
+        private void UpdateLivePublicEventTuningVar(PrototypeId publicEventProtoRef, PublicEventTuningVar tuningVarEnum, float tuningVarValue)
         {
-            if (tuningVarEnum < 0 || tuningVarEnum >= PublicEventTuningVar.ePETV_NumPublicEventTuningVars)
-                return Logger.WarnReturn(false, $"UpdateLivePublicEventTuningVar(): tuningVarEnum < 0 || tuningVarEnum >= PublicEventTuningVar.ePETV_NumPublicEventTuningVars");
-
-            if (publicEventProtoRef == PrototypeId.Invalid) return Logger.WarnReturn(false, $"UpdateLivePublicEventTuningVar(): publicEventProtoRef == PrototypeId.Invalid");
+            if (!Verify.IsTrue(tuningVarEnum >= 0 && tuningVarEnum < PublicEventTuningVar.ePETV_NumPublicEventTuningVars)) return;
+            if (!Verify.IsTrue(publicEventProtoRef != PrototypeId.Invalid)) return;
 
             BlueprintId publicEventBlueprintRef = GetPublicEventBlueprintDataRef();
-            if (publicEventBlueprintRef == BlueprintId.Invalid) return Logger.WarnReturn(false, $"UpdateLivePublicEventTuningVar(): publicEventBlueprintRef == BlueprintId.Invalid");
+            if (!Verify.IsTrue(publicEventBlueprintRef != BlueprintId.Invalid)) return;
 
             int publicEventEnumVal = DataDirectory.Instance.GetPrototypeEnumValue(publicEventProtoRef, publicEventBlueprintRef);
-            if (publicEventEnumVal < 0 || publicEventEnumVal >= _perPublicEventTuningVars.Count)
-                return Logger.WarnReturn(false, $"UpdateLivePublicEventTuningVar(): publicEventEnumVal < 0 || publicEventEnumVal >= _perPublicEventTuningVars.Count");
+            if (!Verify.IsTrue(publicEventEnumVal >= 0 && publicEventEnumVal < _perPublicEventTuningVars.Count)) return;
 
             _perPublicEventTuningVars[publicEventEnumVal][(int)tuningVarEnum] = tuningVarValue;
             _updateProtobufOutOfDate = true;
-
-            return true;
         }
 
-        private bool UpdateLiveMetricsFrequencyTuningVar(PrototypeId metricsFrequencyProtoRef, MetricsFrequencyTuningVar tuningVarEnum, float tuningVarValue)
+        private void UpdateLiveMetricsFrequencyTuningVar(PrototypeId metricsFrequencyProtoRef, MetricsFrequencyTuningVar tuningVarEnum, float tuningVarValue)
         {
-            if (tuningVarEnum < 0 || tuningVarEnum >= MetricsFrequencyTuningVar.eMFTV_NumMetricsFrequencyTuningVars)
-                return Logger.WarnReturn(false, $"UpdateLiveMetricsFrequencyTuningVar(): tuningVarEnum < 0 || tuningVarEnum >= MetricsFrequencyTuningVar.eMFTV_NumMetricsFrequencyTuningVars");
-
-            if (metricsFrequencyProtoRef == PrototypeId.Invalid) return Logger.WarnReturn(false, $"UpdateLiveMetricsFrequencyTuningVar(): metricsFrequencyProtoRef == PrototypeId.Invalid");
+            if (!Verify.IsTrue(tuningVarEnum >= 0 && tuningVarEnum < MetricsFrequencyTuningVar.eMFTV_NumMetricsFrequencyTuningVars)) return;
+            if (!Verify.IsTrue(metricsFrequencyProtoRef != PrototypeId.Invalid)) return;
 
             BlueprintId metricsFrequencyBlueprintRef = GetMetricsFrequencyBlueprintDataRef();
-            if (metricsFrequencyBlueprintRef == BlueprintId.Invalid) return Logger.WarnReturn(false, $"UpdateLiveMetricsFrequencyTuningVar(): metricsFrequencyBlueprintRef == BlueprintId.Invalid");
-
+            if (!Verify.IsTrue(metricsFrequencyBlueprintRef != BlueprintId.Invalid)) return;
+            
             int metricsFrequencyEnumVal = DataDirectory.Instance.GetPrototypeEnumValue(metricsFrequencyProtoRef, metricsFrequencyBlueprintRef);
-            if (metricsFrequencyEnumVal < 0 || metricsFrequencyEnumVal >= _perMetricsFrequencyTuningVars.Count)
-                return Logger.WarnReturn(false, $"UpdateLiveMetricsFrequencyTuningVar(): metricsFrequencyEnumVal < 0 || metricsFrequencyEnumVal >= _perMetricsFrequencyTuningVars.Count");
-
+            if (!Verify.IsTrue(metricsFrequencyEnumVal >= 0 && metricsFrequencyEnumVal < _perMetricsFrequencyTuningVars.Count)) return;
+            
             _perMetricsFrequencyTuningVars[metricsFrequencyEnumVal][(int)tuningVarEnum] = tuningVarValue;
             // Server-only live tuning
-
-            return true;
         }
 
         #endregion

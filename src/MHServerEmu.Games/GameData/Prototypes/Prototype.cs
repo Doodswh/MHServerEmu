@@ -3,37 +3,8 @@ using MHServerEmu.Games.GameData.Calligraphy;
 
 namespace MHServerEmu.Games.GameData.Prototypes
 {
-    public readonly struct PrototypeDataHeader
-    {
-        [Flags]
-        private enum PrototypeDataDesc : byte
-        {
-            None                = 0,
-            ReferenceExists     = 1 << 0,
-            InstanceDataExists  = 1 << 1,
-            PolymorphicData     = 1 << 2
-        }
-
-        public bool ReferenceExists { get; }
-        public bool InstanceDataExists { get; }
-        public bool PolymorphicData { get; }
-        public PrototypeId ReferenceType { get; }     // Parent prototype id, invalid (0) for .defaults
-
-        public PrototypeDataHeader(BinaryReader reader)
-        {
-            var flags = (PrototypeDataDesc)reader.ReadByte();
-            ReferenceExists = flags.HasFlag(PrototypeDataDesc.ReferenceExists);
-            InstanceDataExists = flags.HasFlag(PrototypeDataDesc.InstanceDataExists);
-            PolymorphicData = flags.HasFlag(PrototypeDataDesc.PolymorphicData);
-
-            ReferenceType = ReferenceExists ? (PrototypeId)reader.ReadUInt64() : PrototypeId.Invalid;
-        }
-    }
-
     public class Prototype
     {
-        private static readonly Logger Logger = LogManager.CreateLogger();
-
         // Child prototypes need to have separate mixin lists from their parents so that when we modify a child we don't change its parent.
         // To ensure this each prototype keeps track of mixins that belong to it in this field. This is accurate to how the client does this.
         // The client uses a sorted vector here, but we use a HashSet to ensure that the same field data doesn't get added twice for some reason.
@@ -48,6 +19,11 @@ namespace MHServerEmu.Games.GameData.Prototypes
         /// </summary>
         public virtual bool ShouldCacheCRC { get => false; }
 
+        public override string ToString()
+        {
+            return DataRef != PrototypeId.Invalid ? GameDatabase.GetPrototypeName(DataRef) : base.ToString();
+        }
+
         /// <summary>
         /// Returns <see langword="true"/> if this prototype is approved for use. Approval criteria differ depending on the prototype type.
         /// </summary>
@@ -59,10 +35,12 @@ namespace MHServerEmu.Games.GameData.Prototypes
         /// <summary>
         /// Post-processes data contained in this <see cref="Prototype"/>.
         /// </summary>
+        /// <remarks>
+        /// Concrete prototype types override this to post-process their data after loading.
+        /// </remarks>
         public virtual void PostProcess()
         {
             GameDatabase.PrototypeClassManager.PostProcessContainedPrototypes(this);
-            // Prototypes override this to post-process data
         }
 
         /// <summary>
@@ -81,26 +59,17 @@ namespace MHServerEmu.Games.GameData.Prototypes
         /// </summary>
         public void SetDynamicFieldOwner<T>(T fieldData) where T: class
         {
-            // Create the owned field collection if we don't have one
-            if (_ownedDynamicFields == null)
-                _ownedDynamicFields = new();
-
+            _ownedDynamicFields ??= new();
             _ownedDynamicFields.Add(fieldData);
         }
 
         /// <summary>
         /// Removes this prototype as the owner of field data of type <typeparamref name="T"/>. Field data must be a reference type.
         /// </summary>
-        public bool RemoveDynamicFieldOwner<T>(T fieldData) where T: class
+        public void RemoveDynamicFieldOwner<T>(T fieldData) where T: class
         {
-            // Check if we have any dynamic fields at all
-            if (_ownedDynamicFields == null)
-                Logger.WarnReturn(false, $"Failed to remove {GameDatabase.GetPrototypeName(DataRef)} as the owner of dynamic field data: this prototype has no owned fields");
-
-            if (_ownedDynamicFields.Remove(fieldData) == false)
-                Logger.WarnReturn(false, $"Failed to remove {GameDatabase.GetPrototypeName(DataRef)} as the owner of dynamic field data: field data not found");
-
-            return true;
+            if (!Verify.IsNotNull(_ownedDynamicFields)) return;
+            Verify.IsTrue(_ownedDynamicFields.Remove(fieldData));
         }
 
         /// <summary>
@@ -108,7 +77,6 @@ namespace MHServerEmu.Games.GameData.Prototypes
         /// </summary>
         public bool IsDynamicFieldOwnedBy<T>(T fieldData) where T: class
         {
-            // Make sure this prototype has any dynamic fields assigned to it at all
             if (_ownedDynamicFields == null)
                 return false;
 
@@ -128,11 +96,9 @@ namespace MHServerEmu.Games.GameData.Prototypes
                 return 0;
 
             Blueprint blueprint = DataDirectory.Instance.GetBlueprint(blueprintId);
-            if (blueprint == null) return Logger.WarnReturn(0, "GetEnumValueFromBlueprint(): blueprint == null");
+            if (!Verify.IsNotNull(blueprint)) return 0;
 
             return blueprint.GetPrototypeEnumValue(protoRef);
         }
-
-        public override string ToString() => DataRef != PrototypeId.Invalid ? GameDatabase.GetPrototypeName(DataRef) : base.ToString();
     }
 }

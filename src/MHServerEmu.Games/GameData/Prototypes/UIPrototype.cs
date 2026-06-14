@@ -1,6 +1,6 @@
 ﻿using MHServerEmu.Core.Extensions;
 using MHServerEmu.Core.VectorMath;
-using MHServerEmu.Games.GameData.Calligraphy.Attributes;
+using MHServerEmu.Games.GameData.Calligraphy;
 using MHServerEmu.Games.GameData.Resources;
 using MHServerEmu.Games.Properties.Evals;
 using MHServerEmu.Games.Properties;
@@ -167,104 +167,89 @@ namespace MHServerEmu.Games.GameData.Prototypes
 
         public void Deserialize(BinaryReader reader)
         {
-            UIPanels = new UIPanelPrototype[reader.ReadUInt32()];
-            for (int i = 0; i < UIPanels.Length; i++)
-                UIPanels[i] = UIPanelPrototype.ReadFromBinaryReader(reader);
+            if (BinaryResourceSerializer.ReadPrototypeContainer(out UIPanelPrototype[] uiPanels, reader))
+                UIPanels = uiPanels;
         }
     }
 
-    public class UIPanelPrototype : Prototype
+    public class UIPanelPrototype : Prototype, IBinaryResource
     {
-        public string PanelName { get; private set; }
-        public string TargetName { get; private set; }
-        public PanelScaleMode ScaleMode { get; private set; }
-        public UIPanelPrototype Children { get; private set; }
-        public string WidgetClass { get; private set; }
-        public string SwfName { get; private set; }
-        public byte OpenOnStart { get; private set; }
-        public byte VisibilityToggleable { get; private set; }
-        public byte CanClickThrough { get; private set; }
-        public byte StaticPosition { get; private set; }
-        public byte EntityInteractPanel { get; private set; }
-        public byte UseNewPlacementSystem { get; private set; }
-        public byte KeepLoaded { get; private set; }
+        public string PanelName { get; protected set; }
+        public string TargetName { get; protected set; }
+        public PanelScaleMode ScaleMode { get; protected set; }
+        public UIPanelPrototype[] Children { get; protected set; }
+        public string WidgetClass { get; protected set; }
+        public string SwfName { get; protected set; }
+        public bool OpenOnStart { get; protected set; }
+        public bool VisibilityToggleable { get; protected set; }
+        public bool CanClickThrough { get; protected set; }
+        public bool StaticPosition { get; protected set; }
+        public bool EntityInteractPanel { get; protected set; }
+        public bool UseNewPlacementSystem { get; protected set; }
+        public bool KeepLoaded { get; protected set; }
 
-        public static UIPanelPrototype ReadFromBinaryReader(BinaryReader reader)
-        {
-            var hash = (ResourcePrototypeHash)reader.ReadUInt32();
-
-            switch (hash)
-            {
-                case ResourcePrototypeHash.StretchedPanelPrototype:
-                    return new StretchedPanelPrototype(reader);
-                case ResourcePrototypeHash.AnchoredPanelPrototype:
-                    return new AnchoredPanelPrototype(reader);
-                case ResourcePrototypeHash.None:
-                    return null;
-                default:    // Throw an exception if there's a hash for a type we didn't expect
-                    throw new NotImplementedException($"Unknown ResourcePrototypeHash {(uint)hash}.");
-            }
-        }
-
-        protected void ReadCommonPanelFields(BinaryReader reader)
+        public virtual void Deserialize(BinaryReader reader)
         {
             PanelName = reader.ReadFixedString32();
             TargetName = reader.ReadFixedString32();
             ScaleMode = (PanelScaleMode)reader.ReadUInt32();
-            Children = ReadFromBinaryReader(reader);
+
+            if (BinaryResourceSerializer.ReadPrototypeContainer(out UIPanelPrototype[] children, reader))
+                Children = children;
+
             WidgetClass = reader.ReadFixedString32();
             SwfName = reader.ReadFixedString32();
-            OpenOnStart = reader.ReadByte();
-            VisibilityToggleable = reader.ReadByte();
-            CanClickThrough = reader.ReadByte();
-            StaticPosition = reader.ReadByte();
-            EntityInteractPanel = reader.ReadByte();
-            UseNewPlacementSystem = reader.ReadByte();
-            KeepLoaded = reader.ReadByte();
+            OpenOnStart = reader.ReadBoolean();
+            VisibilityToggleable = reader.ReadBoolean();
+            CanClickThrough = reader.ReadBoolean();
+            StaticPosition = reader.ReadBoolean();
+            EntityInteractPanel = reader.ReadBoolean();
+            UseNewPlacementSystem = reader.ReadBoolean();
+            KeepLoaded = reader.ReadBoolean();
         }
     }
 
     public class StretchedPanelPrototype : UIPanelPrototype
     {
-        public Vector2 TopLeftPin { get; }
-        public string TL_X_TargetName { get; }
-        public string TL_Y_TargetName { get; }
-        public Vector2 BottomRightPin { get; }
-        public string BR_X_TargetName { get; }
-        public string BR_Y_TargetName { get; }
+        public Vector2 TopLeftPin { get; protected set; }
+        public string TL_X_TargetName { get; protected set; }
+        public string TL_Y_TargetName { get; protected set; }
+        public Vector2 BottomRightPin { get; protected set; }
+        public string BR_X_TargetName { get; protected set; }
+        public string BR_Y_TargetName { get; protected set; }
 
-        public StretchedPanelPrototype(BinaryReader reader)
+        public override void Deserialize(BinaryReader reader)
         {
-            TopLeftPin = reader.ReadVector2();
+            TopLeftPin = reader.Read<Vector2>();
             TL_X_TargetName = reader.ReadFixedString32();
             TL_Y_TargetName = reader.ReadFixedString32();
-            BottomRightPin = reader.ReadVector2();
+            BottomRightPin = reader.Read<Vector2>();
             BR_X_TargetName = reader.ReadFixedString32();
             BR_Y_TargetName = reader.ReadFixedString32();
 
-            ReadCommonPanelFields(reader);
+            base.Deserialize(reader);
         }
     }
 
     public class AnchoredPanelPrototype : UIPanelPrototype
     {
-        public Vector2 SourceAttachmentPin { get; }
-        public Vector2 TargetAttachmentPin { get; }
-        public Vector2 VirtualPixelOffset { get; }
-        public string PreferredLane { get; }
-        public Vector2 OuterEdgePin { get; }
-        public Vector2 NewSourceAttachmentPin { get; }
+        public Vector2 SourceAttachmentPin { get; protected set; }
+        public Vector2 TargetAttachmentPin { get; protected set; }
+        public Vector2 VirtualPixelOffset { get; protected set; }
+        public string PreferredLane { get; protected set; }
+        public Vector2 OuterEdgePin { get; protected set; }
+        public Vector2 NewSourceAttachmentPin { get; protected set; }
 
-        public AnchoredPanelPrototype(BinaryReader reader)
+        public override void Deserialize(BinaryReader reader)
         {
-            SourceAttachmentPin = reader.ReadVector2();
-            TargetAttachmentPin = reader.ReadVector2();
-            VirtualPixelOffset = reader.ReadVector2();
+            SourceAttachmentPin = reader.Read<Vector2>();
+            TargetAttachmentPin = reader.Read<Vector2>();
+            VirtualPixelOffset = reader.Read<Vector2>();
             PreferredLane = reader.ReadFixedString32();
-            OuterEdgePin = reader.ReadVector2();
-            NewSourceAttachmentPin = reader.ReadVector2();
+            OuterEdgePin = reader.Read<Vector2>();
+            NewSourceAttachmentPin = reader.Read<Vector2>();
 
-            ReadCommonPanelFields(reader);
+            base.Deserialize(reader);
         }
     }
 

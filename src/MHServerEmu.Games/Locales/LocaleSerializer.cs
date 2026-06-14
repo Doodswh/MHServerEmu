@@ -14,8 +14,6 @@ namespace MHServerEmu.Games.Locales
         private const int HeaderSize = sizeof(uint) + sizeof(ushort);                                                   // magic + entry count = 6
         private const int StringMapEntrySize = sizeof(LocaleStringId) + sizeof(ushort) + sizeof(ushort) + sizeof(uint); // key + variant count (0) + flags produced + data offset = 16
 
-        private static readonly Logger Logger = LogManager.CreateLogger();
-
         private readonly List<(LocaleStringId, uint)> _stringMapEntries = new();
         private readonly MemoryStream _buffer;
         private readonly BinaryWriter _writer;
@@ -29,10 +27,10 @@ namespace MHServerEmu.Games.Locales
         /// <summary>
         /// Adds a new <see cref="string"/> to be serialized.
         /// </summary>
-        public bool AddString(LocaleStringId localeStringId, string str)
+        public void AddString(LocaleStringId localeStringId, string str)
         {
             long position = _buffer.Position;
-            if (position > uint.MaxValue) return Logger.WarnReturn(false, "AddString(): position > uint.MaxValue");
+            if (!Verify.IsTrue(position <= uint.MaxValue)) return;
 
             // Remember the position
             uint offset = (uint)position;
@@ -46,16 +44,14 @@ namespace MHServerEmu.Games.Locales
 
             // Add position to the lookup
             _stringMapEntries.Add((localeStringId, offset));
-
-            return true;
         }
 
         /// <summary>
         /// Writes locale string data to the provided <see cref="Stream"/>.
         /// </summary>
-        public bool WriteTo(Stream stream)
+        public void WriteTo(Stream stream)
         {
-            if (_stringMapEntries.Count > ushort.MaxValue) return Logger.WarnReturn(false, "WriteTo(): _stringMapEntries.Count > ushort.MaxValue");
+            if (!Verify.IsTrue(_stringMapEntries.Count <= ushort.MaxValue)) return;
 
             using BinaryWriter writer = new(stream);
 
@@ -79,8 +75,6 @@ namespace MHServerEmu.Games.Locales
             _buffer.Position = 0;
             _buffer.WriteTo(stream);
             _buffer.Position = oldPosition;
-
-            return true;
         }
     }
 }

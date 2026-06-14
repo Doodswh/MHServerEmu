@@ -5,8 +5,6 @@ namespace MHServerEmu.Games.GameData.Tables
 {
     public class AllianceTable
     {
-        private static readonly Logger Logger = LogManager.CreateLogger();
-
         private readonly bool[][] _friendlyLookup;
         private readonly bool[][] _hostileLookup;
 
@@ -34,12 +32,9 @@ namespace MHServerEmu.Games.GameData.Tables
             // Fill our table with data from alliance prototypes
             foreach (PrototypeId alliancePrototypeRef in dataDirectory.IteratePrototypesInHierarchy<AlliancePrototype>(PrototypeIterateFlags.NoAbstractApprovedOnly))
             {
-                var alliancePrototype = alliancePrototypeRef.As<AlliancePrototype>();
-                if (alliancePrototype == null)
-                {
-                    Logger.Warn("AllianceTable(): alliancePrototype == null");
+                AlliancePrototype alliancePrototype = alliancePrototypeRef.As<AlliancePrototype>();
+                if (!Verify.IsNotNull(alliancePrototype))
                     continue;
-                }
 
                 // Alliances are automatically friendly to themselves
                 _friendlyLookup[alliancePrototype.EnumValue][alliancePrototype.EnumValue] = true;
@@ -68,17 +63,13 @@ namespace MHServerEmu.Games.GameData.Tables
 
         public bool IsFriendlyTo(AlliancePrototype lhsAllianceProto, AlliancePrototype rhsAllianceProto)
         {
-            if (lhsAllianceProto.EnumValue >= _friendlyLookup.Length || rhsAllianceProto.EnumValue >= _friendlyLookup.Length)
-                return Logger.WarnReturn(false, "IsFriendlyTo(): Alliance prototype enum value out of range");
-
+            if (!Verify.IsTrue(lhsAllianceProto.EnumValue < _friendlyLookup.Length && rhsAllianceProto.EnumValue < _friendlyLookup.Length)) return false;
             return _friendlyLookup[lhsAllianceProto.EnumValue][rhsAllianceProto.EnumValue];
         }
 
         public bool IsHostileTo(AlliancePrototype lhsAllianceProto, AlliancePrototype rhsAllianceProto)
         {
-            if (lhsAllianceProto.EnumValue >= _hostileLookup.Length || rhsAllianceProto.EnumValue >= _hostileLookup.Length)
-                return Logger.WarnReturn(false, "IsHostileTo(): Alliance prototype enum value out of range");
-
+            if (!Verify.IsTrue(lhsAllianceProto.EnumValue < _hostileLookup.Length && rhsAllianceProto.EnumValue < _hostileLookup.Length)) return false;
             return _hostileLookup[lhsAllianceProto.EnumValue][rhsAllianceProto.EnumValue];
         }
     }

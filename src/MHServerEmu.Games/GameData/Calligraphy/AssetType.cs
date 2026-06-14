@@ -11,48 +11,77 @@ namespace MHServerEmu.Games.GameData.Calligraphy
         // Enum asset types are bound to symbolic enums they represent during game database initialization:
         // DataDirectory.LoadCalligraphyDataFramework() -> PrototypeClassManager.BindAssetTypesToEnums() -> AssetDirectory.BindAssetTypes() -> AssetType.BindEnum()
 
-        private static readonly Logger Logger = LogManager.CreateLogger();
+        private AssetValue[] _assets;
 
-        private readonly AssetValue[] _assets;
-
-        private Type _enumBinding;                          // Type of a symbolic enum to bind to
-        private Dictionary<int, int> _symbolicLookupDict;   // Symbolic enum value -> asset index
+        private Type _symEnum;                          // Type of a symbolic enum to bind to
+        private Dictionary<int, int> _symbolicLookup;   // Symbolic enum value -> asset index
         private bool _enumerated;
 
-        public AssetTypeId Id { get; }
-        public AssetTypeGuid Guid { get; }
+        public AssetTypeId AssetTypeRef { get; private set; }
+        public AssetTypeGuid Guid { get; private set; }
         public int MaxEnumValue { get; private set; }
 
-        public AssetType(Stream stream, AssetDirectory assetDirectory, AssetTypeId assetTypeId, AssetTypeGuid assetTypeGuid)
+        public AssetType() { }
+
+        public override string ToString()
         {
-            Id = assetTypeId;
+            return GameDatabase.GetAssetTypeName(AssetTypeRef);
+        }
+
+        public bool Load(CalligraphyReader reader, AssetDirectory assetDirectory, AssetTypeId assetTypeRef, AssetTypeGuid assetTypeGuid, DataRefManager<AssetId> stringRefManager)
+        {
+            if (!Verify.IsNotNull(stringRefManager)) return false;
+            if (!Verify.IsTrue(assetTypeRef != AssetTypeId.Invalid)) return false;
+
+            if (!Verify.IsTrue(Guid == AssetTypeGuid.Invalid || Guid == assetTypeGuid, $"Trying to load a new asset type over and existing one {assetTypeRef.GetName()}"))
+                return false;
+
+            AssetTypeRef = assetTypeRef;
             Guid = assetTypeGuid;
 
-            using (BinaryReader reader = new(stream))
+            if (!Verify.IsTrue(reader.ReadHeader("TYP"))) return false;
+
+            if (!Verify.IsTrue(reader.Read(out short numAssets), $"Unable to read num assets in {reader.SectionName}"))
+                return false;
+
+            _assets = new AssetValue[numAssets];
+
+            const int MaxAssetLength = 1024;
+            Span<byte> assetValueBuffer = stackalloc byte[MaxAssetLength];
+
+            for (int i = 0; i < _assets.Length; i++)
             {
-                CalligraphyHeader header = new(reader);
+                if (!Verify.IsTrue(reader.Read(out AssetId assetId), $"Unable to read asset id #{i} in {reader.SectionName}"))
+                    return false;
 
-                _assets = new AssetValue[reader.ReadUInt16()];
-                for (int i = 0; i < _assets.Length; i++)
-                {
-                    AssetValue asset = new(reader);
-                    string name = reader.ReadFixedString16();
+                if (!Verify.IsTrue(reader.Read(out AssetGuid assetGuid), $"Unable to read asset guid #{i} in {reader.SectionName}"))
+                    return false;
 
-                    GameDatabase.StringRefManager.AddDataRef(asset.Id, name);
-                    assetDirectory.AddAssetLookup(assetTypeId, asset.Id, asset.Guid);
+                if (!Verify.IsTrue(reader.Read(out AssetValueFlags flags), $"Unable to read asset flags in {reader.SectionName}"))
+                    return false;
 
-                    _assets[i] = asset;
-                }
+                if (!Verify.IsTrue(reader.ReadStringUTF8(assetValueBuffer, MaxAssetLength - 1))) return false;
+                string name = assetValueBuffer.GetCString();
+
+                stringRefManager.AddDataRef(assetId, name);
+
+                _assets[i] = new(assetId, assetGuid, flags);
+
+                assetDirectory.AddAssetLookup(assetTypeRef, assetId, assetGuid);
             }
+
+            return true;
         }
 
         /// <summary>
         /// Sets symbolic enum binding for this asset type.
         /// </summary>
-        public void BindEnum(Type enumBinding)
+        public void BindEnum(Type symbolicEnum)
         {
-            _enumBinding = enumBinding;
-            if (_enumBinding != null) _symbolicLookupDict = new();
+            if (!Verify.IsTrue(_symEnum == null || _symEnum == symbolicEnum, "Asset type has already been bound to a different symbolic enumeration"))
+                return;
+
+            _symEnum = symbolicEnum;
             Enumerate();
         }
 
@@ -61,14 +90,10 @@ namespace MHServerEmu.Games.GameData.Calligraphy
         /// </summary>
         public AssetId GetAssetRefFromEnum(int enumValue)
         {
-            if (_enumerated == false)
-            {
-                Logger.Warn("Failed to get asset ref from enum: not enumerated");
+            AssetValue assetValue = GetAssetValueFromEnum(enumValue);
+            if (assetValue == null)
                 return AssetId.Invalid;
-            }
 
-            var assetValue = GetAssetValueFromEnum(enumValue);
-            if (assetValue == null) return AssetId.Invalid;
             return assetValue.Id;
         }
 
@@ -86,15 +111,15 @@ namespace MHServerEmu.Games.GameData.Calligraphy
         /// <summary>
         /// Finds an asset id of this type by its name.
         /// </summary>
-        public AssetId FindAssetByName(string assetToFind, DataFileSearchFlags searchFlags)
+        public AssetId FindAssetByName(string assetToFind, bool ignoreCase)
         {
             foreach (AssetValue value in _assets)
             {
                 string assetName = GameDatabase.GetAssetName(value.Id);
-                var flags = searchFlags.HasFlag(DataFileSearchFlags.CaseInsensitive)
-                    ? StringComparison.InvariantCultureIgnoreCase
-                    : StringComparison.InvariantCulture;
-                if (assetName.Equals(assetToFind, flags)) return value.Id;
+                StringComparison flags = ignoreCase ? StringComparison.InvariantCultureIgnoreCase : StringComparison.InvariantCulture;
+
+                if (assetName.Equals(assetToFind, flags))
+                    return value.Id;
             }
 
             return AssetId.Invalid;
@@ -105,72 +130,68 @@ namespace MHServerEmu.Games.GameData.Calligraphy
         /// </summary>
         public void Enumerate()
         {
-            // Iterate through all assets of this type
+            if (_symEnum != null)
+                _symbolicLookup = new();
+
+            AssetDirectory assetDirectory = GameDatabase.DataDirectory.AssetDirectory;
+
             for (int i = 0; i < _assets.Length; i++)
             {
-                // Determine enum value
                 int enumValue;
-                if (_enumBinding != null)   // Symbolic enums
+                if (_symEnum != null)
                 {
-                    enumValue = (int)Enum.Parse(_enumBinding, GameDatabase.GetAssetName(_assets[i].Id));    // Parse value from enum type
-                    MaxEnumValue = Math.Max(enumValue, MaxEnumValue);                                       // Update max value
-                    _symbolicLookupDict.Add(enumValue, i);                                                  // Add enumValue -> AssetValue index lookup
+                    // Symbolic enums
+                    enumValue = (int)Enum.Parse(_symEnum, GameDatabase.GetAssetName(_assets[i].Id));    // Parse value from enum type
+                    MaxEnumValue = Math.Max(enumValue, MaxEnumValue);                                   // Update max value
+                    _symbolicLookup.Add(enumValue, i);                                                  // Add enumValue -> AssetValue index lookup
                 }
-                else                        // Regular enums
+                else
                 {
+                    // Regular enums
                     enumValue = i;
                 }
 
-                // Add asset enum lookup to AssetDirectory
-                GameDatabase.DataDirectory.AssetDirectory.AddAssetEnumLookup(_assets[i].Id, enumValue);
+                assetDirectory.AddAssetEnumLookup(_assets[i].Id, enumValue);
             }
 
             // Set max enum value for assets not bound to symbolic enums
-            if (_enumBinding == null && _assets.Length > 0)
+            if (_symEnum == null && _assets.Length > 0)
                 MaxEnumValue = _assets.Length - 1;
 
             _enumerated = true;
         }
-
-        public override string ToString() => GameDatabase.GetAssetTypeName(Id);
 
         /// <summary>
         /// Gets an <see cref="AssetValue"/> associated with the specified enum value.
         /// </summary>
         private AssetValue GetAssetValueFromEnum(int enumValue)
         {
-            if (_enumerated == false) return null;
+            if (!Verify.IsTrue(_enumerated)) return null;
 
-            // Symbolic enums
-            if (_enumBinding != null)
+            if (_symEnum != null)
             {
-                if (_symbolicLookupDict.TryGetValue(enumValue, out int index) == false)
+                // Symbolic enums
+                if (_symbolicLookup.TryGetValue(enumValue, out int index) == false)
                     return null;
 
                 return _assets[index];
             }
-                
-            // Regular enums
-            if (enumValue < 0 || enumValue >= _assets.Length) return null;
-
-            return _assets[enumValue];
+            else
+            {
+                // Regular enums
+                if (!Verify.IsTrue(enumValue < _assets.Length)) return null;
+                return _assets[enumValue];
+            }
         }
 
         /// <summary>
         /// A container for references to a specific asset.
         /// </summary>
-        class AssetValue
+        private class AssetValue(AssetId id, AssetGuid guid, AssetValueFlags flags)
         {
-            public AssetId Id { get; }
-            public AssetGuid Guid { get; }
-            public AssetValueFlags Flags { get; }
-
-            public AssetValue(BinaryReader reader)
-            {
-                Id = (AssetId)reader.ReadUInt64();
-                Guid = (AssetGuid)reader.ReadUInt64();
-                Flags = (AssetValueFlags)reader.ReadByte();
-            }
+            public AssetId Id { get; } = id;
+            public AssetGuid Guid { get; } = guid;
+            public AssetValueFlags Flags { get; } = flags;
         }
     }
 }

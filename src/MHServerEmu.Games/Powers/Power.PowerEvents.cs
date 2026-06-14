@@ -422,7 +422,7 @@ namespace MHServerEmu.Games.Powers
                 // Do the action for this event
                 switch (eventActionType)
                 {
-                    case PowerEventActionType.BodySlide:                                    DoPowerEventActionBodyslide(); break;
+                    case PowerEventActionType.Bodyslide:                                    DoPowerEventActionBodyslide(); break;
                     case PowerEventActionType.CancelScheduledActivation:
                     case PowerEventActionType.CancelScheduledActivationOnTriggeredPower:    DoPowerEventActionCancelScheduledActivation(triggeredPowerEvent, ref newSettings); break;
                     case PowerEventActionType.ContextCallback:                              DoPowerEventActionContextCallback(triggeredPowerEvent, ref newSettings); break;

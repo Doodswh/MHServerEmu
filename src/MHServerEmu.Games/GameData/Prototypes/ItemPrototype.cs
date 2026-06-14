@@ -7,7 +7,7 @@ using MHServerEmu.Games.Entities;
 using MHServerEmu.Games.Entities.Inventories;
 using MHServerEmu.Games.Entities.Items;
 using MHServerEmu.Games.Events;
-using MHServerEmu.Games.GameData.Calligraphy.Attributes;
+using MHServerEmu.Games.GameData.Calligraphy;
 using MHServerEmu.Games.GameData.Tables;
 using MHServerEmu.Games.Loot;
 using MHServerEmu.Games.Properties;
@@ -68,7 +68,7 @@ namespace MHServerEmu.Games.GameData.Prototypes
         public PrototypeId[] TooltipEquipRestrictions { get; protected set; }
         public AffixEntryPrototype[] AffixesBuiltIn { get; protected set; }
         public PropertyEntryPrototype[] PropertiesBuiltIn { get; protected set; }
-        [Mixin]
+        [PrototypeField(PrototypeFieldType.Mixin)]
         public ProductPrototype Product { get; protected set; }
         public LocaleStringId ItemCategory { get; protected set; }
         public LocaleStringId ItemSubcategory { get; protected set; }
@@ -777,6 +777,7 @@ namespace MHServerEmu.Games.GameData.Prototypes
 
         //---
 
+        [DoNotCopy]
         public virtual ItemActionType ActionType { get => ItemActionType.None; }
     }
 

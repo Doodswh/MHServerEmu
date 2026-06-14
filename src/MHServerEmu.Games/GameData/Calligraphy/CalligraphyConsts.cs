@@ -17,7 +17,7 @@
 
     public enum CalligraphyStructureType : byte
     {
-        Simple = 0x53,      // Simple
+        Single = 0x53,      // Single
         List = 0x4c         // List (only for assets, prototypes, rhstructs, and types)
     }
 

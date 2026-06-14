@@ -2,6 +2,7 @@
 using MHServerEmu.Core.Extensions;
 using MHServerEmu.Core.Helpers;
 using MHServerEmu.Core.Logging;
+using MHServerEmu.Core.Memory;
 using MHServerEmu.Games.GameData.Calligraphy;
 using MHServerEmu.Games.GameData.Prototypes;
 using MHServerEmu.Games.GameData.Prototypes.Markers;
@@ -9,12 +10,21 @@ using MHServerEmu.Games.GameData.Resources;
 
 namespace MHServerEmu.Games.GameData
 {
+    public enum DirectoryId
+    {
+        Curve,
+        Type,
+        Blueprint,
+        Prototype,
+        Replacement,
+    }
+
     public enum DataOrigin : byte
     {
-        Unknown,        // Default value returned by DataDirectory::GetDataOrigin()
+        Invalid,
         Calligraphy,
         Resource,
-        Dynamic         // Unused? Mentioned in DataDirectory::GetPrototypeBlueprintDataRef()
+        Dynamic,        // Unused? Mentioned in DataDirectory::GetPrototypeBlueprintDataRef()
     }
 
     /// <summary>
@@ -22,23 +32,31 @@ namespace MHServerEmu.Games.GameData
     /// </summary>
     public sealed class DataDirectory
     {
+        public const byte CalligraphyExportVersion = 11;     // 10 for versions 1.9-1.17, 11 for 1.18+
+        public const byte CalligraphyStringVersion = 2;
+
         private static readonly Logger Logger = LogManager.CreateLogger();
 
-        // Prototype serializers
-        private static readonly CalligraphySerializer CalligraphySerializer = new();
-        private static readonly BinaryResourceSerializer BinaryResourceSerializer = new();
+        private static readonly DataDirectoryEntry[] DataDirectoryLookup =
+        [
+            new("Curve.directory",        "CDR",  ReadCurveDirectoryEntry,          DirectoryId.Curve),
+            new("Type.directory",         "TDR",  ReadTypeDirectoryEntry,           DirectoryId.Type),
+            new("Blueprint.directory",    "BDR",  ReadBlueprintDirectoryEntry,      DirectoryId.Blueprint),
+            new("Prototype.directory",    "PDR",  ReadPrototypeDirectoryEntry,      DirectoryId.Prototype),
+            new("Replacement.directory",  "RDR",  ReadReplacementDirectoryEntry,    DirectoryId.Replacement),
+        ];
 
         // Lock for GetPrototype() thread safety
         private readonly object _prototypeLock = new();
 
         // Lookup dictionaries
-        private readonly Dictionary<BlueprintId, LoadedBlueprintRecord> _blueprintRecordDict = new();
-        private readonly Dictionary<BlueprintGuid, BlueprintId> _blueprintGuidToDataRefDict = new();
+        private readonly Dictionary<BlueprintId, LoadedBlueprintRecord> _loadedBlueprints = new();
+        private readonly Dictionary<BlueprintGuid, BlueprintId> _blueprintGuidToDataRefLookup = new();
 
-        private readonly Dictionary<PrototypeId, PrototypeDataRefRecord> _prototypeRecordDict = new();
-        private readonly Dictionary<PrototypeGuid, PrototypeId> _prototypeGuidToDataRefDict = new();
+        private readonly Dictionary<PrototypeId, PrototypeDataRefRecord> _prototypeDataRefRecords = new();
+        private readonly Dictionary<PrototypeGuid, PrototypeId> _prototypeGuidToDataRefLookup = new();
 
-        private readonly Dictionary<Type, PrototypeEnumValueNode> _prototypeClassLookupDict = new(GameDatabase.PrototypeClassManager.ClassCount);
+        private readonly Dictionary<Type, PrototypeEnumValueNode> _prototypeEnumValueLookupByClassType = new(GameDatabase.PrototypeClassManager.ClassCount);
 
         // Singleton instance
         public static DataDirectory Instance { get; } = new();
@@ -62,17 +80,15 @@ namespace MHServerEmu.Games.GameData
         /// </summary>
         public void Initialize()
         {
-            var stopwatch = Stopwatch.StartNew();
+            Stopwatch stopwatch = Stopwatch.StartNew();
 
-            // Load Calligraphy data
             LoadCalligraphyDataFramework();
 
-            // Load resource prototypes
             CreatePrototypeDataRefsForDirectory();
 
-            // Build hierarchy lists and generate enum lookups for each prototype class and blueprint
             InitializeHierarchyCache();
 
+            stopwatch.Stop();
             Logger.Info($"Initialized in {stopwatch.ElapsedMilliseconds} ms");
         }
 
@@ -81,7 +97,7 @@ namespace MHServerEmu.Games.GameData
         /// </summary>
         private Stream LoadPakDataFile(string filePath, PakFileId pakId)
         {
-            return PakFileSystem.Instance.LoadFromPak(filePath, pakId);
+            return PakFileSystem.Instance.LoadFromPak(filePath, (int)pakId);
         }
 
         /// <summary>
@@ -89,32 +105,17 @@ namespace MHServerEmu.Games.GameData
         /// </summary>
         private void LoadCalligraphyDataFramework()
         {
-            // Define directories
-            var directories = new (string, Action<BinaryReader>, Action)[]
-            {
-                // Directory file path                  // Entry read method            // Callback
-                ("Calligraphy/Curve.directory",         ReadCurveDirectoryEntry,        () => Logger.Info($"Loaded {CurveDirectory.RecordCount} curves")),
-                ("Calligraphy/Type.directory",          ReadTypeDirectoryEntry,         () => Logger.Info($"Loaded {AssetDirectory.AssetCount} asset entries of {AssetDirectory.AssetTypeCount} types")),
-                ("Calligraphy/Blueprint.directory",     ReadBlueprintDirectoryEntry,    () => Logger.Info($"Loaded {_blueprintRecordDict.Count} blueprints")),
-                ("Calligraphy/Prototype.directory",     ReadPrototypeDirectoryEntry,    () => Logger.Info($"Loaded {_prototypeRecordDict.Count} Calligraphy prototype entries")),
-                ("Calligraphy/Replacement.directory",   ReadReplacementDirectoryEntry,  () => { } )
-            };
-
             // Load all directories
-            foreach (var directory in directories)
+            foreach (DataDirectoryEntry directoryEntry in DataDirectoryLookup)
             {
-                using (Stream stream = LoadPakDataFile(directory.Item1, PakFileId.Calligraphy))
-                using (BinaryReader reader = new(stream))
+                LoadDirectoryFromFile(directoryEntry);
+
+                switch (directoryEntry.Id)
                 {
-                    CalligraphyHeader header = new(reader);
-                    int recordCount = reader.ReadInt32();
-
-                    // Read all records
-                    for (int i = 0; i < recordCount; i++)
-                        directory.Item2(reader);
-
-                    // Do the callback
-                    directory.Item3();
+                    case DirectoryId.Curve:     Logger.Info($"Loaded {CurveDirectory.RecordCount} curves"); break;
+                    case DirectoryId.Type:      Logger.Info($"Loaded {AssetDirectory.AssetCount} asset entries of {AssetDirectory.AssetTypeCount} types"); break;
+                    case DirectoryId.Blueprint: Logger.Info($"Loaded {_loadedBlueprints.Count} blueprints"); break;
+                    case DirectoryId.Prototype: Logger.Info($"Loaded {_prototypeDataRefRecords.Count} Calligraphy prototype entries"); break;
                 }
             }
 
@@ -127,36 +128,50 @@ namespace MHServerEmu.Games.GameData
             PropertyInfoBlueprint = GameDatabase.BlueprintRefManager.GetDataRefByName("Property/PropertyInfo.blueprint");
 
             // Populate blueprint hierarchy hash sets
-            foreach (LoadedBlueprintRecord record in _blueprintRecordDict.Values)
+            foreach (LoadedBlueprintRecord record in _loadedBlueprints.Values)
                 record.Blueprint.OnAllDirectoriesLoaded();
         }
 
         /// <summary>
         /// Loads a <see cref="Blueprint"/> and creates a <see cref="LoadedBlueprintRecord"/> for it.
         /// </summary>
-        private void LoadBlueprint(BlueprintId id, BlueprintGuid guid, BlueprintRecordFlags flags)
+        private Blueprint LoadBlueprint(BlueprintId blueprintRef, BlueprintGuid guid, BlueprintRecordFlags flags)
         {
-            // Add guid lookup
-            _blueprintGuidToDataRefDict[guid] = id;
+            if (!Verify.IsTrue(blueprintRef != BlueprintId.Invalid)) return null;
 
-            // Deserialize
-            using (Stream stream = LoadPakDataFile($"Calligraphy/{GameDatabase.GetBlueprintName(id)}", PakFileId.Calligraphy))
+            if (_loadedBlueprints.TryGetValue(blueprintRef, out LoadedBlueprintRecord blueprintRecord))
             {
-                Blueprint blueprint = new(stream, id, guid);
-
-                // Add a new blueprint record
-                _blueprintRecordDict.Add(id, new(blueprint, flags));
+                Verify.IsNotNull(blueprintRecord.Blueprint);
+                return blueprintRecord.Blueprint;
             }
+
+            Blueprint blueprint = new();
+
+            string blueprintFilePath = $"Calligraphy/{GameDatabase.GetBlueprintName(blueprintRef)}";
+
+            using Stream fileStream = LoadPakDataFile(blueprintFilePath, PakFileId.Calligraphy);
+            if (!Verify.IsNotNull(fileStream, $"Unable to open pak file stream for blueprint file {blueprintFilePath}"))
+                return null;
+
+            using CalligraphyReader dataReader = new(fileStream, blueprintFilePath);
+
+            if (!Verify.IsTrue(blueprint.Deserialize(dataReader, guid, blueprintRef))) return null;
+
+            blueprintRecord = new(blueprint, flags);
+            _loadedBlueprints.Add(blueprintRef, blueprintRecord);
+            _blueprintGuidToDataRefLookup[guid] = blueprintRef;
+
+            return blueprint;
         }
 
         /// <summary>
         /// Creates a <see cref="PrototypeDataRefRecord"/> for a Calligraphy <see cref="Prototype"/> without loading it.
         /// </summary>
-        private void AddCalligraphyPrototype(PrototypeId prototypeId, PrototypeGuid prototypeGuid, BlueprintId blueprintId, PrototypeRecordFlags flags, string filePath)
+        private bool AddCalligraphyPrototype(PrototypeId prototypeId, PrototypeGuid prototypeGuid, BlueprintId blueprintId, PrototypeRecordFlags flags, string filePath)
         {
             // Create a dataRef
             GameDatabase.PrototypeRefManager.AddDataRef(prototypeId, filePath);
-            _prototypeGuidToDataRefDict.Add(prototypeGuid, prototypeId);
+            _prototypeGuidToDataRefLookup.Add(prototypeGuid, prototypeId);
 
             // Get blueprint and class type
             Blueprint blueprint = GetBlueprint(blueprintId);
@@ -165,7 +180,7 @@ namespace MHServerEmu.Games.GameData
             // Add a new prototype record
             PrototypeDataRefRecord record = new()
             {
-                PrototypeId = prototypeId,
+                PrototypeRef = prototypeId,
                 PrototypeGuid = prototypeGuid,
                 BlueprintId = blueprintId,
                 Flags = flags,
@@ -177,8 +192,10 @@ namespace MHServerEmu.Games.GameData
             if (IsEditorOnlyByClassType(classType))
                 record.Flags |= PrototypeRecordFlags.EditorOnly;
 
-            _prototypeRecordDict.Add(prototypeId, record);
+            _prototypeDataRefRecords.Add(prototypeId, record);
             // Load the prototype on demand
+
+            return true;
         }
 
         /// <summary>
@@ -186,34 +203,34 @@ namespace MHServerEmu.Games.GameData
         /// </summary>
         private void CreatePrototypeDataRefsForDirectory()
         {
-            int numResources = 0;
+            const string prefix = "resource";
 
-            foreach (string filePath in PakFileSystem.Instance.GetResourceFiles("Resource"))
-            {
-                AddResource(filePath);
-                numResources++;
-            }
+            using var pakResourcesHandle = ListPool<string>.Instance.Get(out List<string> pakResources);
 
-            Logger.Info($"Loaded {numResources} resource prototype entries");
+            if (!Verify.IsTrue(PakFileSystem.Instance.GetResourceFiles(prefix, pakResources))) return;
+
+            foreach (string filePath in pakResources)
+                Verify.IsTrue(AddResource(filePath) != PrototypeId.Invalid);
+
+            Logger.Info($"Loaded {pakResources.Count} resource prototype entries");
         }
 
         /// <summary>
         /// Creates a <see cref="PrototypeDataRefRecord"/> for a resource <see cref="Prototype"/> without loading it.
         /// </summary>
-        private void AddResource(string filePath)
+        private PrototypeId AddResource(string filePath)
         {
-            // Get class type
             Type classType = GetResourceClassTypeByFileName(filePath);
-            if (classType == null) return;
+            if (!Verify.IsNotNull(classType)) return PrototypeId.Invalid;
 
             // Create a dataRef
-            var prototypeId = (PrototypeId)HashHelper.HashPath($"&{filePath}");   
+            PrototypeId prototypeId = (PrototypeId)HashHelper.HashPath($"&{filePath}");   
             GameDatabase.PrototypeRefManager.AddDataRef(prototypeId, filePath);
 
             // Add a new prototype record
             PrototypeDataRefRecord record = new()
             {
-                PrototypeId = prototypeId,
+                PrototypeRef = prototypeId,
                 PrototypeGuid = PrototypeGuid.Invalid,
                 BlueprintId = BlueprintId.Invalid,
                 Flags = IsEditorOnlyByClassType(classType) ? PrototypeRecordFlags.EditorOnly : PrototypeRecordFlags.None,
@@ -221,8 +238,10 @@ namespace MHServerEmu.Games.GameData
                 DataOrigin = DataOrigin.Resource
             };
 
-            _prototypeRecordDict.Add(prototypeId, record);
+            _prototypeDataRefRecords.Add(prototypeId, record);
             // Load the resource on demand
+
+            return prototypeId;
         }
 
         /// <summary>
@@ -230,61 +249,62 @@ namespace MHServerEmu.Games.GameData
         /// </summary>
         private void InitializeHierarchyCache()
         {
-            var stopwatch = Stopwatch.StartNew();
+            Stopwatch stopwatch = Stopwatch.StartNew();
 
             // Create lookup nodes for each prototype class
-            foreach (Type prototypeClassType in GameDatabase.PrototypeClassManager.GetEnumerator())
-                _prototypeClassLookupDict.Add(prototypeClassType, new());
+            foreach (Type classType in GameDatabase.PrototypeClassManager)
+                _prototypeEnumValueLookupByClassType.Add(classType, new());
 
-            // Sort all prototype data records by prototype id
-            PrototypeDataRefRecord[] sortedRecords = _prototypeRecordDict.Values.OrderBy(x => x.PrototypeId).ToArray();
+            // Populate and sort the global lookup of all prototypes.
+            PrototypeEnumValueNode globalLookup = _prototypeEnumValueLookupByClassType[typeof(Prototype)];
+            globalLookup.PrototypeRecords.AddRange(_prototypeDataRefRecords.Values);
+            globalLookup.PrototypeRecords.Sort((a, b) => ((ulong)a.PrototypeRef).CompareTo((ulong)b.PrototypeRef));
 
-            // Put all prototype refs where they belong
-            foreach (PrototypeDataRefRecord record in sortedRecords)
+            // Populate subtype and blueprint based lookups
+            foreach (PrototypeDataRefRecord record in globalLookup.PrototypeRecords)
             {
                 // Class hierarchy
-                _prototypeClassLookupDict[typeof(Prototype)].PrototypeRecordList.Add(record);    // All refs go to the overall prototype enum
-
-                // Add refs for child lookups if needed
                 Type classType = record.ClassType;
                 while (classType != typeof(Prototype))
                 {
-                    _prototypeClassLookupDict[classType].PrototypeRecordList.Add(record);
+                    _prototypeEnumValueLookupByClassType[classType].PrototypeRecords.Add(record);
                     classType = classType.BaseType;
                 }
                 
-                // Blueprint hierarchy
-                if (record.BlueprintId == BlueprintId.Invalid) continue;    // Skip resources, since they don't use blueprints
-                
-                foreach (BlueprintId fileId in record.Blueprint.FileIdHashSet)
+                // Blueprint hierarchy (Calligraphy prototypes only)
+                if (record.BlueprintId != BlueprintId.Invalid)
                 {
-                    Blueprint parent = GetBlueprint(fileId);
-                    parent.PrototypeRecordList.Add(record);
+                    Blueprint blueprint = record.Blueprint;
+                    if (!Verify.IsNotNull(blueprint))
+                        continue;
+
+                    foreach (BlueprintId fileId in blueprint.FileIds)
+                    {
+                        Blueprint parentBlueprint = GetBlueprint(fileId);
+                        if (!Verify.IsNotNull(parentBlueprint))
+                            continue;
+
+                        parentBlueprint.PrototypeRecords.Add(record);
+                    }
                 }
             }
 
             // Generate enum lookups for each class type
-            foreach (var kvp in _prototypeClassLookupDict)
-                kvp.Value.GenerateEnumLookups();
+            foreach (PrototypeEnumValueNode lookup in _prototypeEnumValueLookupByClassType.Values)
+                lookup.GenerateEnumLookups();
 
             // Same for blueprints
-            foreach (var kvp in _blueprintRecordDict)
-                kvp.Value.Blueprint.GenerateEnumLookups();
+            foreach (LoadedBlueprintRecord blueprintRecord in _loadedBlueprints.Values)
+            {
+                Blueprint blueprint = blueprintRecord.Blueprint;
+                if (!Verify.IsNotNull(blueprint))
+                    continue;
+
+                blueprint.GenerateEnumLookups();
+            }
 
             stopwatch.Stop();
             Logger.Info($"Initialized hierarchy cache in {stopwatch.ElapsedMilliseconds} ms");
-        }
-
-        /// <summary>
-        /// Checks if <see cref="DataDirectory"/> has been succesfully initialized.
-        /// </summary>
-        public bool Verify()
-        {
-            return AssetDirectory.AssetCount > 0
-                && CurveDirectory.RecordCount > 0
-                && _blueprintRecordDict.Count > 0
-                && _prototypeRecordDict.Count > 0
-                && ReplacementDirectory.RecordCount > 0;
         }
 
         #endregion
@@ -294,25 +314,25 @@ namespace MHServerEmu.Games.GameData
         /// <summary>
         /// Returns the <see cref="PrototypeId"/> of the <see cref="Prototype"/> that the specified <see cref="PrototypeGuid"/> refers to.
         /// </summary>
-        public PrototypeId GetPrototypeDataRefByGuid(PrototypeGuid guid)
+        public PrototypeId GetPrototypeDataRefByGuid(PrototypeGuid prototypeGuid)
         {
-            if (guid == PrototypeGuid.Invalid)
+            if (prototypeGuid == PrototypeGuid.Invalid)
                 return PrototypeId.Invalid;
 
             // Guid found
-            if (_prototypeGuidToDataRefDict.TryGetValue(guid, out PrototypeId id))
-                return id;
+            if (_prototypeGuidToDataRefLookup.TryGetValue(prototypeGuid, out PrototypeId prototypeRef))
+                return prototypeRef;
 
             // Guid not found, we need a replacement
-            ulong oldGuid = (ulong)guid;
-            ulong newGuid = 0;
+            ulong guid = (ulong)prototypeGuid;
+            ulong replacement = 0;
 
             // Loop until we get all potential replacements (if a replacement was replaced)
-            while (GetGuidReplacement(oldGuid, ref newGuid))
-                oldGuid = newGuid;
+            while (GetGuidReplacement(guid, ref replacement))
+                guid = replacement;
 
-            if (_prototypeGuidToDataRefDict.TryGetValue((PrototypeGuid)newGuid, out id))
-                return id;
+            if (_prototypeGuidToDataRefLookup.TryGetValue((PrototypeGuid)replacement, out prototypeRef))
+                return prototypeRef;
 
             // Replacement didn't work either
             return PrototypeId.Invalid;
@@ -321,10 +341,15 @@ namespace MHServerEmu.Games.GameData
         /// <summary>
         /// Returns the <see cref="PrototypeGuid"/> of the <see cref="Prototype"/> that the specified <see cref="PrototypeId"/> refers to.
         /// </summary>
-        public PrototypeGuid GetPrototypeGuid(PrototypeId id)
+        public PrototypeGuid GetPrototypeGuid(PrototypeId prototypeDataRef)
         {
-            if (_prototypeRecordDict.TryGetValue(id, out PrototypeDataRefRecord record) == false)
+            if (prototypeDataRef == PrototypeId.Invalid)
                 return PrototypeGuid.Invalid;
+
+            PrototypeDataRefRecord record = GetPrototypeDataRefRecord(prototypeDataRef);
+            if (!Verify.IsNotNull(record)) return PrototypeGuid.Invalid;
+
+            Verify.IsTrue(record.DataOrigin == DataOrigin.Calligraphy, $"GUIDs are only available for data from Calligraphy, dataRef={prototypeDataRef.GetName()}");
 
             return record.PrototypeGuid;
         }
@@ -332,18 +357,23 @@ namespace MHServerEmu.Games.GameData
         /// <summary>
         /// Retrieves a potential replacement for a GUID. Returns <see langword="true"/> if replacement found.
         /// </summary>
-        public bool GetGuidReplacement(ulong guid, ref ulong newGuid)
+        public bool GetGuidReplacement(ulong guid, ref ulong replacement)
         {
-            var record = ReplacementDirectory.GetReplacementRecord(guid);
-            if (record == null) return false;
-            newGuid = record.NewGuid;
+            ReplacementDirectory.ReplacementRecord record = ReplacementDirectory.GetReplacementRecord(guid);
+            if (record == null)
+                return false;
+
+            replacement = record.Replacement;
             return true;
         }
 
+        /// <summary>
+        /// Returns <see langword="true"/> if the specified GUID is flagged as deprecated.
+        /// </summary>
         public bool GuidIsDeprecated(ulong guid)
         {
-            ulong newGuid = 0;
-            return GetGuidReplacement(guid, ref newGuid);
+            ulong replacement = 0;
+            return GetGuidReplacement(guid, ref replacement);
         }
 
         /// <summary>
@@ -351,7 +381,7 @@ namespace MHServerEmu.Games.GameData
         /// </summary>
         public Blueprint GetBlueprint(BlueprintId id)
         {
-            if (_blueprintRecordDict.TryGetValue(id, out var record) == false)
+            if (_loadedBlueprints.TryGetValue(id, out var record) == false)
                 return null;
 
             return record.Blueprint;
@@ -366,19 +396,19 @@ namespace MHServerEmu.Games.GameData
                 return BlueprintId.Invalid;
 
             // Guid found
-            if (_blueprintGuidToDataRefDict.TryGetValue(blueprintGuid, out BlueprintId blueprintId))
-                return blueprintId;
+            if (_blueprintGuidToDataRefLookup.TryGetValue(blueprintGuid, out BlueprintId blueprintRef))
+                return blueprintRef;
 
             // Guid not found, we need a replacement
-            ulong oldGuid = (ulong)blueprintGuid;
-            ulong newGuid = 0;
+            ulong guid = (ulong)blueprintGuid;
+            ulong replacement = 0;
 
             // Loop until we get all potential replacements (if a replacement was replaced)
-            while (GetGuidReplacement(oldGuid, ref newGuid))
-                oldGuid = newGuid;
+            while (GetGuidReplacement(guid, ref replacement))
+                guid = replacement;
 
-            if (_blueprintGuidToDataRefDict.TryGetValue((BlueprintGuid)newGuid, out blueprintId))
-                return blueprintId;
+            if (_blueprintGuidToDataRefLookup.TryGetValue((BlueprintGuid)replacement, out blueprintRef))
+                return blueprintRef;
 
             // Replacement didn't work either
             return BlueprintId.Invalid;
@@ -387,12 +417,14 @@ namespace MHServerEmu.Games.GameData
         /// <summary>
         /// Returns the <see cref="BlueprintId"/> of the <see cref="Prototype"/> that the specified <see cref="PrototypeId"/> refers to.
         /// </summary>
-        public BlueprintId GetPrototypeBlueprintDataRef(PrototypeId prototypeId)
+        public BlueprintId GetPrototypeBlueprintDataRef(PrototypeId prototypeDataRef)
         {
-            if (prototypeId == PrototypeId.Invalid) return BlueprintId.Invalid;
+            if (prototypeDataRef == PrototypeId.Invalid)
+                return BlueprintId.Invalid;
 
-            var record = GetPrototypeDataRefRecord(prototypeId);
-            if (record == null) return BlueprintId.Invalid;
+            PrototypeDataRefRecord record = GetPrototypeDataRefRecord(prototypeDataRef);
+            if (!Verify.IsNotNull(record)) return BlueprintId.Invalid;
+            if (!Verify.IsTrue(record.DataOrigin == DataOrigin.Calligraphy || record.DataOrigin == DataOrigin.Dynamic)) return BlueprintId.Invalid;
 
             return record.BlueprintId;
         }
@@ -400,74 +432,98 @@ namespace MHServerEmu.Games.GameData
         /// <summary>
         /// Returns the <see cref="Blueprint"/> of the <see cref="Prototype"/> that the specified <see cref="PrototypeId"/> refers to.
         /// </summary>
-        public Blueprint GetPrototypeBlueprint(PrototypeId prototypeId)
+        public Blueprint GetPrototypeBlueprint(PrototypeId prototypeDataRef)
         {
-            BlueprintId blueprintId = GetPrototypeBlueprintDataRef(prototypeId);
-            if (blueprintId == BlueprintId.Invalid) return null;
-            return GetBlueprint(blueprintId);
+            if (prototypeDataRef == PrototypeId.Invalid)
+                return null;
+
+            PrototypeDataRefRecord record = GetPrototypeDataRefRecord(prototypeDataRef);
+            if (!Verify.IsNotNull(record)) return null;
+            if (!Verify.IsTrue(record.DataOrigin == DataOrigin.Calligraphy || record.DataOrigin == DataOrigin.Dynamic)) return null;
+
+            if (record.Blueprint != null)
+                return record.Blueprint;
+            else
+                return GetBlueprint(record.BlueprintId);
         }
 
         /// <summary>
         /// Loads if needed and returns the <see cref="Prototype"/> that the specified <see cref="PrototypeId"/> refers to.
         /// </summary>
-        public T GetPrototype<T>(PrototypeId prototypeId) where T: Prototype
+        public Prototype GetPrototype(PrototypeId prototypeDataRef)
         {
             // Quick early return if something is requesting an invalid prototype
-            if (prototypeId == PrototypeId.Invalid)
+            if (prototypeDataRef == PrototypeId.Invalid)
                 return null;
 
-            PrototypeDataRefRecord record = GetPrototypeDataRefRecord(prototypeId);
-            if (record == null)
-                return null;
+            PrototypeDataRefRecord dataRefRecord = GetPrototypeDataRefRecord(prototypeDataRef);
+            if (!Verify.IsNotNull(dataRefRecord)) return null;
 
             // Lock this for thread safety (e.g. if multiple different game threads attempt to load prototypes)
             lock (_prototypeLock)
             {
                 // Load the prototype if not loaded yet
-                if (record.Prototype == null)
+                if (dataRefRecord.Prototype == null)
                 {
                     // Get prototype file path and pak file id
                     // Note: the client uses a separate getPrototypeRelativePath() method here to get the file path.
                     string filePath;
                     PakFileId pakFileId;
 
-                    if (record.DataOrigin == DataOrigin.Calligraphy)
+                    switch (dataRefRecord.DataOrigin)
                     {
-                        filePath = $"Calligraphy/{GameDatabase.GetPrototypeName(record.PrototypeId)}";
-                        pakFileId = PakFileId.Calligraphy;
-                    }
-                    else if (record.DataOrigin == DataOrigin.Resource)
-                    {
-                        filePath = GameDatabase.GetPrototypeName(record.PrototypeId);
-                        pakFileId = PakFileId.Default;
-                    }
-                    else throw new NotImplementedException($"Prototype deserialization for data origin {record.DataOrigin} is not supported.");
+                        case DataOrigin.Calligraphy:
+                            filePath = $"Calligraphy/{GameDatabase.GetPrototypeName(dataRefRecord.PrototypeRef)}";
+                            pakFileId = PakFileId.Calligraphy;
+                            break;
 
-                    // Deserialize and postprocess
-                    using (Stream stream = LoadPakDataFile(filePath, pakFileId))
-                    {
-                        Prototype prototype = DeserializePrototypeFromStream(stream, record);
+                        case DataOrigin.Resource:
+                            filePath = GameDatabase.GetPrototypeName(dataRefRecord.PrototypeRef);
+                            pakFileId = PakFileId.Default;
+                            break;
 
-                        if (prototype.ShouldCacheCRC)
-                            record.Crc = GameDatabase.PrototypeClassManager.CalculateDataCRC(prototype);
-
-                        record.Prototype = prototype;
-                        prototype.DataRefRecord = record;
-                        prototype.PostProcess();
+                        default:
+                            Verify.IsTrue(false, $"Prototype deserialization for data origin {dataRefRecord.DataOrigin} is not supported");
+                            return null;
                     }
+
+                    // We are skipping DataDirectory::getAndCacheResource() from the client here.
+                    using Stream fileStream = LoadPakDataFile(filePath, pakFileId);
+                    if (!Verify.IsNotNull(fileStream, $"Unable to open {filePath}"))
+                        return null;
+
+                    Prototype prototype = DeserializePrototypeFromStream(fileStream, dataRefRecord);
+                    if (!Verify.IsNotNull(prototype, $"Failed to deserialize prototype {filePath}"))
+                        return null;
+
+                    // NOTE: DataRefRecord <-> Prototype binding already happens in DeserializePrototypeFromStream(), but the client does it again here.
+                    //prototype.DataRefRecord = dataRefRecord;
+                    //dataRefRecord.Prototype = prototype;
+
+                    if (prototype.ShouldCacheCRC)
+                        dataRefRecord.Crc = GameDatabase.PrototypeClassManager.CalculateDataCRC(prototype);
+
+                    // We simplify this a bit compared to the client and just post-process inside the lock instead of using a separate queue.
+                    prototype.PostProcess();
                 }
 
-                return record.Prototype as T;
+                return dataRefRecord.Prototype;
             }
         }
 
         /// <summary>
         /// Returns the <see cref="Type"/> of the <see cref="Prototype"/> that the specified <see cref="PrototypeId"/> refers to.
         /// </summary>
-        public Type GetPrototypeClassType(PrototypeId prototypeId)
+        /// <remarks>
+        /// This replaces DataDirectory::GetPrototypeClassId() from the client.
+        /// </remarks>
+        public Type GetPrototypeClassType(PrototypeId prototypeDataRef)
         {
-            if (_prototypeRecordDict.TryGetValue(prototypeId, out var record) == false)
-                return Logger.WarnReturn<Type>(null, $"Failed to get type for prototype id {prototypeId}");
+            if (prototypeDataRef == PrototypeId.Invalid)
+                return null;
+
+            PrototypeDataRefRecord record = GetPrototypeDataRefRecord(prototypeDataRef);
+            if (!Verify.IsNotNull(record)) return null;
 
             return record.ClassType;
         }
@@ -475,17 +531,17 @@ namespace MHServerEmu.Games.GameData
         /// <summary>
         /// Returns the CRC checksum for the <see cref="Prototype"/> that the specified <see cref="PrototypeId"/> refers to.
         /// </summary>
-        public ulong GetCrcForPrototype(PrototypeId prototypeId)
+        public ulong GetCrcForPrototype(PrototypeId prototypeDataRef)
         {
-            if (prototypeId == PrototypeId.Invalid)
+            if (prototypeDataRef == PrototypeId.Invalid)
                 return 0;
 
-            PrototypeDataRefRecord record = GetPrototypeDataRefRecord(prototypeId);
-            if (record == null) return Logger.WarnReturn(0ul, "GetCrcForPrototype(): record == null");
-            if (record.Prototype == null) return Logger.WarnReturn(0ul, "GetCrcForPrototype(): record.Prototype == null");
+            PrototypeDataRefRecord record = GetPrototypeDataRefRecord(prototypeDataRef);
+            if (!Verify.IsNotNull(record)) return 0;
+            if (!Verify.IsNotNull(record.Prototype)) return 0;
 
-            if (record.Prototype.ShouldCacheCRC == false)
-                return Logger.WarnReturn(0ul, $"GetCrcForPrototype(): {record.Prototype} prototypes should have ShouldCacheCRC set to 'true' so that their crc is available on load");
+            if (!Verify.IsTrue(record.Prototype.ShouldCacheCRC, $"{record.Prototype} prototypes should have ShouldCacheCRC set to 'true' so that their crc is available on load."))
+                return 0;
 
             return record.Crc;
         }
@@ -495,9 +551,10 @@ namespace MHServerEmu.Games.GameData
         /// </summary>
         public PrototypeId GetBlueprintDefaultPrototype(BlueprintId blueprintId)
         {
-            var blueprint = GetBlueprint(blueprintId);
-            if (blueprint == null) return PrototypeId.Invalid;
-            return blueprint.DefaultPrototypeId;
+            Blueprint blueprint = GetBlueprint(blueprintId);
+            if (!Verify.IsNotNull(blueprint)) return PrototypeId.Invalid;
+
+            return blueprint.DefaultPrototypeRef;
         }
 
         /// <summary>
@@ -505,11 +562,10 @@ namespace MHServerEmu.Games.GameData
         /// </summary>
         public PrototypeId GetPrototypeFromEnumValue<T>(int enumValue) where T: Prototype
         {
-            PrototypeId[] enumLookup = _prototypeClassLookupDict[typeof(T)].EnumValueToPrototypeLookup;
-            if (enumValue < 0 || enumValue >= enumLookup.Length)
-                return Logger.WarnReturn(PrototypeId.Invalid, $"Failed to get prototype for enumValue {enumValue} as {nameof(T)}");
+            if (!Verify.IsTrue(_prototypeEnumValueLookupByClassType.TryGetValue(typeof(T), out PrototypeEnumValueNode lookup))) return PrototypeId.Invalid;
+            if (!Verify.IsTrue(enumValue < lookup.EnumValueToPrototypeLookup.Length)) return PrototypeId.Invalid;
 
-            return enumLookup[enumValue];
+            return lookup.EnumValueToPrototypeLookup[enumValue];
         }
 
         /// <summary>
@@ -517,8 +573,7 @@ namespace MHServerEmu.Games.GameData
         /// </summary>
         public PrototypeId GetPrototypeFromEnumValue(int enumValue, BlueprintId blueprintId)
         {
-            if (_blueprintRecordDict.TryGetValue(blueprintId, out var record) == false)
-                return Logger.WarnReturn(PrototypeId.Invalid, $"Failed to get prototype id from enum value for blueprint id {blueprintId}: blueprint record does not exist");
+            if (!Verify.IsTrue(_loadedBlueprints.TryGetValue(blueprintId, out LoadedBlueprintRecord record))) return PrototypeId.Invalid;
 
             return record.Blueprint.GetPrototypeFromEnumValue(enumValue);
         }
@@ -528,10 +583,8 @@ namespace MHServerEmu.Games.GameData
         /// </summary>
         public int GetPrototypeEnumValue<T>(PrototypeId prototypeId) where T: Prototype
         {
-            Dictionary<PrototypeId, int> dict = _prototypeClassLookupDict[typeof(T)].PrototypeToEnumValueDict;
-
-            if (dict.TryGetValue(prototypeId, out int enumValue) == false)
-                return Logger.WarnReturn(0, $"Failed to get enum value for prototype {GameDatabase.GetPrototypeName(prototypeId)} as {nameof(T)}");
+            if (!Verify.IsTrue(_prototypeEnumValueLookupByClassType.TryGetValue(typeof(T), out PrototypeEnumValueNode lookup))) return 0;
+            if (!Verify.IsTrue(lookup.PrototypeToEnumValueLookup.TryGetValue(prototypeId, out int enumValue))) return 0;
 
             return enumValue;
         }
@@ -539,12 +592,11 @@ namespace MHServerEmu.Games.GameData
         /// <summary>
         /// Returns the enum value of the provided <see cref="PrototypeId"/> for the <see cref="Blueprint"/> that the specified <see cref="BlueprintId"/> refers to.
         /// </summary>
-        public int GetPrototypeEnumValue(PrototypeId prototypeId, BlueprintId blueprintId)
+        public int GetPrototypeEnumValue(PrototypeId prototypeDataRef, BlueprintId blueprintId)
         {
-            if (_blueprintRecordDict.TryGetValue(blueprintId, out var record) == false)
-                return Logger.WarnReturn(0, $"Failed to get enum value from prototype id for blueprint id {blueprintId}: blueprint record does not exist");
+            if (!Verify.IsTrue(_loadedBlueprints.TryGetValue(blueprintId, out LoadedBlueprintRecord record))) return 0;
 
-            return record.Blueprint.GetPrototypeEnumValue(prototypeId);
+            return record.Blueprint.GetPrototypeEnumValue(prototypeDataRef);
         }
 
         /// <summary>
@@ -552,8 +604,7 @@ namespace MHServerEmu.Games.GameData
         /// </summary>
         public int GetPrototypeMaxEnumValue(BlueprintId blueprintId)
         {
-            if (_blueprintRecordDict.TryGetValue(blueprintId, out var record) == false)
-                Logger.WarnReturn(0, $"Failed to get record for blueprint id {blueprintId}");
+            if (!Verify.IsTrue(_loadedBlueprints.TryGetValue(blueprintId, out var record))) return 0;
 
             return record.Blueprint.PrototypeMaxEnumValue;
         }
@@ -571,10 +622,9 @@ namespace MHServerEmu.Games.GameData
         /// </summary>
         public PrototypeIterator IteratePrototypesInHierarchy(Type prototypeClassType, PrototypeIterateFlags flags = PrototypeIterateFlags.None)
         {
-            if (_prototypeClassLookupDict.TryGetValue(prototypeClassType, out PrototypeEnumValueNode node) == false)
-                return Logger.WarnReturn(new PrototypeIterator(), $"IteratePrototypesInHierarchy(): Failed to get iterated prototype list for class {prototypeClassType.Name}");
+            if (!Verify.IsTrue(_prototypeEnumValueLookupByClassType.TryGetValue(prototypeClassType, out PrototypeEnumValueNode lookup))) return new();
 
-            return new(node.PrototypeRecordList, flags);
+            return new(lookup.PrototypeRecords, flags);
         }
 
         /// <summary>
@@ -590,10 +640,10 @@ namespace MHServerEmu.Games.GameData
         /// </summary>
         public PrototypeIterator IteratePrototypesInHierarchy(BlueprintId blueprintId, PrototypeIterateFlags flags = PrototypeIterateFlags.None)
         {
-            if (_blueprintRecordDict.TryGetValue(blueprintId, out var record) == false)
-                return Logger.WarnReturn(new PrototypeIterator(), $"IteratePrototypesInHierarchy(): Failed to get iterated prototype list for blueprint id {blueprintId}");
+            Blueprint blueprint = GetBlueprint(blueprintId);
+            if (!Verify.IsNotNull(blueprint)) return new();
 
-            return new(record.Blueprint.PrototypeRecordList, flags);
+            return new(blueprint.PrototypeRecords, flags);
         }
 
         /// <summary>
@@ -601,7 +651,7 @@ namespace MHServerEmu.Games.GameData
         /// </summary>
         public IEnumerable<Blueprint> IterateBlueprints()
         {
-            foreach (var record in _blueprintRecordDict.Values)
+            foreach (var record in _loadedBlueprints.Values)
                 yield return record.Blueprint;
         }
 
@@ -618,30 +668,32 @@ namespace MHServerEmu.Games.GameData
         /// If the parent is a default prototype, checks the <see cref="Blueprint"/> hierarchy. Otherwise, checks prototype data hierarchy.
         /// If checking against the data hierarchy, loads all prototypes it goes through.
         /// </summary>
-        public bool PrototypeIsAPrototype(PrototypeId childId, PrototypeId parentId)
+        public bool PrototypeIsAPrototype(PrototypeId prototypeDataRef, PrototypeId parentPrototypeDataRef)
         {
             // If we are checking against a parent default prototype, search the blueprint hierarchy
-            if (PrototypeIsADefaultPrototype(parentId))
+            if (PrototypeIsADefaultPrototype(parentPrototypeDataRef))
             {
-                BlueprintId parentBlueprintId = GetPrototypeBlueprintDataRef(parentId);
-                return PrototypeIsChildOfBlueprint(childId, parentBlueprintId);
+                BlueprintId parentBlueprintId = GetPrototypeBlueprintDataRef(parentPrototypeDataRef);
+                return PrototypeIsChildOfBlueprint(prototypeDataRef, parentBlueprintId);
             }
 
             // If we are checking against a derived prototype, search the prototype data hierarchy
-            PrototypeId currentId = childId;
-            while (currentId != PrototypeId.Invalid)
+            PrototypeId currentProtoRef = prototypeDataRef;
+            while (currentProtoRef != PrototypeId.Invalid)
             {
-                if (currentId == parentId)
+                if (currentProtoRef == parentPrototypeDataRef)
                     return true;
 
-                var record = GetPrototypeDataRefRecord(currentId);
-                if (record == null) return false;
+                PrototypeDataRefRecord record = GetPrototypeDataRefRecord(currentProtoRef);
+                if (!Verify.IsNotNull(record)) return false;
 
                 // Load the prototype if it's not loaded yet
                 if (record.Prototype == null)
-                    GetPrototype<Prototype>(currentId);
+                    GetPrototype(currentProtoRef);
 
-                currentId = record.Prototype.ParentDataRef;
+                if (!Verify.IsNotNull(record.Prototype)) return false;
+
+                currentProtoRef = record.Prototype.ParentDataRef;
             }
 
             return false;
@@ -650,12 +702,18 @@ namespace MHServerEmu.Games.GameData
         /// <summary>
         /// Checks if the specified <see cref="PrototypeId"/> refers to a default <see cref="Prototype"/> for its <see cref="Blueprint"/>.
         /// </summary>
-        public bool PrototypeIsADefaultPrototype(PrototypeId prototypeId)
+        public bool PrototypeIsADefaultPrototype(PrototypeId prototypeDataRef)
         {
-            var record = GetPrototypeDataRefRecord(prototypeId);
-            if (record == null || record.DataOrigin != DataOrigin.Calligraphy) return false;
+            PrototypeDataRefRecord record = GetPrototypeDataRefRecord(prototypeDataRef);
+            if (!Verify.IsNotNull(record)) return false;
 
-            return record.Blueprint.DefaultPrototypeId == prototypeId;
+            if (record.DataOrigin != DataOrigin.Calligraphy)
+                return false;
+
+            Blueprint blueprint = record.Blueprint;
+            if (!Verify.IsNotNull(blueprint)) return false;
+
+            return blueprint.DefaultPrototypeRef == prototypeDataRef;
         }
 
         /// <summary>
@@ -663,19 +721,25 @@ namespace MHServerEmu.Games.GameData
         /// </summary>
         public bool PrototypeIsChildOfBlueprint(PrototypeId prototypeId, BlueprintId parent)
         {
-            var record = GetPrototypeDataRefRecord(prototypeId);
-            if (record == null || record.DataOrigin != DataOrigin.Calligraphy) return false;
+            PrototypeDataRefRecord record = GetPrototypeDataRefRecord(prototypeId);
+            if (!Verify.IsNotNull(record)) return false;
 
-            return record.Blueprint.IsA(parent);
+            if (record.DataOrigin != DataOrigin.Calligraphy && record.DataOrigin != DataOrigin.Dynamic)
+                return false;
+
+            Blueprint blueprint = record.Blueprint;
+            if (!Verify.IsNotNull(blueprint)) return false;
+
+            return blueprint.IsA(parent);
         }
 
         /// <summary>
         /// Retrieves the <see cref="DataOrigin"/> for the <see cref="Prototype"/> that the specified <see cref="PrototypeId"/> refers to.
         /// </summary>
-        public DataOrigin GetDataOrigin(PrototypeId prototypeId)
+        public DataOrigin GetDataOrigin(PrototypeId prototypeDataRef)
         {
-            if (_prototypeRecordDict.TryGetValue(prototypeId, out PrototypeDataRefRecord record) == false)
-                return DataOrigin.Unknown;
+            PrototypeDataRefRecord record = GetPrototypeDataRefRecord(prototypeDataRef);
+            if (!Verify.IsNotNull(record)) return DataOrigin.Invalid;
 
             return record.DataOrigin;
         }
@@ -683,12 +747,11 @@ namespace MHServerEmu.Games.GameData
         /// <summary>
         /// Retrieves a <see cref="PrototypeDataRefRecord"/> for the specified <see cref="PrototypeId"/>. Returns <see langword="null"/> if no record is found.
         /// </summary>
-        private PrototypeDataRefRecord GetPrototypeDataRefRecord(PrototypeId prototypeId)
+        private PrototypeDataRefRecord GetPrototypeDataRefRecord(PrototypeId prototypeDataRef)
         {
-            if (prototypeId == PrototypeId.Invalid) return null;
-
-            if (_prototypeRecordDict.TryGetValue(prototypeId, out var record) == false)
-                return Logger.WarnReturn<PrototypeDataRefRecord>(null, $"PrototypeId {prototypeId} has no data ref record in the data directory");
+            if (!Verify.IsTrue(_prototypeDataRefRecords.TryGetValue(prototypeDataRef, out PrototypeDataRefRecord record),
+                $"Prototype ref {prototypeDataRef} has no data ref record in the data directory"))
+                return null;
 
             return record;
         }
@@ -696,19 +759,21 @@ namespace MHServerEmu.Games.GameData
         /// <summary>
         /// Returns <see langword="true"/> if the specified <see cref="PrototypeId"/> is bound to <typeparamref name="T"/>.
         /// </summary>
-        public bool PrototypeIsA<T>(PrototypeId prototypeId) where T: Prototype
+        public bool PrototypeIsA<T>(PrototypeId prototypeDataRef) where T: Prototype
         {
             Type typeToFind = typeof(T);
-            Type prototypeType = GetPrototypeClassType(prototypeId);
-            if (prototypeType == null) return false;
+            Type classType = GetPrototypeClassType(prototypeDataRef);
+
+            if (classType == null)
+                return false;
 
             do
             {
-                if (prototypeType == typeToFind)
+                if (classType == typeToFind)
                     return true;
 
-                prototypeType = prototypeType.BaseType;
-            } while (prototypeType != typeof(Prototype));
+                classType = classType.BaseType;
+            } while (classType != typeof(Prototype));
 
             return false;
         }
@@ -716,10 +781,11 @@ namespace MHServerEmu.Games.GameData
         /// <summary>
         /// Returns <see langword="true"/> if the <see cref="Prototype"/> that the specified <see cref="PrototypeId"/> refers to is <see cref="PrototypeRecordFlags.Abstract"/>.
         /// </summary>
-        public bool PrototypeIsAbstract(PrototypeId prototypeId)
+        public bool PrototypeIsAbstract(PrototypeId prototypeDataRef)
         {
-            var record = GetPrototypeDataRefRecord(prototypeId);
-            if (record == null) return false;
+            PrototypeDataRefRecord record = GetPrototypeDataRefRecord(prototypeDataRef);
+            if (!Verify.IsNotNull(record)) return false;
+
             return record.Flags.HasFlag(PrototypeRecordFlags.Abstract);
         }
 
@@ -727,10 +793,11 @@ namespace MHServerEmu.Games.GameData
         /// Checks if the specified <see cref="PrototypeId"/> refers to a <see cref="Prototype"/> that is approved for use
         /// (i.e. it's not a prototype for something in development). Note: this forces the prototype to load.
         /// </summary>
-        public bool PrototypeIsApproved(PrototypeId prototypeId, Prototype prototype = null)
+        public bool PrototypeIsApproved(PrototypeId prototypeDataRef, Prototype prototype = null)
         {
-            var record = GetPrototypeDataRefRecord(prototypeId);
-            if (record == null) return false;
+            PrototypeDataRefRecord record = GetPrototypeDataRefRecord(prototypeDataRef);
+            if (!Verify.IsNotNull(record)) return false;
+
             return PrototypeIsApproved(record, prototype);
         }
 
@@ -740,9 +807,15 @@ namespace MHServerEmu.Games.GameData
         /// </summary>
         public bool PrototypeIsApproved(PrototypeDataRefRecord record, Prototype prototype = null)
         {
-            // If no prototype is provided we use the prototype from the record
+            // Based on client code, the records were supposed to have flags for various DesignWorkflowState values to skip loading unapproved prototypes,
+            // but it appears these flags were never actually set. See PrototypeDataRefRecord::GetDesignWorkflowState() for reference.
+
+            // If no prototype is provided we use the prototype from the record.
             if (prototype == null)
-                prototype = record.Prototype ?? GetPrototype<Prototype>(record.PrototypeId);
+            {
+                prototype = record.Prototype ?? GetPrototype(record.PrototypeRef);
+                if (!Verify.IsNotNull(prototype)) return false;
+            }
 
             return prototype.ApprovedForUse();
         }
@@ -750,123 +823,218 @@ namespace MHServerEmu.Games.GameData
         /// <summary>
         /// Returns the <see cref="Type"/> of a resource <see cref="Prototype"/> based on its file name.
         /// </summary>
-        private Type GetResourceClassTypeByFileName(string fileName)
+        /// <remarks>
+        /// This replaces DataDirectory::getResourceClassIdByFilename() from the client.
+        /// </remarks>
+        private static Type GetResourceClassTypeByFileName(string fileName)
         {
-            // Replacement for Gazillion's GetResourceClassIdByFilename
-            switch (Path.GetExtension(fileName))
+            return Path.GetExtension(fileName) switch
             {
-                case ".cell":       return typeof(CellPrototype);
-                case ".district":   return typeof(DistrictPrototype);
-                case ".markerset":  return typeof(MarkerSetPrototype);
-                case ".encounter":  return typeof(EncounterResourcePrototype);
-                case ".prop":       return typeof(PropPackagePrototype);
-                case ".propset":    return typeof(PropSetPrototype);
-                case ".ui":         return typeof(UIPrototype);
-                case ".fragment":   return typeof(NaviFragmentPrototype);
-
-                default:            return Logger.WarnReturn<Type>(null, $"Failed to get class type for resource {fileName}");
-            }
+                ".cell"         => typeof(CellPrototype),
+                ".district"     => typeof(DistrictPrototype),
+                ".markerset"    => typeof(MarkerSetPrototype),
+                ".encounter"    => typeof(EncounterResourcePrototype),
+                ".prop"         => typeof(PropPackagePrototype),
+                ".propset"      => typeof(PropSetPrototype),
+                ".ui"           => typeof(UIPrototype),
+                ".fragment"     => typeof(NaviFragmentPrototype),
+                _               => null,
+            };
         }
 
         /// <summary>
         /// Returns <see langword="true"/> if the specified <see cref="Type"/> of <see cref="Prototype"/> is editor-only.
         /// </summary>
-        private bool IsEditorOnlyByClassType(Type type) => type == typeof(NaviFragmentPrototype);   // Only NaviFragmentPrototype is editor only
+        /// <remarks>
+        /// This replaces DataDirectory::isEdtiorOnlyByClassId() from the client.
+        /// </remarks>
+        private static bool IsEditorOnlyByClassType(Type classType)
+        {
+            // Only NaviFragmentPrototype is editor only
+            return classType == typeof(NaviFragmentPrototype);   
+        }
 
         #endregion
 
         #region Deserialization
 
-        /// <summary>
-        /// Helper method for deserializing <see cref="Calligraphy.AssetDirectory"/> entries.
-        /// </summary>
-        private void ReadTypeDirectoryEntry(BinaryReader reader)
+        private bool LoadDirectoryFromFile(DataDirectoryEntry directoryEntry)
         {
-            var dataId = (AssetTypeId)reader.ReadUInt64();
-            var assetTypeGuid = (AssetTypeGuid)reader.ReadUInt64();
-            var flags = (AssetTypeRecordFlags)reader.ReadByte();
-            string filePath = reader.ReadFixedString16().Replace('\\', '/');
+            if (!Verify.IsNotNull(directoryEntry)) return false;
 
-            GameDatabase.AssetTypeRefManager.AddDataRef(dataId, filePath);
-            var record = AssetDirectory.CreateAssetTypeRecord(dataId, flags);
+            string directoryFilename = $"Calligraphy/{directoryEntry.Filename}";
 
-            using (Stream stream = LoadPakDataFile($"Calligraphy/{filePath}", PakFileId.Calligraphy))
-                record.AssetType = new(stream, AssetDirectory, dataId, assetTypeGuid);
+            // skipping GetPakFileModTime() from the client here
+
+            using Stream fileStream = LoadPakDataFile(directoryFilename, PakFileId.Calligraphy);
+            if (!Verify.IsNotNull(fileStream, $"Unable to open find {directoryFilename} in pakfile"))
+                return false;
+
+            using CalligraphyReader reader = new(fileStream, directoryFilename);
+            if (!Verify.IsTrue(reader.ReadHeader(directoryEntry.Magic))) return false;
+
+            if (!Verify.IsTrue(reader.Read(out int numEntries))) return false;
+
+            for (int i = 0; i < numEntries; i++)
+            {
+                if (!Verify.IsTrue(directoryEntry.ReadFunction(reader, this))) return false;
+            }
+
+            return true;
         }
 
         /// <summary>
         /// Helper method for deserializing <see cref="Calligraphy.CurveDirectory"/> entries.
         /// </summary>
-        private void ReadCurveDirectoryEntry(BinaryReader reader)
+        private static bool ReadCurveDirectoryEntry(CalligraphyReader entryReader, DataDirectory dataDirectory)
         {
-            var curveId = (CurveId)reader.ReadUInt64();
-            var guid = (CurveGuid)reader.ReadUInt64();          // Doesn't seem to be used at all
-            var flags = (CurveRecordFlags)reader.ReadByte();    // Neither is this, none of the curve records have any flags set
-            string filePath = reader.ReadFixedString16().Replace('\\', '/');
+            CurveDirectory curveDirectory = dataDirectory.CurveDirectory;
+
+            if (!Verify.IsTrue(entryReader.Read(out CurveId curveId))) return false;
+            if (!Verify.IsTrue(entryReader.Read(out CurveGuid guid))) return false;             // Doesn't seem to be used at all
+            if (!Verify.IsTrue(entryReader.Read(out CurveRecordFlags flags))) return false;     // Neither is this, none of the curve records have any flags set
+
+            const int MaxDataFileFilePath = 1280;
+            Span<byte> filepathBuffer = stackalloc byte[MaxDataFileFilePath];
+            if (!Verify.IsTrue(entryReader.ReadFilePath(filepathBuffer, MaxDataFileFilePath - 1))) return false;
+            string filePath = filepathBuffer.GetCString();
 
             GameDatabase.CurveRefManager.AddDataRef(curveId, filePath);
-            var record = CurveDirectory.CreateCurveRecord(curveId, flags);
 
-            // Load this curve
-            CurveDirectory.GetCurve(curveId);
+            CurveDirectory.CurveRecord record = curveDirectory.CreateCurveRecord(curveId, flags);
+            if (!Verify.IsNotNull(record)) return false;
+
+            // Load this curve immediately
+            return curveDirectory.GetCurve(curveId) != null;
+        }
+
+        /// <summary>
+        /// Helper method for deserializing <see cref="Calligraphy.AssetDirectory"/> entries.
+        /// </summary>
+        private static bool ReadTypeDirectoryEntry(CalligraphyReader entryReader, DataDirectory dataDirectory)
+        {
+            AssetDirectory assetDirectory = dataDirectory.AssetDirectory;
+
+            if (!Verify.IsTrue(entryReader.Read(out AssetTypeId dataId))) return false;
+            if (!Verify.IsTrue(entryReader.Read(out AssetTypeGuid assetTypeGuid))) return false;
+            if (!Verify.IsTrue(entryReader.Read(out AssetTypeRecordFlags flags))) return false;
+
+            const int MaxDataFileFilePath = 1280;
+            Span<byte> filepathBuffer = stackalloc byte[MaxDataFileFilePath];
+            if (!Verify.IsTrue(entryReader.ReadFilePath(filepathBuffer, MaxDataFileFilePath - 1))) return false;
+            string filePath = filepathBuffer.GetCString();
+
+            GameDatabase.AssetTypeRefManager.AddDataRef(dataId, filePath);
+
+            AssetDirectory.LoadedAssetTypeRecord assetTypeRecord = assetDirectory.CreateAssetTypeRecord(dataId, flags);
+            if (!Verify.IsNotNull(assetTypeRecord)) return false;
+
+            string assetTypeFilename = $"Calligraphy/{filePath}";
+            using Stream fileStream = dataDirectory.LoadPakDataFile(assetTypeFilename, PakFileId.Calligraphy);
+            if (!Verify.IsNotNull(fileStream, $"Unable to open asset type file {assetTypeFilename}"))
+                return false;
+
+            using CalligraphyReader reader = new(fileStream, assetTypeFilename);
+
+            AssetType assetType = assetTypeRecord.AssetType;
+            return assetType.Load(reader, assetDirectory, dataId, assetTypeGuid, GameDatabase.StringRefManager);
         }
 
         /// <summary>
         /// Helper method for deserializing <see cref="Blueprint"/> directory entries.
         /// </summary>
-        private void ReadBlueprintDirectoryEntry(BinaryReader reader)
+        private static bool ReadBlueprintDirectoryEntry(CalligraphyReader entryReader, DataDirectory dataDirectory)
         {
-            var dataId = (BlueprintId)reader.ReadUInt64();
-            var guid = (BlueprintGuid)reader.ReadUInt64();
-            var flags = (BlueprintRecordFlags)reader.ReadByte();
-            string filePath = reader.ReadFixedString16().Replace('\\', '/');
+            if (!Verify.IsTrue(entryReader.Read(out BlueprintId dataId))) return false;
+            if (!Verify.IsTrue(entryReader.Read(out BlueprintGuid guid))) return false;
+            if (!Verify.IsTrue(entryReader.Read(out BlueprintRecordFlags flags))) return false;
+            
+            const int MaxDataFileFilePath = 1280;
+            Span<byte> filepathBuffer = stackalloc byte[MaxDataFileFilePath];
+            if (!Verify.IsTrue(entryReader.ReadFilePath(filepathBuffer, MaxDataFileFilePath - 1))) return false;
+            string filePath = filepathBuffer.GetCString();
 
             GameDatabase.BlueprintRefManager.AddDataRef(dataId, filePath);
-            LoadBlueprint(dataId, guid, flags);
+            return dataDirectory.LoadBlueprint(dataId, guid, flags) != null;
         }
 
         /// <summary>
         /// Helper method for deserializing <see cref="Prototype"/> directory entries.
         /// </summary>
-        private void ReadPrototypeDirectoryEntry(BinaryReader reader)
+        private static bool ReadPrototypeDirectoryEntry(CalligraphyReader entryReader, DataDirectory dataDirectory)
         {
-            var prototypeId = (PrototypeId)reader.ReadUInt64();
-            var prototypeGuid = (PrototypeGuid)reader.ReadUInt64();
-            var blueprintId = (BlueprintId)reader.ReadUInt64();
-            var flags = (PrototypeRecordFlags)reader.ReadByte();
-            string filePath = reader.ReadFixedString16().Replace('\\', '/');
+            if (!Verify.IsTrue(entryReader.Read(out PrototypeId prototypeId))) return false;
+            if (!Verify.IsTrue(entryReader.Read(out PrototypeGuid prototypeGuid))) return false;
+            if (!Verify.IsTrue(entryReader.Read(out BlueprintId blueprintId))) return false;
+            if (!Verify.IsTrue(entryReader.Read(out PrototypeRecordFlags flags))) return false;
 
-            AddCalligraphyPrototype(prototypeId, prototypeGuid, blueprintId, flags, filePath);
+            const int MaxDataFileFilePath = 1280;
+            Span<byte> filepathBuffer = stackalloc byte[MaxDataFileFilePath];
+            if (!Verify.IsTrue(entryReader.ReadFilePath(filepathBuffer, MaxDataFileFilePath - 1))) return false;
+            string filePath = filepathBuffer.GetCString();
+
+            return dataDirectory.AddCalligraphyPrototype(prototypeId, prototypeGuid, blueprintId, flags, filePath);
         }
 
         /// <summary>
         /// Helper method for deserializing replacement directory entries.
         /// </summary>
-        private void ReadReplacementDirectoryEntry(BinaryReader reader)
+        private static bool ReadReplacementDirectoryEntry(CalligraphyReader entryReader, DataDirectory dataDirectory)
         {
-            ulong oldGuid = reader.ReadUInt64();
-            ulong newGuid = reader.ReadUInt64();
-            string name = reader.ReadFixedString16();
+            if (!Verify.IsTrue(entryReader.Read(out ulong guid))) return false;
+            if (!Verify.IsTrue(entryReader.Read(out ulong replacement))) return false;
 
-            ReplacementDirectory.AddReplacementRecord(oldGuid, newGuid, name);
+            const int MaxNamePath = 1024;
+            Span<byte> nameBuffer = stackalloc byte[MaxNamePath];
+            if (!Verify.IsTrue(entryReader.ReadStringUTF8(nameBuffer, MaxNamePath))) return false;
+            string name = nameBuffer.GetCString();
+
+            if (guid != 0)
+                return dataDirectory.ReplacementDirectory.AddReplacementRecord(guid, replacement, name);
+            else
+                return false;
         }
 
         /// <summary>
         /// Deserializes a <see cref="Prototype"/> from a <see cref="Stream"/> using the appropriate <see cref="GameDataSerializer"/>.
         /// </summary>
-        private Prototype DeserializePrototypeFromStream(Stream stream, PrototypeDataRefRecord record)
+        private Prototype DeserializePrototypeFromStream(Stream stream, PrototypeDataRefRecord dataRefRecord)
         {
-            // Get the appropriate serializer
-            // Note: the client uses a separate getSerializer() method here to achieve the same result.
-            GameDataSerializer serializer = record.DataOrigin == DataOrigin.Calligraphy ? CalligraphySerializer : BinaryResourceSerializer;
+            GameDataSerializer serializer = GetSerializer(dataRefRecord.DataOrigin);
+            if (!Verify.IsNotNull(serializer, $"Failed to find serializer for data origin {dataRefRecord.DataOrigin}"))
+                return null;
 
-            // Create a new prototype instance
-            Prototype prototype = GameDatabase.PrototypeClassManager.AllocatePrototype(record.ClassType);
+            Prototype prototype = GameDatabase.PrototypeClassManager.AllocatePrototype(dataRefRecord.ClassType);
+            if (!Verify.IsNotNull(prototype, $"Failed to allocate new prototype for class type {dataRefRecord.ClassType.Name}"))
+                return null;
+
+            prototype.DataRefRecord = dataRefRecord;
+            dataRefRecord.Prototype = prototype;
 
             // Deserialize the data
-            serializer.Deserialize(prototype, record.PrototypeId, stream);
+            if (serializer.Deserialize(prototype, dataRefRecord.PrototypeRef, stream) == false)
+            {
+                dataRefRecord.Prototype = null;     // DataDirectory::deletePrototype()
+                prototype = null;
+            }
 
             return prototype;
+        }
+
+        private GameDataSerializer GetSerializer(DataOrigin dataOrigin)
+        {
+            switch (dataOrigin)
+            {
+                case DataOrigin.Calligraphy:
+                    return CalligraphySerializer.Instance;
+
+                case DataOrigin.Resource:
+                    return BinaryResourceSerializer.Instance;
+
+                default:
+                    Verify.IsTrue(false);
+                    return null;
+            }
         }
 
         #endregion
@@ -874,44 +1042,52 @@ namespace MHServerEmu.Games.GameData
         /// <summary>
         /// Contains a record of a loaded <see cref="Calligraphy.Blueprint"/> managed by the <see cref="DataDirectory"/>.
         /// </summary>
-        struct LoadedBlueprintRecord
+        private readonly struct LoadedBlueprintRecord(Blueprint blueprint, BlueprintRecordFlags flags)
         {
-            public Blueprint Blueprint { get; set; }
-            public BlueprintRecordFlags Flags { get; set; }
-
-            public LoadedBlueprintRecord(Blueprint blueprint, BlueprintRecordFlags flags)
-            {
-                Blueprint = blueprint;
-                Flags = flags;
-            }
+            public Blueprint Blueprint { get; } = blueprint;
+            public BlueprintRecordFlags Flags { get; } = flags;
         }
 
         /// <summary>
         /// Contains data record references and enum lookups for a particular prototype class.
         /// </summary>
-        class PrototypeEnumValueNode
+        private class PrototypeEnumValueNode
         {
-            public List<PrototypeDataRefRecord> PrototypeRecordList { get; } = new();   // A list of all prototype records belonging to this class for iteration
+            public List<PrototypeDataRefRecord> PrototypeRecords { get; } = new();   // A list of all prototype records belonging to this class for iteration
             public PrototypeId[] EnumValueToPrototypeLookup { get; private set; }
-            public Dictionary<PrototypeId, int> PrototypeToEnumValueDict { get; private set; }
+            public Dictionary<PrototypeId, int> PrototypeToEnumValueLookup { get; private set; }
 
             public void GenerateEnumLookups()
             {
-                // Note: this method is not present in the original game where this is done
-                // within DataDirectory::initializeHierarchyCache() instead.
+                // NOTE: Not present in the client, this is likely inlined in DataDirectory::initializeHierarchyCache() instead.
 
-                // EnumValue -> PrototypeId
-                EnumValueToPrototypeLookup = new PrototypeId[PrototypeRecordList.Count + 1];
+                int numRecords = PrototypeRecords.Count;
+                int numLookups = numRecords + 1;
+
+                EnumValueToPrototypeLookup = new PrototypeId[numLookups];
                 EnumValueToPrototypeLookup[0] = PrototypeId.Invalid;
-                for (int i = 0; i < PrototypeRecordList.Count; i++)
-                    EnumValueToPrototypeLookup[i + 1] = PrototypeRecordList[i].PrototypeId;
 
-                // PrototypeId -> EnumValue
-                PrototypeToEnumValueDict = new(EnumValueToPrototypeLookup.Length);
-                for (int i = 0; i < EnumValueToPrototypeLookup.Length; i++)
-                    PrototypeToEnumValueDict.Add(EnumValueToPrototypeLookup[i], i);
+                PrototypeToEnumValueLookup = new(numLookups);
+                PrototypeToEnumValueLookup.Add(PrototypeId.Invalid, 0);
+
+                for (int i = 0; i < numRecords; i++)
+                {
+                    int enumValue = i + 1;
+                    PrototypeId prototypeDataRef = PrototypeRecords[i].PrototypeRef;
+
+                    EnumValueToPrototypeLookup[enumValue] = prototypeDataRef;
+                    PrototypeToEnumValueLookup.Add(prototypeDataRef, enumValue);
+                }
             }
         }
+    }
+
+    public class DataDirectoryEntry(string filename, string magic, Func<CalligraphyReader, DataDirectory, bool> readFunction, DirectoryId id)
+    {
+        public readonly string Filename = filename;
+        public readonly string Magic = magic;
+        public readonly Func<CalligraphyReader, DataDirectory, bool> ReadFunction = readFunction;
+        public readonly DirectoryId Id = id;
     }
 
     /// <summary>
@@ -919,11 +1095,11 @@ namespace MHServerEmu.Games.GameData
     /// </summary>
     public class PrototypeDataRefRecord
     {
-        public PrototypeId PrototypeId { get; set; }
+        public PrototypeId PrototypeRef { get; set; }
         public PrototypeGuid PrototypeGuid { get; set; }
         public BlueprintId BlueprintId { get; set; }
         public PrototypeRecordFlags Flags { get; set; }
-        public Type ClassType { get; set; }                 // We use C# type instead of class id
+        public Type ClassType { get; set; }                 // We use C# types instead of class ids
         public DataOrigin DataOrigin { get; set; }          // PrototypeDataRefRecord + 32
         public Blueprint Blueprint { get; set; }
         public Prototype Prototype { get; set; }            // PrototypeDataRefRecord + 48

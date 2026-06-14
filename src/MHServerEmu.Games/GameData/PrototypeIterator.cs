@@ -19,7 +19,7 @@ namespace MHServerEmu.Games.GameData
     /// </summary>
     public readonly struct PrototypeIterator
     {
-        private readonly List<PrototypeDataRefRecord> _prototypeRecordList;
+        private readonly IReadOnlyList<PrototypeDataRefRecord> _prototypeRecords;
         private readonly PrototypeIterateFlags _flags;
 
         /// <summary>
@@ -27,48 +27,47 @@ namespace MHServerEmu.Games.GameData
         /// </summary>
         public PrototypeIterator()
         {
-            _prototypeRecordList = new();
+            _prototypeRecords = Array.Empty<PrototypeDataRefRecord>();
             _flags = PrototypeIterateFlags.None;
         }
 
         /// <summary>
         /// Constructs a new <see cref="PrototypeIterator"/> with the provided records and flags.
         /// </summary>
-        public PrototypeIterator(List<PrototypeDataRefRecord> records, PrototypeIterateFlags flags = PrototypeIterateFlags.None)
+        public PrototypeIterator(IReadOnlyList<PrototypeDataRefRecord> records, PrototypeIterateFlags flags = PrototypeIterateFlags.None)
         {
-            _prototypeRecordList = records;
+            _prototypeRecords = records;
             _flags = flags;
         }
 
         public Enumerator GetEnumerator()
         {
-            return new Enumerator(_prototypeRecordList, _flags);
+            return new Enumerator(_prototypeRecords, _flags);
         }
 
         public struct Enumerator : IEnumerator<PrototypeId>
         {
-            private readonly List<PrototypeDataRefRecord> _recordList;
+            private readonly IReadOnlyList<PrototypeDataRefRecord> _records;
             private readonly PrototypeIterateFlags _flags;
 
             private int _index = -1;
 
-            public PrototypeId Current { get; private set; } = default;
+            public PrototypeId Current { get; private set; }
             object IEnumerator.Current { get => Current; }
 
-            public Enumerator(List<PrototypeDataRefRecord> recordList, PrototypeIterateFlags flags)
+            public Enumerator(IReadOnlyList<PrototypeDataRefRecord> recordList, PrototypeIterateFlags flags)
             {
-                _recordList = recordList;
+                _records = recordList;
                 _flags = flags;
             }
 
             public bool MoveNext()
             {
                 // Based on PrototypeIterator::advanceToValid()
-                Current = PrototypeId.Invalid;
 
-                while (++_index < _recordList.Count)
+                while (++_index < _records.Count)
                 {
-                    PrototypeDataRefRecord record = _recordList[_index];
+                    PrototypeDataRefRecord record = _records[_index];
 
                     // Skip abstract prototypes if needed
                     if (record.Flags.HasFlag(Calligraphy.PrototypeRecordFlags.Abstract) && _flags.HasFlag(PrototypeIterateFlags.NoAbstract))
@@ -83,10 +82,11 @@ namespace MHServerEmu.Games.GameData
                         continue;
 
                     // We return PrototypeId instead of Prototype to simplify the implementation.
-                    Current = record.PrototypeId;
+                    Current = record.PrototypeRef;
                     return true;
                 }
 
+                Current = PrototypeId.Invalid;
                 return false;
             }
 

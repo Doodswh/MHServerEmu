@@ -6,8 +6,6 @@ namespace MHServerEmu.Games.GameData.LiveTuning
 {
     public readonly struct LiveTuningUpdateValue
     {
-        private static readonly Logger Logger = LogManager.CreateLogger();
-
         public string Prototype { get; }
         public string Setting { get; }
         public float Value { get; }
@@ -27,18 +25,18 @@ namespace MHServerEmu.Games.GameData.LiveTuning
             if (Prototype != string.Empty)
             {
                 PrototypeId prototypeId = GameDatabase.GetPrototypeRefByName(Prototype);
-                if (prototypeId == PrototypeId.Invalid)
-                    return Logger.WarnReturn<NetStructLiveTuningSettingProtoEnumValue>(null, $"ToProtobuf(): Invalid prototype name {Prototype}");
+                if (!Verify.IsTrue(prototypeId != PrototypeId.Invalid, $"Invalid prototype name {Prototype}"))
+                    return null;
 
                 prototypeGuid = GameDatabase.GetPrototypeGuid(prototypeId);
             }
 
             int tuningVarEnum = ParseTuningVarEnum(Setting, out bool isGlobal);
-            if (tuningVarEnum == -1)
-                return Logger.WarnReturn<NetStructLiveTuningSettingProtoEnumValue>(null, $"ToProtobuf(): Invalid setting {Setting} for prototype {Prototype}");
+            if (!Verify.IsTrue(tuningVarEnum != -1, $"Invalid setting {Setting} for prototype {Prototype}"))
+                return null;
 
-            if (isGlobal == false && prototypeGuid == PrototypeGuid.Invalid)
-                return Logger.WarnReturn<NetStructLiveTuningSettingProtoEnumValue>(null, $"ToProtobuf(): Setting {Setting} requires a valid prototype");
+            if (!Verify.IsTrue(isGlobal || prototypeGuid != PrototypeGuid.Invalid, $"Setting {Setting} requires a valid prototype"))
+                return null;
 
             return NetStructLiveTuningSettingProtoEnumValue.CreateBuilder()
                 .SetTuningVarProtoId((ulong)prototypeGuid)

@@ -1,4 +1,5 @@
 ﻿using MHServerEmu.Core.Logging;
+using MHServerEmu.Core.Memory;
 using MHServerEmu.Games.Entities.Avatars;
 using MHServerEmu.Games.GameData.Prototypes;
 
@@ -10,31 +11,31 @@ namespace MHServerEmu.Games.GameData.Tables
         // Postreq - a node that is dependant on this node
         // Starting node - a node without prereqs
         // [Prereq] -> [Postreq]
-        private static readonly Logger Logger = LogManager.CreateLogger();
 
-        private Dictionary<PrototypeId, List<PrototypeId>> _omegaBonusPostreqDict = new();
+        private readonly Dictionary<PrototypeId, List<PrototypeId>> _omegaBonusPostreqs = new();
 
         public OmegaBonusPostreqsTable()
         {
             AdvancementGlobalsPrototype advGlobalsProto = GameDatabase.AdvancementGlobalsPrototype;
+            if (!Verify.IsNotNull(advGlobalsProto)) return;
 
-            foreach (var omegaBonusSetRef in advGlobalsProto.OmegaBonusSets)
+            foreach (PrototypeId omegaBonusSetRef in advGlobalsProto.OmegaBonusSets)
             {
-                var omegaBonusSetProto = omegaBonusSetRef.As<OmegaBonusSetPrototype>();
+                OmegaBonusSetPrototype omegaBonusSetProto = omegaBonusSetRef.As<OmegaBonusSetPrototype>();
 
-                foreach (var omegaBonusRef in omegaBonusSetProto.OmegaBonuses)
+                foreach (PrototypeId omegaBonusRef in omegaBonusSetProto.OmegaBonuses)
                 {
-                    var omegaBonusProto = omegaBonusRef.As<OmegaBonusPrototype>();
+                    OmegaBonusPrototype omegaBonusProto = omegaBonusRef.As<OmegaBonusPrototype>();
 
-                    foreach (var omegaBonusPrereqRef in omegaBonusProto.Prerequisites)
+                    foreach (PrototypeId omegaBonusPrereqRef in omegaBonusProto.Prerequisites)
                     {
-                        if (_omegaBonusPostreqDict.TryGetValue(omegaBonusPrereqRef, out var omegaBonusPrereqList) == false)
+                        if (_omegaBonusPostreqs.TryGetValue(omegaBonusPrereqRef, out List<PrototypeId> omegaBonusPostreqs) == false)
                         {
-                            omegaBonusPrereqList = new();
-                            _omegaBonusPostreqDict.Add(omegaBonusPrereqRef, omegaBonusPrereqList);
+                            omegaBonusPostreqs = new();
+                            _omegaBonusPostreqs.Add(omegaBonusPrereqRef, omegaBonusPostreqs);
                         }
 
-                        omegaBonusPrereqList.Add(omegaBonusProto.DataRef);
+                        omegaBonusPostreqs.Add(omegaBonusProto.DataRef);
                     }
                 }
             }
@@ -42,16 +43,15 @@ namespace MHServerEmu.Games.GameData.Tables
 
         public bool CanOmegaBonusBeRemoved(PrototypeId omegaBonusRef, Avatar avatar, bool checkTempPoints)
         {
-            if (omegaBonusRef == PrototypeId.Invalid)
-                return Logger.WarnReturn(false, "CanOmegaBonusBeRemoved(): omegaBonusRef == PrototypeId.Invalid");
+            if (!Verify.IsTrue(omegaBonusRef != PrototypeId.Invalid)) return false;
 
             // If there is no postreq list for this bonus, there is nothing to check
-            if (_omegaBonusPostreqDict.TryGetValue(omegaBonusRef, out List<PrototypeId> postreqList) == false)
+            if (_omegaBonusPostreqs.TryGetValue(omegaBonusRef, out List<PrototypeId> postreqs) == false)
                 return true;
 
             // Track all nodes we have already checked in a set
-            HashSet<PrototypeId> checkedNodes = new();
-            foreach (var postreqRef in postreqList)
+            using var checkedNodesHandle = HashSetPool<PrototypeId>.Instance.Get(out HashSet<PrototypeId> checkedNodes);
+            foreach (PrototypeId postreqRef in postreqs)
             {
                 checkedNodes.Add(omegaBonusRef);
 
@@ -78,16 +78,15 @@ namespace MHServerEmu.Games.GameData.Tables
             if (avatar.GetOmegaPointsSpentOnBonus(omegaBonusRef, checkTempPoints) <= 0)
                 return false;
 
-            var omegaBonusProto = omegaBonusRef.As<OmegaBonusPrototype>();
-            if (omegaBonusProto == null)
-                return Logger.WarnReturn(false, "IsOmegaBonusConnectedToStartingNode(): omegaBonusProto == null");
+            OmegaBonusPrototype omegaBonusProto = omegaBonusRef.As<OmegaBonusPrototype>();
+            if (!Verify.IsNotNull(omegaBonusProto)) return false;
 
             // No prereqs = starting node
             if (omegaBonusProto.Prerequisites == null || omegaBonusProto.Prerequisites.Length == 0)
                 return true;
 
             // Do the check recursively
-            foreach (var prereqRef in omegaBonusProto.Prerequisites)
+            foreach (PrototypeId prereqRef in omegaBonusProto.Prerequisites)
             {
                 if (IsOmegaBonusConnectedToStartingNode(prereqRef, avatar, checkTempPoints, checkedNodes))
                     return true;

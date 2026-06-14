@@ -1,4 +1,5 @@
 ﻿using System.Diagnostics;
+using System.Runtime.CompilerServices;
 using MHServerEmu.Core.Config;
 using MHServerEmu.Core.Logging;
 using MHServerEmu.Games.GameData.Prototypes;
@@ -10,7 +11,7 @@ namespace MHServerEmu.Games.GameData.Tables
     {
         private static readonly Logger Logger = LogManager.CreateLogger();
 
-        private readonly Dictionary<(PrototypeId, PrototypeId), EquipmentInvUISlot> _equipmentSlotDict;
+        private readonly Dictionary<(PrototypeId, PrototypeId), EquipmentInvUISlot> _equipmentSlotLookup;
 
         public EquipmentSlotTable()
         {
@@ -22,17 +23,22 @@ namespace MHServerEmu.Games.GameData.Tables
             Logger.Info("Building EquipmentInvUISlot cache...");
             Stopwatch stopwatch = Stopwatch.StartNew();
 
-            _equipmentSlotDict = new();
-            foreach (var avatarRef in GameDatabase.DataDirectory.IteratePrototypesInHierarchy<AvatarPrototype>(PrototypeIterateFlags.NoAbstractApprovedOnly))
+            _equipmentSlotLookup = new();
+            foreach (PrototypeId avatarRef in GameDatabase.DataDirectory.IteratePrototypesInHierarchy<AvatarPrototype>(PrototypeIterateFlags.NoAbstractApprovedOnly))
             {
-                var avatarProto = avatarRef.As<AvatarPrototype>();
+                AvatarPrototype avatarProto = avatarRef.As<AvatarPrototype>();
+                if (!Verify.IsNotNull(avatarProto))
+                    continue;
 
-                foreach (var itemRef in GameDatabase.DataDirectory.IteratePrototypesInHierarchy<ItemPrototype>(PrototypeIterateFlags.NoAbstractApprovedOnly))
+                foreach (PrototypeId itemRef in GameDatabase.DataDirectory.IteratePrototypesInHierarchy<ItemPrototype>(PrototypeIterateFlags.NoAbstractApprovedOnly))
                 {
                     ItemPrototype itemProto = itemRef.As<ItemPrototype>();
+                    if (!Verify.IsNotNull(itemProto))
+                        continue;
+
                     EquipmentInvUISlot slot = FindEquipmentUISlotForAvatar(itemProto, avatarProto);
                     if (slot != EquipmentInvUISlot.Invalid)
-                        _equipmentSlotDict[(itemProto.DataRef, avatarProto.DataRef)] = slot;
+                        _equipmentSlotLookup.Add((itemProto.DataRef, avatarProto.DataRef), slot);
                 }
             }
 
@@ -42,29 +48,33 @@ namespace MHServerEmu.Games.GameData.Tables
 
         public EquipmentInvUISlot EquipmentUISlotForAvatar(ItemPrototype itemProto, AvatarPrototype avatarProto)
         {
-            // To do the slow lookup if we don't have a cache
-            if (_equipmentSlotDict == null)
+            // Do the slow lookup if we don't have a cache
+            if (_equipmentSlotLookup == null)
                 return FindEquipmentUISlotForAvatar(itemProto, avatarProto);
 
-            if (itemProto == null) return Logger.WarnReturn(EquipmentInvUISlot.Invalid, "EquipmentUISlotForAvatar(): itemProto == null");
-            if (avatarProto == null) return Logger.WarnReturn(EquipmentInvUISlot.Invalid, "EquipmentUISlotForAvatar(): avatarProto == null");
+            if (!Verify.IsNotNull(itemProto)) return EquipmentInvUISlot.Invalid;
+            if (!Verify.IsNotNull(avatarProto)) return EquipmentInvUISlot.Invalid;
 
-            if (_equipmentSlotDict.TryGetValue((itemProto.DataRef, avatarProto.DataRef), out EquipmentInvUISlot slot) == false)
+            if (_equipmentSlotLookup.TryGetValue((itemProto.DataRef, avatarProto.DataRef), out EquipmentInvUISlot slot) == false)
                 return EquipmentInvUISlot.Invalid;
 
             return slot;
         }
 
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private static EquipmentInvUISlot FindEquipmentUISlotForAvatar(ItemPrototype itemProto, AvatarPrototype avatarProto)
         {
             // Named EquipmentSlotTable::equipmentUISlotForAvatar() in the client
 
-            if (itemProto == null) return Logger.WarnReturn(EquipmentInvUISlot.Invalid, "FindEquipmentUISlotForAvatar(): itemProto == null");
-            if (avatarProto == null) return Logger.WarnReturn(EquipmentInvUISlot.Invalid, "FindEquipmentUISlotForAvatar(): avatarProto == null");
+            if (!Verify.IsNotNull(itemProto)) return EquipmentInvUISlot.Invalid;
+            if (!Verify.IsNotNull(avatarProto)) return EquipmentInvUISlot.Invalid;
 
             foreach (AvatarEquipInventoryAssignmentPrototype assignmentProto in avatarProto.EquipmentInventories)
             {
                 InventoryPrototype invProto = assignmentProto.Inventory.As<InventoryPrototype>();
+                if (!Verify.IsNotNull(invProto))
+                    continue;
+
                 if (invProto.AllowEntity(itemProto))
                     return assignmentProto.UISlot;
             }

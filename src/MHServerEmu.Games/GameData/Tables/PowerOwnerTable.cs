@@ -5,8 +5,6 @@ namespace MHServerEmu.Games.GameData.Tables
 {
     public class PowerOwnerTable
     {
-        private static readonly Logger Logger = LogManager.CreateLogger();
-
         private readonly Dictionary<PrototypeId, PrototypeId> _powerOwnerDict = new();
         private readonly Dictionary<(PrototypeId, PrototypeId), PrototypeId> _powerProgressionTabDict = new();
         private readonly Dictionary<(PrototypeId, PrototypeId), PowerProgressionEntryPrototype> _powerProgressionEntryDict = new();
@@ -70,8 +68,7 @@ namespace MHServerEmu.Games.GameData.Tables
 
         public PrototypeId GetPowerProgressionOwnerForPower(PrototypeId powerRef)
         {
-            if (powerRef == PrototypeId.Invalid)
-                return Logger.WarnReturn(PrototypeId.Invalid, "GetPowerProgressionOwnerForPower(): powerRef == PrototypeId.Invalid");
+            if (!Verify.IsTrue(powerRef != PrototypeId.Invalid)) return PrototypeId.Invalid;
 
             if (_powerOwnerDict.TryGetValue(powerRef, out PrototypeId powerOwner) == false)
                 return PrototypeId.Invalid;

@@ -1,5 +1,5 @@
 ﻿using MHServerEmu.Core.Extensions;
-using MHServerEmu.Games.GameData.Calligraphy.Attributes;
+using MHServerEmu.Games.GameData.Calligraphy;
 using MHServerEmu.Games.MetaGames;
 using MHServerEmu.Games.MetaGames.MetaStates;
 

@@ -15,8 +15,8 @@ namespace MHServerEmu.Games.Properties
     {
         private static readonly Logger Logger = LogManager.CreateLogger();
 
-        public static readonly (string, Type)[] AssetEnumBindings = new(string, Type)[]     // s_PropertyParamEnumLookups
-        {
+        public static readonly (string Name, Type ClassType)[] PropertyParamEnumLookups =
+        [
             ("ProcTriggerType",                 typeof(ProcTriggerType)),
             ("DamageType",                      typeof(DamageType)),
             ("TargetRestrictionType",           typeof(TargetRestrictionType)),
@@ -36,7 +36,7 @@ namespace MHServerEmu.Games.Properties
 
             // Extra bindings not present in the client here, but scattered across various asset enum lookup instances
             ("RegionBehavior",                  typeof(RegionBehavior)),
-        };
+        ];
 
         private readonly Dictionary<PrototypeId, PropertyEnum> _prototypeIdToPropertyEnumDict = new();
 
@@ -93,14 +93,14 @@ namespace MHServerEmu.Games.Properties
             foreach (Blueprint blueprint in dataDirectory.IterateBlueprints())
             {
                 // Skip irrelevant blueprints
-                if (blueprint.Id == propertyBlueprintId)
+                if (blueprint.BlueprintDataRef == propertyBlueprintId)
                     continue;
 
                 if (blueprint.RuntimeBindingClassType != typeof(PropertyPrototype))
                     continue;
 
                 // Get property name from blueprint file path
-                string propertyBlueprintName = GameDatabase.GetBlueprintName(blueprint.Id);
+                string propertyBlueprintName = GameDatabase.GetBlueprintName(blueprint.BlueprintDataRef);
                 string propertyName = Path.GetFileNameWithoutExtension(propertyBlueprintName);
 
                 // Try to find a matching property info for this property mixin
@@ -110,8 +110,8 @@ namespace MHServerEmu.Games.Properties
                     // Property mixin blueprints are inconsistently named: most have the Prop suffix, but some do not
                     if (propertyInfo.PropertyName == propertyName || propertyInfo.PropertyInfoName == propertyName)
                     {
-                        blueprint.SetPropertyPrototypeDataRef(propertyInfo.PrototypeDataRef);
-                        propertyInfo.PropertyMixinBlueprintRef = blueprint.Id;
+                        blueprint.SetPropertyPrototypeRef(propertyInfo.PrototypeDataRef);
+                        propertyInfo.PropertyMixinBlueprintRef = blueprint.BlueprintDataRef;
                         infoFound = true;
                         break;
                     }
@@ -243,7 +243,7 @@ namespace MHServerEmu.Games.Properties
             if (propertyInfo.PropertyMixinBlueprintRef != BlueprintId.Invalid)
             {
                 Blueprint blueprint = GameDatabase.GetBlueprint(propertyInfo.PropertyMixinBlueprintRef);
-                GameDatabase.GetPrototype<PropertyPrototype>(blueprint.DefaultPrototypeId);
+                GameDatabase.GetPrototype<PropertyPrototype>(blueprint.DefaultPrototypeRef);
             }
 
             // Load the property info prototype and assign it to the property info instance

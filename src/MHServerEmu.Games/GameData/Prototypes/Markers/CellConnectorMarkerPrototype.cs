@@ -5,13 +5,13 @@ namespace MHServerEmu.Games.GameData.Prototypes.Markers
 {
     public class CellConnectorMarkerPrototype : MarkerPrototype
     {
-        public Vector3 Extents { get; }
+        public Vector3 Extents { get; protected set; }
 
-        public CellConnectorMarkerPrototype(BinaryReader reader)
+        public override void Deserialize(BinaryReader reader)
         {
-            Extents = reader.ReadVector3();
+            Extents = reader.Read<Vector3>();
 
-            ReadMarker(reader);
+            base.Deserialize(reader);
         }
     }
 }

@@ -4,17 +4,17 @@ namespace MHServerEmu.Games.GameData.Prototypes.Markers
 {
     public class UnrealPropMarkerPrototype : MarkerPrototype
     {
-        public string UnrealClassName { get; }
-        public string UnrealQualifiedName { get; }
-        public string UnrealArchetypeName { get; }
+        public string UnrealClassName { get; protected set; }
+        public string UnrealQualifiedName { get; protected set; }
+        public string UnrealArchetypeName { get; protected set; }
 
-        public UnrealPropMarkerPrototype(BinaryReader reader)
+        public override void Deserialize(BinaryReader reader)
         {
             UnrealClassName = reader.ReadFixedString32();
             UnrealQualifiedName = reader.ReadFixedString32();
             UnrealArchetypeName = reader.ReadFixedString32();
 
-            ReadMarker(reader);
+            base.Deserialize(reader);
         }
     }
 }

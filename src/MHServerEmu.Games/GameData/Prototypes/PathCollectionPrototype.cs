@@ -4,45 +4,41 @@ using MHServerEmu.Games.GameData.Resources;
 
 namespace MHServerEmu.Games.GameData.Prototypes
 {
-    public class PathCollectionPrototype : Prototype
+    public class PathCollectionPrototype : Prototype, IBinaryResource
     {
-        public PathNodeSetPrototype[] PathNodeSets { get; }
+        public PathNodeSetPrototype[] PathNodeSets { get; protected set; }
 
-        public PathCollectionPrototype(BinaryReader reader)
+        public void Deserialize(BinaryReader reader)
         {
-            PathNodeSets = new PathNodeSetPrototype[reader.ReadUInt32()];
-            for (int i = 0; i < PathNodeSets.Length; i++)
-                PathNodeSets[i] = new(reader);
+            if (BinaryResourceSerializer.ReadPrototypeContainer(out PathNodeSetPrototype[] pathNodeSets, reader))
+                PathNodeSets = pathNodeSets;
         }
     }
 
-    public class PathNodeSetPrototype : Prototype
+    public class PathNodeSetPrototype : Prototype, IBinaryResource
     {
-        public ushort Group { get; }
-        public PathNodePrototype[] PathNodes { get; }
-        public ushort NumNodes { get; }
+        public ushort Group { get; protected set; }
+        public PathNodePrototype[] PathNodes { get; protected set; }
+        public ushort NumNodes { get; protected set; }
 
-        public PathNodeSetPrototype(BinaryReader reader)
+        public void Deserialize(BinaryReader reader)
         {
-            var protoNameHash = (ResourcePrototypeHash)reader.ReadUInt32();
             Group = reader.ReadUInt16();
 
-            PathNodes = new PathNodePrototype[reader.ReadUInt32()];
-            for (int i = 0; i < PathNodes.Length; i++)
-                PathNodes[i] = new(reader);
+            if (BinaryResourceSerializer.ReadPrototypeContainer(out PathNodePrototype[] pathNodes, reader))
+                PathNodes = pathNodes;
 
             NumNodes = reader.ReadUInt16();
         }
     }
 
-    public class PathNodePrototype : Prototype
+    public class PathNodePrototype : Prototype, IBinaryResource
     {
-        public Vector3 Position { get; }
+        public Vector3 Position { get; protected set; }
 
-        public PathNodePrototype(BinaryReader reader)
+        public void Deserialize(BinaryReader reader)
         {
-            var protoNameHash = (ResourcePrototypeHash)reader.ReadUInt32();
-            Position = reader.ReadVector3();
+            Position = reader.Read<Vector3>();
         }
     }
 }

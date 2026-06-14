@@ -8,57 +8,68 @@ namespace MHServerEmu.Games.GameData.Calligraphy
     /// </summary>
     public class Curve
     {
-        private static readonly Logger Logger = LogManager.CreateLogger();
+        private CurveId _curveRef;
+        private float[] _values;
 
-        private readonly CurveId _curveId;
-        private readonly float[] _values;
-
-        public float this[int index] { get => _values[index]; }
-
-        public int MinPosition { get; }    // m_startPosition
-        public int MaxPosition { get; }    // m_endPosition
+        public int MinPosition { get; private set; }    // m_startPosition
+        public int MaxPosition { get; private set; }    // m_endPosition
 
         public bool IsCurveZero { get; private set; } = true;
 
-        /// <summary>
-        /// Deserializes a new <see cref="Curve"/> instance from a <see cref="Stream"/>.
-        /// </summary>
-        public Curve(Stream stream, CurveId curveId)
+        public Curve() { }
+
+        public override string ToString()
         {
-            _curveId = curveId;
-
-            using (BinaryReader reader = new(stream))
-            {
-                CalligraphyHeader header = new(reader);
-
-                MinPosition = reader.ReadInt32();
-                MaxPosition = reader.ReadInt32();
-
-                _values = new float[MaxPosition - MinPosition + 1];
-                for (int i = 0; i < _values.Length; i++)
-                {
-                    double value = reader.ReadDouble();
-                    _values[i] = (float)value;
-                    IsCurveZero &= value == 0;
-                }
-            }
+            return GameDatabase.GetCurveName(_curveRef);
         }
-        
+
+        public bool Load(CalligraphyReader reader, CurveId curveRef)
+        {
+            _curveRef = curveRef;
+
+            if (!Verify.IsTrue(reader.ReadHeader("CRV"))) return false;
+
+            if (!Verify.IsTrue(reader.Read(out int startPosition))) return false;
+            MinPosition = startPosition;
+
+            if (!Verify.IsTrue(reader.Read(out int endPosition))) return false;
+            MaxPosition = endPosition;
+
+            int numElements = endPosition - startPosition + 1;
+            if (!Verify.IsTrue(numElements >= 1)) return false;
+
+            _values = new float[numElements];
+            for (int i = 0; i < numElements; i++)
+            {
+                if (!Verify.IsTrue(reader.Read(out double value))) return false;
+                _values[i] = (float)value;
+                IsCurveZero &= value == 0;
+            }
+
+            return true;
+        }
+
+        // NOTE: The client uses a bunch of copy-pasted code here for different versions of GetAt(), we just wrap the same float functions for int versions.
+
         /// <summary>
         /// Returns the value at the specified position as <see cref="float"/>.
         /// </summary>
         public float GetAt(int position)
         {
-            if (position < MinPosition)
-                Logger.Warn($"GetAt(): Curve position {position} below min of {MinPosition}, curve {this}");
-            else if (position > MaxPosition)
-                Logger.Warn($"GetAt(): Curve position {position} above max of {MaxPosition}, curve {this}");
+            if (!Verify.IsTrue(position >= MinPosition, $"Curve position ({position}) below min of ({MinPosition}) Curve: {this}"))
+                return _values[0];
 
-            position = Math.Clamp(position, MinPosition, MaxPosition);
+            if (!Verify.IsTrue(position <= MaxPosition, $"Curve position ({position}) above max of ({MaxPosition}) Curve: {this}"))
+                return _values[MaxPosition - MinPosition];
+
+            //position = Math.Clamp(position, MinPosition, MaxPosition);    // Unnecessary client-side clamp that is already handled by verify checks above
             int index = position - MinPosition;
             return _values[index];
         }
 
+        /// <summary>
+        /// Retrieves the value at the specified position as <see cref="float"/>. Returns <see langword="true"/> if successful.
+        /// </summary>
         public bool GetAt(int position, out float value)
         {
             if (position < MinPosition)
@@ -87,26 +98,14 @@ namespace MHServerEmu.Games.GameData.Calligraphy
             return MathHelper.RoundToInt(GetAt(position));
         }
 
+        /// <summary>
+        /// Retrieves the value at the specified position as <see cref="int"/>. Returns <see langword="true"/> if successful.
+        /// </summary>
         public bool GetIntAt(int position, out int value)
         {
-            bool isValid = true;
-
-            if (position < MinPosition)
-            {
-                Logger.Warn($"GetAt(): Curve position {position} below min of {MinPosition}, curve {this}");
-                isValid = false;
-            }
-            else if (position > MaxPosition)
-            {
-                Logger.Warn($"GetAt(): Curve position {position} above max of {MaxPosition}, curve {this}");
-                isValid = false;
-            }
-
-            position = Math.Clamp(position, MinPosition, MaxPosition);
-            int index = position - MinPosition;
-            value = MathHelper.RoundToInt(_values[index]);
-
-            return isValid;
+            bool result = GetAt(position, out float floatValue);
+            value = MathHelper.RoundToInt(floatValue);
+            return result;
         }
 
         /// <summary>
@@ -117,26 +116,14 @@ namespace MHServerEmu.Games.GameData.Calligraphy
             return MathHelper.RoundToInt64(GetAt(position));
         }
 
+        /// <summary>
+        /// Retrieves the value at the specified position as <see cref="long"/>. Returns <see langword="true"/> if successful.
+        /// </summary>
         public bool GetInt64At(int position, out long value)
         {
-            bool isValid = true;
-
-            if (position < MinPosition)
-            {
-                Logger.Warn($"GetAt(): Curve position {position} below min of {MinPosition}, curve {this}");
-                isValid = false;
-            }
-            else if (position > MaxPosition)
-            {
-                Logger.Warn($"GetAt(): Curve position {position} above max of {MaxPosition}, curve {this}");
-                isValid = false;
-            }
-
-            position = Math.Clamp(position, MinPosition, MaxPosition);
-            int index = position - MinPosition;
-            value = MathHelper.RoundToInt64(_values[index]);
-
-            return isValid;
+            bool result = GetAt(position, out float floatValue);
+            value = MathHelper.RoundToInt64(floatValue);
+            return result;
         }
 
         /// <summary>
@@ -144,17 +131,17 @@ namespace MHServerEmu.Games.GameData.Calligraphy
         /// </summary>
         public float IntegrateDiscrete(int start, int end)
         {
-            if (start < MinPosition)
-                return Logger.WarnReturn(0f, $"IntegrateDiscrete(): Curve start {start} below min of {MinPosition}, curve {ToString()}");
+            if (!Verify.IsTrue(start >= MinPosition, $"Curve start (%d) below min of (%d) Curve: %s"))
+                return 0f;
 
-            if (start > MaxPosition)
-                return Logger.WarnReturn(0f, $"IntegrateDiscrete(): Curve start {start} above max of {MaxPosition}, curve {ToString()}");
+            if (!Verify.IsTrue(start <= MaxPosition, $"Curve start (%d) above max of (%d) Curve: %s"))
+                return 0f;
 
-            if (end < MinPosition)
-                return Logger.WarnReturn(0f, $"IntegrateDiscrete(): Curve end {end} below min of {MinPosition}, curve {ToString()}");
+            if (!Verify.IsTrue(end >= MinPosition, $"Curve end (%d) below min of (%d) Curve: %s"))
+                return 0f;
 
-            if (end > MaxPosition)
-                return Logger.WarnReturn(0f, $"IntegrateDiscrete(): Curve end {end} above max of {MaxPosition}, curve {ToString()}");
+            if (!Verify.IsTrue(end <= MaxPosition, $"Curve end (%d) above max of (%d) Curve: %s"))
+                return 0f;
 
             float result = 0;
             for (int i = start; i <= end; i++)
@@ -176,11 +163,6 @@ namespace MHServerEmu.Games.GameData.Calligraphy
         public bool IndexInRange(int index)
         {
             return index >= MinPosition && index <= MaxPosition;
-        }
-
-        public override string ToString()
-        {
-            return GameDatabase.GetCurveName(_curveId);
         }
     }
 }

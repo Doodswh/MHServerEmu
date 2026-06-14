@@ -1,7 +1,7 @@
 ﻿using MHServerEmu.Core.Helpers;
 using MHServerEmu.Core.VectorMath;
 using MHServerEmu.Games.Entities;
-using MHServerEmu.Games.GameData.Calligraphy.Attributes;
+using MHServerEmu.Games.GameData.Calligraphy;
 
 namespace MHServerEmu.Games.GameData.Prototypes
 {
