@@ -10,7 +10,7 @@ namespace MHServerEmu.Games.GameData.Resources
     /// </summary>
     public sealed class BinaryResourceSerializer : GameDataSerializer
     {
-        private const int INCREMENT_THIS_TO_FORCE_RECOOK = 16;
+        private const byte INCREMENT_THIS_TO_FORCE_RECOOK = 16;
 
         public static BinaryResourceSerializer Instance { get; } = new();
 
@@ -35,8 +35,9 @@ namespace MHServerEmu.Games.GameData.Resources
 
             // client check: serialized prototype data version does not match classinfo
 
-            // Instead of going through PrototypeFieldSet like the client does currently we have
-            // manual deserialization routines defined in individual resource prototype classes. 
+            // Instead of going through PrototypeFieldSet like the client does, currently we have
+            // manual deserialization routines defined in individual resource prototype classes.
+            // Doing it Gazillion-style is possible, but it's measurably slower than what we have now.
             try
             {
                 IBinaryResource binaryResource = (IBinaryResource)prototype;
@@ -44,66 +45,63 @@ namespace MHServerEmu.Games.GameData.Resources
             }
             catch (Exception e)
             {
-                Verify.IsTrue(false, e.Message);
+                Verify.IsTrue(false, $"Error deserializing resource prototype {prototype}\n{e}");
                 return false;
             }
 
             return true;
         }
 
-        public static bool ReadPrototypeContainer<T>(out T[] list, BinaryReader reader) where T: Prototype, IBinaryResource
+        public static T[] ReadPrototypeContainer<T>(BinaryReader reader) where T: Prototype, IBinaryResource
         {
-            list = Array.Empty<T>();
-
-            if (!Verify.IsTrue(reader.Read(out uint size))) return false;
+            if (!Verify.IsTrue(reader.Read(out uint size))) return null;
 
             if (size == 0)
-                return true;
+                return Array.Empty<T>();
 
             PrototypeClassManager classManager = GameDatabase.PrototypeClassManager;
 
-            list = new T[size];
+            T[] list = new T[size];
 
             for (int i = 0; i < size; i++)
             {
                 // Binary resources use djb2 hashes of prototype names for polymorphic serialization.
-                if (!Verify.IsTrue(reader.Read(out uint protoNameHash))) return false;
+                if (!Verify.IsTrue(reader.Read(out uint protoNameHash))) return null;
 
                 Type classType = classManager.GetPrototypeClassTypeByNameHash(protoNameHash);
-                if (!Verify.IsNotNull(classType)) return false;
+                if (!Verify.IsNotNull(classType)) return null;
 
                 T item = classManager.AllocatePrototype(classType) as T;
-                if (!Verify.IsNotNull(item)) return false;
+                if (!Verify.IsNotNull(item)) return null;
 
                 try
                 {
                     item.Deserialize(reader);
                 }
-                catch (Exception)
+                catch (Exception e)
                 {
-                    Verify.IsTrue(false, $"Error deserializing prototype container item {item.GetType().Name}");
+                    Verify.IsTrue(false, $"Error deserializing prototype container item {item.GetType().Name}\n{e}");
+                    return null;
                 }
 
                 list[i] = item;
             }
 
-            return true;
+            return list;
         }
 
-        public static bool ReadContainerFromBinaryReader<T>(out T[] list, BinaryReader reader) where T: unmanaged
+        public static T[] ReadVectorFromBinaryReader<T>(BinaryReader reader) where T: unmanaged
         {
             // Replacement for BinaryResourceSerializer::readVectorFromBinaryReader() from the client.
-            list = Array.Empty<T>();
 
-            if (!Verify.IsTrue(reader.Read(out uint size))) return false;
+            if (!Verify.IsTrue(reader.Read(out uint size))) return null;
 
-            if (size > 0)
-            {
-                list = new T[size];
-                reader.Read(MemoryMarshal.Cast<T, byte>(list)); // read the whole thing in one fell swoop
-            }
+            if (size == 0)
+                return Array.Empty<T>();
 
-            return true;
+            T[] list = new T[size];
+            reader.Read(MemoryMarshal.AsBytes(list.AsSpan())); // read the whole thing in one fell swoop
+            return list;
         }
 
 #pragma warning disable CS0649

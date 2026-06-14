@@ -6,6 +6,8 @@ namespace MHServerEmu.Games.GameData.Prototypes.Markers
     {
         public string Resource { get; protected set; }
 
+        //---
+
         public override void Deserialize(BinaryReader reader)
         {
             Resource = reader.ReadFixedString32();

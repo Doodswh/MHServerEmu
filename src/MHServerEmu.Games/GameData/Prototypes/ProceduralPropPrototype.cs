@@ -16,8 +16,7 @@ namespace MHServerEmu.Games.GameData.Prototypes
 
         public void Deserialize(BinaryReader reader)
         {
-            if (BinaryResourceSerializer.ReadPrototypeContainer(out ProceduralPropGroupPrototype[] propGroups, reader))
-                PropGroups = propGroups;
+            PropGroups = BinaryResourceSerializer.ReadPrototypeContainer<ProceduralPropGroupPrototype>(reader);
         }
 
         public override void PostProcess()
@@ -57,8 +56,10 @@ namespace MHServerEmu.Games.GameData.Prototypes
         public Vector3 MarkerRotation { get; protected set; }
         public MarkerSetPrototype Objects { get; protected set; } = new();
         public NaviPatchSourcePrototype NaviPatchSource { get; protected set; } = new();
-        public ushort RandomRotationDegrees { get; protected set; } // short
-        public ushort RandomPosition { get; protected set; } // short
+        public short RandomRotationDegrees { get; protected set; }
+        public short RandomPosition { get; protected set; }
+
+        //---
 
         public void Deserialize(BinaryReader reader)
         {
@@ -68,8 +69,8 @@ namespace MHServerEmu.Games.GameData.Prototypes
             MarkerRotation = reader.Read<Vector3>();
             Objects.Deserialize(reader);
             NaviPatchSource.Deserialize(reader);
-            RandomRotationDegrees = reader.ReadUInt16();
-            RandomPosition = reader.ReadUInt16();
+            RandomRotationDegrees = reader.ReadInt16();
+            RandomPosition = reader.ReadInt16();
         }
     }
 }

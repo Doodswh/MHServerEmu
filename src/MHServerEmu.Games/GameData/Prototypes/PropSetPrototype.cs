@@ -8,11 +8,11 @@ namespace MHServerEmu.Games.GameData.Prototypes
         public PropSetTypeListPrototype[] PropShapeLists { get; protected set; }
         public string PropSetPackage { get; protected set; }
 
+        //---
+
         public void Deserialize(BinaryReader reader)
         {
-            if (BinaryResourceSerializer.ReadPrototypeContainer(out PropSetTypeListPrototype[] propShapeLists, reader))
-                PropShapeLists = propShapeLists;
-
+            PropShapeLists = BinaryResourceSerializer.ReadPrototypeContainer<PropSetTypeListPrototype>(reader);
             PropSetPackage = reader.ReadFixedString32();
         }
     }
@@ -22,11 +22,11 @@ namespace MHServerEmu.Games.GameData.Prototypes
         public PropSetTypeEntryPrototype[] PropShapeEntries { get; protected set; }
         public PrototypeGuid PropType { get; protected set; }
 
+        //---
+
         public void Deserialize(BinaryReader reader)
         {
-            if (BinaryResourceSerializer.ReadPrototypeContainer(out PropSetTypeEntryPrototype[] propShapeEntries, reader))
-                PropShapeEntries = propShapeEntries;
-
+            PropShapeEntries = BinaryResourceSerializer.ReadPrototypeContainer<PropSetTypeEntryPrototype>(reader);
             PropType = (PrototypeGuid)reader.ReadUInt64();
         }
     }
@@ -35,6 +35,8 @@ namespace MHServerEmu.Games.GameData.Prototypes
     {
         public string NameId { get; protected set; }
         public string ResourcePackage { get; protected set; }
+
+        //---
 
         public void Deserialize(BinaryReader reader)
         {

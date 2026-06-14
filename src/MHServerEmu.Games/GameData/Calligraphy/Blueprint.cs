@@ -455,7 +455,7 @@ namespace MHServerEmu.Games.GameData.Calligraphy
 
                 case PrototypeFieldType.Invalid:
                 case PrototypeFieldType.Text:
-                case PrototypeFieldType.UnkType12:
+                case PrototypeFieldType.SymbolicBitSet:
                 case PrototypeFieldType.Vector3:
                 case PrototypeFieldType.Point3:
                 case PrototypeFieldType.IPoint3:
@@ -466,7 +466,7 @@ namespace MHServerEmu.Games.GameData.Calligraphy
                 case PrototypeFieldType.Transform3:
                 case PrototypeFieldType.Aabb:
                 case PrototypeFieldType.PrototypeGuid:
-                case PrototypeFieldType.AssetName:
+                case PrototypeFieldType.ResourceName:
                 case PrototypeFieldType.Mixin:
                 case PrototypeFieldType.Prototype:
                 case PrototypeFieldType.ListBool:

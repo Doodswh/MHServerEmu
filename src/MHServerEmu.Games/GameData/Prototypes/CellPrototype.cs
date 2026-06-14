@@ -41,9 +41,12 @@ namespace MHServerEmu.Games.GameData.Prototypes
             NaviPatchSource.Deserialize(reader);
             IsOffsetInMapFile = reader.ReadBoolean();
             HeightMap.Deserialize(reader);
+            HotspotPrototypes = BinaryResourceSerializer.ReadVectorFromBinaryReader<PrototypeGuid>(reader);
+        }
 
-            if (BinaryResourceSerializer.ReadContainerFromBinaryReader(out PrototypeGuid[] hotspotPrototypes, reader))
-                HotspotPrototypes = hotspotPrototypes;
+        public override void PostProcess()
+        {
+            base.PostProcess();
 
             HasNavigationData = NaviPatchSource.NaviPatch.Points.HasValue() || NaviPatchSource.PropPatch.Points.HasValue();
         }
@@ -56,16 +59,14 @@ namespace MHServerEmu.Games.GameData.Prototypes
         public short[] HeightMapData { get; protected set; }
         public byte[] HotspotData { get; protected set; }
 
+        //---
+
         public void Deserialize(BinaryReader reader)
         {
             HeightMapSizeX = reader.ReadInt32();
             HeightMapSizeY = reader.ReadInt32();
-
-            if (BinaryResourceSerializer.ReadContainerFromBinaryReader(out short[] heightMapData, reader))
-                HeightMapData = heightMapData;
-
-            if (BinaryResourceSerializer.ReadContainerFromBinaryReader(out byte[] hotspotData, reader))
-                HotspotData = hotspotData;
+            HeightMapData = BinaryResourceSerializer.ReadVectorFromBinaryReader<short>(reader);
+            HotspotData = BinaryResourceSerializer.ReadVectorFromBinaryReader<byte>(reader);
         }
     }
 }

@@ -8,6 +8,8 @@ namespace MHServerEmu.Games.GameData.Prototypes.Markers
         public string UnrealQualifiedName { get; protected set; }
         public string UnrealArchetypeName { get; protected set; }
 
+        //---
+
         public override void Deserialize(BinaryReader reader)
         {
             UnrealClassName = reader.ReadFixedString32();

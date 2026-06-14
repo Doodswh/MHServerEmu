@@ -21,7 +21,12 @@ namespace MHServerEmu.Games.GameData.Prototypes
             ClientMap = reader.ReadFixedString32();
             MarkerSet.Deserialize(reader);
             NaviPatchSource.Deserialize(reader);
-            
+        }
+
+        public override void PostProcess()
+        {
+            base.PostProcess();
+
             HasEdges = NaviPatchSource.NaviPatch.Edges.HasValue() || NaviPatchSource.PropPatch.Edges.HasValue();
         }
     }

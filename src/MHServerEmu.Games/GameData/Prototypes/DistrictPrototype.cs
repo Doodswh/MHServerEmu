@@ -9,6 +9,8 @@ namespace MHServerEmu.Games.GameData.Prototypes
         public MarkerSetPrototype MarkerSet { get; protected set; } = new();    // Size is always 0 in all of our files
         public PathCollectionPrototype PathCollection { get; protected set; } = new();
 
+        //---
+
         public void Deserialize(BinaryReader reader)
         {
             CellMarkerSet.Deserialize(reader);

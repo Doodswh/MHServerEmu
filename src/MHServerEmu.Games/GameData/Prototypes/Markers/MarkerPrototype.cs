@@ -12,6 +12,8 @@ namespace MHServerEmu.Games.GameData.Prototypes.Markers
         public Vector3 Position { get; protected set; }
         public Orientation Rotation { get; protected set; }
 
+        //---
+
         public virtual void Deserialize(BinaryReader reader)
         {
             Position = reader.Read<Vector3>();
@@ -25,12 +27,13 @@ namespace MHServerEmu.Games.GameData.Prototypes.Markers
 
     public class MarkerSetPrototype : Prototype, IBinaryResource
     {
-        public MarkerPrototype[] Markers { get; private set; }
+        public MarkerPrototype[] Markers { get; protected set; }
+
+        //---
 
         public void Deserialize(BinaryReader reader)
         {
-            if (BinaryResourceSerializer.ReadPrototypeContainer(out MarkerPrototype[] markers, reader))
-                Markers = markers;
+            Markers = BinaryResourceSerializer.ReadPrototypeContainer<MarkerPrototype>(reader);
         }
 
         public void GetContainedEntities(HashSet<PrototypeId> refs)

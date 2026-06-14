@@ -27,6 +27,7 @@ namespace MHServerEmu.Games.GameData
             { typeof(AssetTypeId),                  PrototypeFieldType.AssetTypeRef },
             { typeof(CurveId),                      PrototypeFieldType.CurveRef },
             { typeof(Vector3),                      PrototypeFieldType.Vector3 },
+            { typeof(Vector2),                      PrototypeFieldType.Point2 },
             { typeof(Orientation),                  PrototypeFieldType.Orientation },
             { typeof(Aabb),                         PrototypeFieldType.Aabb },
             { typeof(LocaleStringId),               PrototypeFieldType.LocaleStringId },
@@ -46,7 +47,6 @@ namespace MHServerEmu.Games.GameData
             { typeof(PrototypeId[]),                PrototypeFieldType.ListPrototypeDataRef },
             { typeof(Prototype[]),                  PrototypeFieldType.ListPrototypePtr },
             { typeof(PrototypeMixinList),           PrototypeFieldType.ListMixin },
-            { typeof(PrototypeGuid[]),              PrototypeFieldType.Vector },
             { typeof(PrototypePropertyCollection),  PrototypeFieldType.PropertyCollection },
         };
 

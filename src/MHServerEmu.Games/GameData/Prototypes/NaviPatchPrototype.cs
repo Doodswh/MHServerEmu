@@ -1,4 +1,5 @@
-﻿using MHServerEmu.Core.VectorMath;
+﻿using MHServerEmu.Core.Extensions;
+using MHServerEmu.Core.VectorMath;
 using MHServerEmu.Games.GameData.Resources;
 using MHServerEmu.Games.Navi;
 
@@ -6,16 +7,19 @@ namespace MHServerEmu.Games.GameData.Prototypes
 {
     public class NaviPatchSourcePrototype : Prototype, IBinaryResource
     {
-        // PatchFragments "Skipping writing field %s in class %s because it has eFlagDontCook set"
-        public uint NaviPatchCrc { get; protected set; }
+        public NaviPatchFragmentPrototype[] PatchFragments { get; protected set; }  // eFlagDontCook
+        public int NaviPatchCRC { get; protected set; }
         public NaviPatchPrototype NaviPatch { get; protected set; } = new();
         public NaviPatchPrototype PropPatch { get; protected set; } = new();
         public float PlayableArea { get; protected set; }
         public float SpawnableArea { get; protected set; }
 
+        //---
+
         public void Deserialize(BinaryReader reader)
         {
-            NaviPatchCrc = reader.ReadUInt32();
+            // PatchFragments = BinaryResourceSerializer.ReadPrototypeContainer<NaviPatchFragmentPrototype>(reader);
+            NaviPatchCRC = reader.ReadInt32();
             NaviPatch.Deserialize(reader);
             PropPatch.Deserialize(reader);
             PlayableArea = reader.ReadSingle();
@@ -28,47 +32,50 @@ namespace MHServerEmu.Games.GameData.Prototypes
         public Vector3[] Points { get; protected set; }
         public NaviPatchEdgePrototype[] Edges { get; protected set; }
 
+        //---
+
         public void Deserialize(BinaryReader reader)
         {
-            if (BinaryResourceSerializer.ReadContainerFromBinaryReader(out Vector3[] points, reader))
-                Points = points;
-
-            if (BinaryResourceSerializer.ReadPrototypeContainer(out NaviPatchEdgePrototype[] edges, reader))
-                Edges = edges;
+            Points = BinaryResourceSerializer.ReadVectorFromBinaryReader<Vector3>(reader);
+            Edges = BinaryResourceSerializer.ReadPrototypeContainer<NaviPatchEdgePrototype>(reader);
         }
     }
 
     public class NaviPatchEdgePrototype : Prototype, IBinaryResource
     {
-        public uint Index0 { get; protected set; }
-        public uint Index1 { get; protected set; }
+        public int Index0 { get; protected set; }
+        public int Index1 { get; protected set; }
         public NaviContentFlags[] Flags0 { get; protected set; }
         public NaviContentFlags[] Flags1 { get; protected set; }
 
+        //---
+
         public void Deserialize(BinaryReader reader)
         {
-            Index0 = reader.ReadUInt32();
-            Index1 = reader.ReadUInt32();
-
-            if (BinaryResourceSerializer.ReadContainerFromBinaryReader(out NaviContentFlags[] flags0, reader))
-                Flags0 = flags0;
-
-            if (BinaryResourceSerializer.ReadContainerFromBinaryReader(out NaviContentFlags[] flags1, reader))
-                Flags1 = flags1;
+            Index0 = reader.ReadInt32();
+            Index1 = reader.ReadInt32();
+            Flags0 = BinaryResourceSerializer.ReadVectorFromBinaryReader<NaviContentFlags>(reader);
+            Flags1 = BinaryResourceSerializer.ReadVectorFromBinaryReader<NaviContentFlags>(reader);
         }
     }
 
     public class NaviPatchFragmentPrototype : Prototype, IBinaryResource
     {
         public Vector3 Position { get; protected set; }
-        public Vector3 Rotation { get; protected set; }
+        public Orientation Rotation { get; protected set; }
         public Vector3 Scale { get; protected set; }
         public Vector3 PrePivot { get; protected set; }
-        public ulong FragmentResource { get; protected set; }
+        public string FragmentResource { get; protected set; }
+
+        //---
 
         public void Deserialize(BinaryReader reader)
         {
-            throw new NotImplementedException();
+            Position = reader.Read<Vector3>();
+            Rotation = reader.Read<Orientation>();
+            Scale = reader.Read<Vector3>();
+            PrePivot = reader.Read<Vector3>();
+            FragmentResource = reader.ReadFixedString32();
         }
     }
 }

@@ -15,7 +15,7 @@
         Float64,
         Text,                   // utf-8 prefixed by int32 length
         Enum,
-        UnkType12,
+        SymbolicBitSet,         // byte array of flag enums (e.g. NaviContentFlags in NaviPatchEdgePrototype)
         FunctionPtr,
         PrototypeDataRef,
         AssetRef,
@@ -32,7 +32,7 @@
         Aabb,
         LocaleStringId,
         PrototypeGuid,
-        AssetName,              // same as text
+        ResourceName,           // same as text
         Mixin,
         Prototype,
         PrototypePtr,

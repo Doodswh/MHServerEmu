@@ -7,6 +7,8 @@ namespace MHServerEmu.Games.GameData.Prototypes.Markers
     {
         public Vector3 Extents { get; protected set; }
 
+        //---
+
         public override void Deserialize(BinaryReader reader)
         {
             Extents = reader.Read<Vector3>();
