@@ -2,7 +2,6 @@
 using MHServerEmu.Core.Extensions;
 using MHServerEmu.Core.Logging;
 using MHServerEmu.Games.GameData.Prototypes;
-using MHServerEmu.Games.GameData.Prototypes.Markers;
 
 namespace MHServerEmu.Games.GameData.Resources
 {
@@ -70,35 +69,10 @@ namespace MHServerEmu.Games.GameData.Resources
                 // Binary resources use djb2 hashes of prototype names for polymorphic serialization.
                 if (!Verify.IsTrue(reader.Read(out uint protoNameHash))) return false;
 
-                Prototype prototype;
+                Type classType = classManager.GetPrototypeClassTypeByNameHash(protoNameHash);
+                if (!Verify.IsNotNull(classType)) return false;
 
-                switch ((ResourcePrototypeHash)protoNameHash)
-                {
-                    // Fast allocation for known hashes.
-                    case ResourcePrototypeHash.CellConnectorMarkerPrototype:    prototype = new CellConnectorMarkerPrototype(); break;
-                    case ResourcePrototypeHash.DotCornerMarkerPrototype:        prototype = new DotCornerMarkerPrototype(); break;
-                    case ResourcePrototypeHash.EntityMarkerPrototype:           prototype = new EntityMarkerPrototype(); break;
-                    case ResourcePrototypeHash.RoadConnectionMarkerPrototype:   prototype = new RoadConnectionMarkerPrototype(); break;
-                    case ResourcePrototypeHash.ResourceMarkerPrototype:         prototype = new ResourceMarkerPrototype(); break;
-                    case ResourcePrototypeHash.UnrealPropMarkerPrototype:       prototype = new UnrealPropMarkerPrototype(); break;
-                    case ResourcePrototypeHash.PathNodeSetPrototype:            prototype = new PathNodeSetPrototype(); break;
-                    case ResourcePrototypeHash.PathNodePrototype:               prototype = new PathNodePrototype(); break;
-                    case ResourcePrototypeHash.PropSetTypeListPrototype:        prototype = new PropSetTypeListPrototype(); break;
-                    case ResourcePrototypeHash.PropSetTypeEntryPrototype:       prototype = new PropSetTypeEntryPrototype(); break;
-                    case ResourcePrototypeHash.ProceduralPropGroupPrototype:    prototype = new ProceduralPropGroupPrototype(); break;
-                    case ResourcePrototypeHash.StretchedPanelPrototype:         prototype = new StretchedPanelPrototype(); break;
-                    case ResourcePrototypeHash.AnchoredPanelPrototype:          prototype = new AnchoredPanelPrototype(); break;
-
-                    default:
-                        // Fall back to slow allocation using compiled delegates.
-                        Type classType = classManager.GetPrototypeClassTypeByNameHash(protoNameHash);
-                        if (!Verify.IsNotNull(classType)) return false;
-
-                        prototype = classManager.AllocatePrototype(classType);
-                        break;
-                }
-
-                T item = prototype as T;
+                T item = classManager.AllocatePrototype(classType) as T;
                 if (!Verify.IsNotNull(item)) return false;
 
                 try
@@ -130,26 +104,6 @@ namespace MHServerEmu.Games.GameData.Resources
             }
 
             return true;
-        }
-
-        /// <summary>
-        /// A djb2 hash used to identify the resource prototype class.
-        /// </summary>
-        private enum ResourcePrototypeHash : uint
-        {
-            CellConnectorMarkerPrototype    = 2901607432,
-            DotCornerMarkerPrototype        = 468664301,
-            EntityMarkerPrototype           = 3862899546,
-            RoadConnectionMarkerPrototype   = 576407411,
-            ResourceMarkerPrototype         = 3468126021,
-            UnrealPropMarkerPrototype       = 913217989,
-            PathNodeSetPrototype            = 1572935802,
-            PathNodePrototype               = 908860270,
-            PropSetTypeListPrototype        = 1819714054,
-            PropSetTypeEntryPrototype       = 2348267420,
-            ProceduralPropGroupPrototype    = 2480167290,
-            StretchedPanelPrototype         = 805156721,
-            AnchoredPanelPrototype          = 1255662575
         }
 
 #pragma warning disable CS0649
