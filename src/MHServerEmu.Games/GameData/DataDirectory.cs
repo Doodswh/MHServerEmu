@@ -2,6 +2,7 @@
 using MHServerEmu.Core.Extensions;
 using MHServerEmu.Core.Helpers;
 using MHServerEmu.Core.Logging;
+using MHServerEmu.Core.Memory;
 using MHServerEmu.Games.GameData.Calligraphy;
 using MHServerEmu.Games.GameData.Prototypes;
 using MHServerEmu.Games.GameData.Prototypes.Markers;
@@ -81,13 +82,10 @@ namespace MHServerEmu.Games.GameData
         {
             Stopwatch stopwatch = Stopwatch.StartNew();
 
-            // Load Calligraphy data
             LoadCalligraphyDataFramework();
 
-            // Load resource prototypes
             CreatePrototypeDataRefsForDirectory();
 
-            // Build hierarchy lists and generate enum lookups for each prototype class and blueprint
             InitializeHierarchyCache();
 
             stopwatch.Stop();
@@ -99,7 +97,7 @@ namespace MHServerEmu.Games.GameData
         /// </summary>
         private Stream LoadPakDataFile(string filePath, PakFileId pakId)
         {
-            return PakFileSystem.Instance.LoadFromPak(filePath, pakId);
+            return PakFileSystem.Instance.LoadFromPak(filePath, (int)pakId);
         }
 
         /// <summary>
@@ -205,25 +203,25 @@ namespace MHServerEmu.Games.GameData
         /// </summary>
         private void CreatePrototypeDataRefsForDirectory()
         {
-            int numResources = 0;
+            const string prefix = "resource";
 
-            foreach (string filePath in PakFileSystem.Instance.GetResourceFiles("Resource"))
-            {
-                AddResource(filePath);
-                numResources++;
-            }
+            using var pakResourcesHandle = ListPool<string>.Instance.Get(out List<string> pakResources);
 
-            Logger.Info($"Loaded {numResources} resource prototype entries");
+            if (!Verify.IsTrue(PakFileSystem.Instance.GetResourceFiles(prefix, pakResources))) return;
+
+            foreach (string filePath in pakResources)
+                Verify.IsTrue(AddResource(filePath) != PrototypeId.Invalid);
+
+            Logger.Info($"Loaded {pakResources.Count} resource prototype entries");
         }
 
         /// <summary>
         /// Creates a <see cref="PrototypeDataRefRecord"/> for a resource <see cref="Prototype"/> without loading it.
         /// </summary>
-        private void AddResource(string filePath)
+        private PrototypeId AddResource(string filePath)
         {
-            // Get class type
             Type classType = GetResourceClassTypeByFileName(filePath);
-            if (!Verify.IsNotNull(classType)) return;
+            if (!Verify.IsNotNull(classType)) return PrototypeId.Invalid;
 
             // Create a dataRef
             PrototypeId prototypeId = (PrototypeId)HashHelper.HashPath($"&{filePath}");   
@@ -242,6 +240,8 @@ namespace MHServerEmu.Games.GameData
 
             _prototypeDataRefRecords.Add(prototypeId, record);
             // Load the resource on demand
+
+            return prototypeId;
         }
 
         /// <summary>

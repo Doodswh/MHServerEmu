@@ -6,7 +6,7 @@ namespace MHServerEmu.Games.GameData
     public enum PakFileId
     {
         Default,        // mu_cdata.sip
-        Calligraphy     // Introduced in 1.31, in versions prior to that everything is stored in a single pak
+        Calligraphy,    // Introduced in 1.31, in versions prior to that everything is stored in a single pak
     }
 
     /// <summary>
@@ -15,11 +15,11 @@ namespace MHServerEmu.Games.GameData
     public class PakFileSystem
     {
         private static readonly string PakDirectory = Path.Combine(FileHelper.DataDirectory, "Game");
-        private static readonly string[] PakFilePaths = new string[]
-        {
+        private static readonly string[] PakFilePaths =
+        [
             Path.Combine(PakDirectory, "mu_cdata.sip"),
             Path.Combine(PakDirectory, "Calligraphy.sip")
-        };
+        ];
 
         private static readonly Logger Logger = LogManager.CreateLogger();
 
@@ -36,13 +36,16 @@ namespace MHServerEmu.Games.GameData
         {
             for (int i = 0; i < PakFilePaths.Length; i++)
             {
-                if (File.Exists(PakFilePaths[i]) == false)
+                string filePath = PakFilePaths[i];
+
+                if (File.Exists(filePath) == false)
                 {
                     Logger.Fatal($"mu_cdata.sip and/or Calligraphy.sip are missing! Make sure you copied these files to {PakDirectory}.");
                     return false;
                 }
 
-                _paks[i] = new PakFile(PakFilePaths[i]);
+                _paks[i] = new PakFile(filePath);
+                Logger.Info($"Loaded {_paks[i].Count} entries from {Path.GetFileName(filePath)}");
             }
 
             return true;
@@ -51,19 +54,23 @@ namespace MHServerEmu.Games.GameData
         /// <summary>
         /// Returns a <see cref="Stream"/> of decompressed pak data from the specified pak file.
         /// </summary>
-        public Stream LoadFromPak(string filePath, PakFileId pakId)
+        public Stream LoadFromPak(string filePath, int pakId)
         {
-            return _paks[(int)pakId].LoadFileDataInPak(filePath);
+            int diskDbCount = _paks.Length;
+            if (!Verify.IsTrue(pakId >= 0 && pakId < diskDbCount, $"pak id {pakId} not in bounds [0, {diskDbCount})"))
+                return null;
+
+            return _paks[pakId].LoadFileDataInPak(filePath);
         }
 
         /// <summary>
         /// Returns an <see cref="IEnumerable{T}"/> collection of resource file paths with the specified prefix.
         /// </summary>
-        public IEnumerable<string> GetResourceFiles(string prefix)
+        public bool GetResourceFiles(string prefix, List<string> pakResources)
         {
-            // Note: the original implementation iterates through all paks rather than
-            // just going straight for the default one.
-            return _paks[(int)PakFileId.Default].GetFilesFromPak(prefix);
+            // NOTE: the client code iterates through all paks rather than just going straight for the default one like we do.
+            _paks[(int)PakFileId.Default].GetFilesFromPak(prefix, pakResources);
+            return true;
         }
     }
 }

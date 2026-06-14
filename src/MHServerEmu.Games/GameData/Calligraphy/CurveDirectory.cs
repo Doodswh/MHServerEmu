@@ -43,7 +43,7 @@ namespace MHServerEmu.Games.GameData.Calligraphy
             if (record.Curve == null)
             {
                 string curveFilename = $"Calligraphy/{GameDatabase.GetCurveName(curveRef)}";
-                using Stream fileStream = PakFileSystem.Instance.LoadFromPak(curveFilename, PakFileId.Calligraphy);
+                using Stream fileStream = PakFileSystem.Instance.LoadFromPak(curveFilename, (int)PakFileId.Calligraphy);
                 if (!Verify.IsNotNull(fileStream, $"Unable to open file %s"))
                     return null;
 
