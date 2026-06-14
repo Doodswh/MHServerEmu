@@ -1,6 +1,7 @@
 ﻿using System.Diagnostics;
 using System.Reflection;
 using System.Reflection.Emit;
+using MHServerEmu.Core.Helpers;
 using MHServerEmu.Core.Logging;
 using MHServerEmu.Games.GameData.Calligraphy;
 using MHServerEmu.Games.GameData.PatchManager;
@@ -16,6 +17,7 @@ namespace MHServerEmu.Games.GameData
         private static readonly Logger Logger = LogManager.CreateLogger();
 
         private readonly Dictionary<string, Type> _prototypeTypes = new();
+        private readonly Dictionary<uint, Type> _prototypeTypesByHash;
         private readonly Dictionary<Type, Func<Prototype>> _prototypeConstructors;
         private readonly Dictionary<Type, PrototypeFieldSet> _prototypeFieldSets;
 
@@ -31,8 +33,14 @@ namespace MHServerEmu.Games.GameData
                     _prototypeTypes.Add(type.Name, type);
             }
 
-            _prototypeConstructors = new(_prototypeTypes.Count);
-            _prototypeFieldSets = new(_prototypeTypes.Count);
+            int numPrototypeClasses = _prototypeTypes.Count;
+            _prototypeTypesByHash = new(numPrototypeClasses);
+            _prototypeConstructors = new(numPrototypeClasses);
+            _prototypeFieldSets = new(numPrototypeClasses);
+
+            // djb2 hashes are used to identify classes in resource prototypes.
+            foreach (Type type in _prototypeTypes.Values)
+                _prototypeTypesByHash.Add(HashHelper.Djb2(type.Name), type);
 
             stopwatch.Stop();
             Logger.Info($"Initialized {_prototypeTypes.Count} prototype classes in {stopwatch.ElapsedMilliseconds} ms");
@@ -63,9 +71,26 @@ namespace MHServerEmu.Games.GameData
         /// <summary>
         /// Gets prototype class type by its name.
         /// </summary>
+        /// <remarks>
+        /// This replaces PrototypeClassManager::GetPrototypeClassInfoByName() from the client.
+        /// </remarks>
         public Type GetPrototypeClassTypeByName(string name)
         {
             if (_prototypeTypes.TryGetValue(name, out Type type) == false)
+                return null;
+
+            return type;
+        }
+
+        /// <summary>
+        /// Gets prototype class type by the djb2 hash of its name.
+        /// </summary>
+        /// <remarks>
+        /// This replaces PrototypeClassManager::GetPrototypeClassInfoByNameHash() from the client.
+        /// </remarks>
+        public Type GetPrototypeClassTypeByNameHash(uint hash)
+        {
+            if (_prototypeTypesByHash.TryGetValue(hash, out Type type) == false)
                 return null;
 
             return type;

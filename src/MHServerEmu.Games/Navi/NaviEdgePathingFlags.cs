@@ -16,7 +16,7 @@ namespace MHServerEmu.Games.Navi
     }
 
     [Flags]
-    public enum NaviContentFlags
+    public enum NaviContentFlags : byte
     {
         None = 0,
         AddWalk = 1 << 0,
