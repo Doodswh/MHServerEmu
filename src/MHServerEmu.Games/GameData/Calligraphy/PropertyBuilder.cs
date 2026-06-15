@@ -62,7 +62,7 @@ namespace MHServerEmu.Games.GameData.Calligraphy
                 return;
 
             PropertyInfo info = _propertyInfoTable.LookupPropertyInfo(_propertyEnum);
-            if (!Verify.IsNotNull(info)) return;
+            if (!Verify.IsTrue(info.IsFullyLoaded == false)) return;
 
             int numIntegerParams = 0;
             int usedBitCount = 0;
