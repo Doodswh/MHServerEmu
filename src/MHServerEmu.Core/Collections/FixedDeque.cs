@@ -1,15 +1,19 @@
-﻿namespace MHServerEmu.Core.Collections
+﻿using MHServerEmu.Core.Memory;
+
+namespace MHServerEmu.Core.Collections
 {
-    public class FixedDeque<T>
+    public sealed class FixedDequePool<T> : GenericPool<FixedDeque<T>> { }
+
+    public class FixedDeque<T> : IPoolable
     {
         private readonly T[] _items;
         private int _first;
         private int _last;
         private readonly int _maxSize;
 
-        public FixedDeque(int size)
+        public FixedDeque()
         {
-            _maxSize = size + 1;
+            _maxSize = GetSize() + 1;
             _items = new T[_maxSize];
             _first = 0;
             _last = 0;
@@ -95,6 +99,19 @@
             _items[_first] = default;
             _first = (_first + 1) % _maxSize;
             return true;
+        }
+
+        public virtual void ResetForPool()
+        {
+            Clear();
+        }
+
+        protected virtual int GetSize()
+        {
+            // We specify capacity in a virtual override instead of passing it in a constructor
+            // to guarantee that all instances of a specific type have the same capacity.
+            // This keeps everything consistent when they are stored in pools.
+            return 256;
         }
     }
 }
