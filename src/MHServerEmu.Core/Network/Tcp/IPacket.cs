@@ -7,7 +7,6 @@
     {
         public int SerializedSize { get; }
 
-        public int Serialize(byte[] buffer);
-        public int Serialize(Stream stream);
+        public int Serialize(byte[] buffer, int offset);
     }
 }

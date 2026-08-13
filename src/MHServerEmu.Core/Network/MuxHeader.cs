@@ -59,7 +59,7 @@ namespace MHServerEmu.Core.Network
         /// <summary>
         /// Writes this <see cref="MuxHeader"/> to the provided <see cref="Stream"/>.
         /// </summary>
-        public void WriteTo(Stream stream)
+        public void WriteTo(Span<byte> bytes)
         {
             // Writing bytes to a ulong and reinterpret casting it to a Span<byte> is faster than writing bytes individually (as of .NET 8)
 
@@ -68,11 +68,8 @@ namespace MHServerEmu.Core.Network
             bits |= (ulong)DataSize << 16;
             bits |= (ulong)Command << 40;
 
-            // Reinterpret cast packed data as a byte span
-            Span<byte> bytes = MemoryMarshal.AsBytes(MemoryMarshal.CreateSpan(ref bits, 1));
-            
-            // Write the bytes we need to the stream
-            stream.Write(bytes[..Size]);
+            // Reinterpret cast packed data as a byte span and copy to output
+            MemoryMarshal.AsBytes(MemoryMarshal.CreateSpan(ref bits, 1)).CopyTo(bytes);
         }
     }
 }

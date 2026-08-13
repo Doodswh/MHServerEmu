@@ -312,7 +312,7 @@ namespace MHServerEmu.Core.Network.Tcp
         /// Sends a <see cref="byte"/> buffer over the provided <see cref="TcpClientConnection"/> asynchronously.
         /// Return the number of bytes sent.
         /// </summary>
-        private async Task<int> SendAsync(TcpClientConnection connection, byte[] buffer, int size, SocketFlags flags)
+        private async ValueTask<int> SendAsync(TcpClientConnection connection, byte[] buffer, int size, SocketFlags flags)
         {
             int bytesSentTotal = 0;
             int bytesRemaining = size;
@@ -343,7 +343,7 @@ namespace MHServerEmu.Core.Network.Tcp
         /// Sends an <see cref="IPacket"/> over the provided <see cref="TcpClientConnection"/> asynchronously.
         /// Returns the number of bytes sent.
         /// </summary>
-        private async Task<int> SendAsync<T>(TcpClientConnection connection, T packet, SocketFlags flags = SocketFlags.None) where T: IPacket
+        private async ValueTask<int> SendAsync<T>(TcpClientConnection connection, T packet, SocketFlags flags = SocketFlags.None) where T: IPacket
         {
             int sent = 0;
 
@@ -352,7 +352,7 @@ namespace MHServerEmu.Core.Network.Tcp
 
             try
             {
-                packet.Serialize(buffer);
+                packet.Serialize(buffer, 0);
                 sent = await SendAsync(connection, buffer, size, flags);
             }
             finally
