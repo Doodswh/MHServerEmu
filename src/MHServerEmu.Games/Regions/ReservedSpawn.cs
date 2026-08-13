@@ -1,4 +1,5 @@
 ﻿using Gazillion;
+using MHServerEmu.Core.Memory;
 using MHServerEmu.Games.GameData;
 
 namespace MHServerEmu.Games.Regions
@@ -18,8 +19,8 @@ namespace MHServerEmu.Games.Regions
 
         public NetStructReservedSpawn ToNetStruct()
         {
-            return NetStructReservedSpawn.CreateBuilder()
-                .SetAsset((ulong)Asset)
+            using var builderHandle = ProtobufBuilderPool<NetStructReservedSpawn.Builder>.Get(out var builder);
+            return builder.SetAsset((ulong)Asset)
                 .SetId((uint)Id)
                 .SetUseMarkerOrientation(UseMarkerOrientation)
                 .Build();

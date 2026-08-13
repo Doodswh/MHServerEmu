@@ -262,8 +262,8 @@ namespace MHServerEmu.Games.Network
             RemoveEntitiesOnRegionChange(removedEntities, clearingAllInterest);
 
             // Fill in required region change message fields
-            var regionChangeBuilder = NetMessageRegionChange.CreateBuilder()
-                .SetRegionId(regionId)
+            using var regionChangeBuilderHandle = ProtobufBuilderPool<NetMessageRegionChange.Builder>.Get(out var regionChangeBuilder);
+            regionChangeBuilder.SetRegionId(regionId)
                 .SetServerGameId(0)     // This will be set to something valid below if we actually have a region
                 .SetClearingAllInterest(clearingAllInterest)
                 .AddRangeEntitiestodestroy(removedEntities);
@@ -271,17 +271,18 @@ namespace MHServerEmu.Games.Network
             // Add additional region metadata if we have a valid region
             if (newRegion != null)
             {
+                using var paramsBuilderHandle = ProtobufBuilderPool<NetStructCreateRegionParams.Builder>.Get(out var paramsBuilder);
+                paramsBuilder.SetLevel((uint)newRegion.RegionLevel);
+#if GAME_VERSION_1_52 || GAME_VERSION_1_53
+                paramsBuilder.SetDifficultyTierProtoId((ulong)newRegion.DifficultyTierRef);
+#endif
+
                 regionChangeBuilder.SetServerGameId(_game.Id)
                     .SetRegionPrototypeId((ulong)newRegion.PrototypeDataRef)
                     .SetRegionRandomSeed(newRegion.RandomSeed)
                     .SetRegionMin(newRegion.Aabb.Min.ToNetStructPoint3())
                     .SetRegionMax(newRegion.Aabb.Max.ToNetStructPoint3())
-                    .SetCreateRegionParams(NetStructCreateRegionParams.CreateBuilder()
-                        .SetLevel((uint)newRegion.RegionLevel)
-#if GAME_VERSION_1_52 || GAME_VERSION_1_53
-                        .SetDifficultyTierProtoId((ulong)newRegion.DifficultyTierRef)
-#endif
-                        );
+                    .SetCreateRegionParams(paramsBuilder);
 
                 using (Archive archive = new(ArchiveSerializeType.Replication, (ulong)AOINetworkPolicyValues.AllChannels))
                 {
@@ -628,8 +629,8 @@ namespace MHServerEmu.Games.Network
         {
             _trackedAreas.Add(area.Id, new(_currentFrame));
 
-            SendMessage(NetMessageAddArea.CreateBuilder()
-                .SetAreaId(area.Id)
+            using var builderHandle = ProtobufBuilderPool<NetMessageAddArea.Builder>.Get(out var builder);
+            SendMessage(builder.SetAreaId(area.Id)
                 .SetAreaPrototypeId((ulong)area.PrototypeDataRef)
                 .SetAreaOrigin(area.Origin.ToNetStructPoint3())
                 .SetIsStartArea(isStartArea)
@@ -642,9 +643,8 @@ namespace MHServerEmu.Games.Network
 
             if (sendToClient)
             {
-                SendMessage(NetMessageRemoveArea.CreateBuilder()
-                    .SetAreaId(area.Id)
-                    .Build());
+                using var builderHandle = ProtobufBuilderPool<NetMessageRemoveArea.Builder>.Get(out var builder);
+                SendMessage(builder.SetAreaId(area.Id).Build());
             }
         }
 
@@ -653,8 +653,8 @@ namespace MHServerEmu.Games.Network
             _trackedCells.Add(cell.Id, new(_currentFrame, false));
             cell.OnAddedToAOI();
 
-            var builder = NetMessageCellCreate.CreateBuilder()
-                .SetAreaId(cell.Area.Id)
+            using var builderHandle = ProtobufBuilderPool<NetMessageCellCreate.Builder>.Get(out var builder);
+            builder.SetAreaId(cell.Area.Id)
                 .SetCellId(cell.Id)
                 .SetCellPrototypeId((ulong)cell.PrototypeDataRef)
                 .SetPositionInArea(cell.AreaPosition.ToNetStructPoint3())
@@ -677,8 +677,8 @@ namespace MHServerEmu.Games.Network
 
             if (sendToClient && _trackedAreas.ContainsKey(areaId))
             {
-                SendMessage(NetMessageCellDestroy.CreateBuilder()
-                    .SetAreaId(areaId)
+                using var builderHandle = ProtobufBuilderPool<NetMessageCellDestroy.Builder>.Get(out var builder);
+                SendMessage(builder.SetAreaId(areaId)
                     .SetCellId(cell.Id)
                     .Build());
             }
@@ -686,7 +686,8 @@ namespace MHServerEmu.Games.Network
 
         public void RegenerateClientNavi()
         {
-            SendMessage(NetMessageEnvironmentUpdate.CreateBuilder().SetFlags(1).Build());
+            using var builderHandle = ProtobufBuilderPool<NetMessageEnvironmentUpdate.Builder>.Get(out var builder);
+            SendMessage(builder.SetFlags(1).Build());
         }
 
         private void AddEntity(Entity entity, AOINetworkPolicyValues interestPolicies, EntitySettings settings = null)
@@ -710,7 +711,10 @@ namespace MHServerEmu.Games.Network
 
             // Notify the client that we have finished sending everything needed for this avatar
             if (entity is Avatar && interestPolicies.HasFlag(AOINetworkPolicyValues.AOIChannelProximity))
-                SendMessage(NetMessageFullInWorldHierarchyUpdateEnd.CreateBuilder().SetIdEntity(entity.Id).Build());
+            {
+                using var builderHandle = ProtobufBuilderPool<NetMessageFullInWorldHierarchyUpdateEnd.Builder>.Get(out var builder);
+                SendMessage(builder.SetIdEntity(entity.Id).Build());
+            }
         }
 
         private void RemoveEntity(Entity entity)
@@ -720,7 +724,10 @@ namespace MHServerEmu.Games.Network
 
             // Notify the client of a hierarchy update for avatars
             if (entity is Avatar avatar && avatar.IsInWorld)
-                SendMessage(NetMessageFullInWorldHierarchyUpdateBegin.CreateBuilder().SetIdEntity(avatar.Id).Build());
+            {
+                using var hierarchyUpdateBuilderHandle = ProtobufBuilderPool<NetMessageFullInWorldHierarchyUpdateBegin.Builder>.Get(out var hierarchyUpdateBuilder);
+                SendMessage(hierarchyUpdateBuilder.SetIdEntity(avatar.Id).Build());
+            }
 
             // Remove
             SetEntityInterestPolicies(entity, InterestTrackOperation.Remove);
@@ -734,7 +741,8 @@ namespace MHServerEmu.Games.Network
                 return;
 
             // Notify client
-            SendMessage(NetMessageEntityDestroy.CreateBuilder().SetIdEntity(entity.Id).Build());
+            using var builderHandle = ProtobufBuilderPool<NetMessageEntityDestroy.Builder>.Get(out var builder);
+            SendMessage(builder.SetIdEntity(entity.Id).Build());
         }
 
         private bool ModifyEntity(Entity entity, AOINetworkPolicyValues newInterestPolicies, EntitySettings settings = null)
@@ -760,8 +768,8 @@ namespace MHServerEmu.Games.Network
             {
                 // NOTE: NetMessageChangeAOIPolicies is referred to as "replication policy forget message"
                 // in GameConnection::handleNetMessageChangeAOIPolicies.
-                var changeAoiPolicies = NetMessageChangeAOIPolicies.CreateBuilder()
-                    .SetIdEntity(entity.Id)
+                using var changeAoiPoliciesHandle = ProtobufBuilderPool<NetMessageChangeAOIPolicies.Builder>.Get(out var changeAoiPolicies);
+                changeAoiPolicies.SetIdEntity(entity.Id)
                     .SetCurrentpolicies((uint)newInterestPolicies);
 
                 // Remove world entities from the game world that are no longer in proximity on the client
@@ -790,8 +798,8 @@ namespace MHServerEmu.Games.Network
             }
 
             // Notify client of the added policies (entityDataId unused)
-            SendMessage(NetMessageInterestPolicies.CreateBuilder()
-                .SetIdEntity(entity.Id)
+            using var interestPoliciesBuilderHandle = ProtobufBuilderPool<NetMessageInterestPolicies.Builder>.Get(out var interestPoliciesBuilder);
+            SendMessage(interestPoliciesBuilder.SetIdEntity(entity.Id)
                 .SetNewPolicies((uint)newInterestPolicies)
                 .SetPrevPolicies((uint)previousInterestPolicies)
                 .Build());
@@ -830,8 +838,8 @@ namespace MHServerEmu.Games.Network
                             {
                                 // If we were already interested in the contained entity and are now becoming
                                 // aware of its owner, rather than recreating it, we move it on the client.
-                                SendMessage(NetMessageInventoryMove.CreateBuilder()
-                                    .SetEntityId(containedEntity.Id)
+                                using var builderHandle = ProtobufBuilderPool<NetMessageInventoryMove.Builder>.Get(out var builder);
+                                SendMessage(builder.SetEntityId(containedEntity.Id)
                                     .SetInvLocContainerEntityId(inventory.OwnerId)
                                     .SetInvLocInventoryPrototypeId((ulong)inventory.PrototypeDataRef)
                                     .SetInvLocSlot(inventoryEntry.Slot)

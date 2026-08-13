@@ -2,6 +2,7 @@
 using Gazillion;
 using MHServerEmu.Core.Extensions;
 using MHServerEmu.Core.Logging;
+using MHServerEmu.Core.Memory;
 using MHServerEmu.Core.Serialization;
 using MHServerEmu.Games.Common;
 using MHServerEmu.Games.GameData;
@@ -98,21 +99,24 @@ namespace MHServerEmu.Games.Entities.Items
 
         public NetStructItemSpec ToProtobuf()
         {
-            return NetStructItemSpec.CreateBuilder()
-                .SetItemProtoRef((ulong)_itemProtoRef)
+            using var builderHandle = ProtobufBuilderPool<NetStructItemSpec.Builder>.Get(out var builder);
+            builder.SetItemProtoRef((ulong)_itemProtoRef)
                 .SetRarityProtoRef((ulong)_rarityProtoRef)
                 .SetItemLevel((uint)_itemLevel)
                 .SetCreditsAmount((uint)_creditsAmount)
-                .AddRangeAffixSpecs(_affixSpecList.Select(affixSpec => affixSpec.ToProtobuf()))
                 .SetSeed((uint)_seed)
-                .SetEquippableBy((ulong)_equippableBy)
-                .Build();
+                .SetEquippableBy((ulong)_equippableBy);
+
+            foreach (AffixSpec affixSpec in _affixSpecList)
+                builder.AddAffixSpecs(affixSpec.ToProtobuf());
+
+            return builder.Build();
         }
 
         public NetStructItemSpecStack ToStackProtobuf()
         {
-            return NetStructItemSpecStack.CreateBuilder()
-                .SetSpec(ToProtobuf())
+            using var builderHandle = ProtobufBuilderPool<NetStructItemSpecStack.Builder>.Get(out var builder);
+            return builder.SetSpec(ToProtobuf())
                 .SetCount((uint)StackCount)
                 .Build();
         }

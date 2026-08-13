@@ -583,8 +583,8 @@ namespace MHServerEmu.Games.Entities
             Player player = _owner.GetOwnerOfType<Player>();
             if (player != null && player.InterestedInEntity(_owner, AOINetworkPolicyValues.AOIChannelOwner))
             {
-                player.SendMessage(NetMessageChangeConditionDuration.CreateBuilder()
-                    .SetIdEntity(_owner.Id)
+                using var builderHandle = ProtobufBuilderPool<NetMessageChangeConditionDuration.Builder>.Get(out var builder);
+                player.SendMessage(builder.SetIdEntity(_owner.Id)
                     .SetKey(condition.Id)
                     .SetDuration((long)condition.Duration.TotalMilliseconds)
                     .SetStartTime((ulong)condition.StartTime.TotalMilliseconds)
@@ -950,8 +950,8 @@ namespace MHServerEmu.Games.Entities
             using var interestedClientListHandle = ListPool<PlayerConnection>.Get(out List<PlayerConnection> interestedClientList);
             if (networkManager.GetInterestedClients(interestedClientList, _owner))
             {
-                var deleteConditionMessage = NetMessageDeleteCondition.CreateBuilder()
-                    .SetIdEntity(_owner.Id)
+                using var builderHandle = ProtobufBuilderPool<NetMessageDeleteCondition.Builder>.Get(out var builder);
+                var deleteConditionMessage = builder.SetIdEntity(_owner.Id)
                     .SetKey(condition.Id)
                     .Build();
 
@@ -1116,8 +1116,8 @@ namespace MHServerEmu.Games.Entities
             using var interestedClientListHandle = ListPool<PlayerConnection>.Get(out List<PlayerConnection> interestedClientList);
             if (networkManager.GetInterestedClients(interestedClientList, _owner))
             {
-                NetMessageEnableCondition enableConditionMessage = NetMessageEnableCondition.CreateBuilder()
-                    .SetIdEntity(_owner.Id)
+                using var builderHandle = ProtobufBuilderPool<NetMessageEnableCondition.Builder>.Get(out var builder);
+                NetMessageEnableCondition enableConditionMessage = builder.SetIdEntity(_owner.Id)
                     .SetKey(condition.Id)
                     .SetEnable(enable)
                     .Build();
@@ -1188,8 +1188,8 @@ namespace MHServerEmu.Games.Entities
             Player player = _owner.GetOwnerOfType<Player>();
             if (player != null && player.InterestedInEntity(_owner, AOINetworkPolicyValues.AOIChannelOwner))
             {
-                player.SendMessage(NetMessageChangeConditionPauseTime.CreateBuilder()
-                    .SetIdEntity(_owner.Id)
+                using var builderHandle = ProtobufBuilderPool<NetMessageChangeConditionPauseTime.Builder>.Get(out var builder);
+                player.SendMessage(builder.SetIdEntity(_owner.Id)
                     .SetKey(condition.Id)
                     .SetPauseTime((ulong)Game.GetTimeFromStart(condition.PauseTime))
                     .SetStartTime((ulong)condition.StartTime.TotalMilliseconds)

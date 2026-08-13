@@ -470,21 +470,22 @@ namespace MHServerEmu.Games.Missions
 
         private void SendUpdateToPlayer(Player player, MissionUpdateFlags missionFlags, MissionObjectiveUpdateFlags objectiveFlags)
         {
-            var missionProto = Prototype;
-            if (missionProto == null || missionProto.HasClientInterest == false) return;
+            MissionPrototype missionProto = Prototype;
+            if (missionProto == null || missionProto.HasClientInterest == false)
+                return;
 
             if (missionFlags != MissionUpdateFlags.None)
             {
-                var message = NetMessageMissionUpdate.CreateBuilder();
-                message.SetMissionPrototypeId((ulong)PrototypeDataRef);
+                using var builderHandle = ProtobufBuilderPool<NetMessageMissionUpdate.Builder>.Get(out var builder);
+                builder.SetMissionPrototypeId((ulong)PrototypeDataRef);
 
                 if (missionFlags.HasFlag(MissionUpdateFlags.State))
-                    message.SetMissionState((uint)State);
+                    builder.SetMissionState((uint)State);
 
                 if (missionFlags.HasFlag(MissionUpdateFlags.StateExpireTime))
                 {
                     ulong time = (ulong)(TimeExpireCurrentState.TotalMilliseconds);
-                    message.SetMissionStateExpireTime(time);
+                    builder.SetMissionStateExpireTime(time);
                 }
 
                 if (missionFlags.HasFlag(MissionUpdateFlags.Rewards))
@@ -492,27 +493,27 @@ namespace MHServerEmu.Games.Missions
                     using var lootSummaryHandle = LootResultSummaryPool.Get(out LootResultSummary lootSummary);
 
                     if (HasLootRewards(player, lootSummary))
-                        message.SetRewards(lootSummary.ToProtobuf());
+                        builder.SetRewards(lootSummary.ToProtobuf());
                 }
 
                 if (missionFlags.HasFlag(MissionUpdateFlags.Participants))
                 {
                     if (_participants.Count == 0)
-                        message.AddParticipants(Entity.InvalidId);
+                        builder.AddParticipants(Entity.InvalidId);
                     else
                     {
                         foreach(var participant in _participants)
-                            message.AddParticipants(participant);
+                            builder.AddParticipants(participant);
                     }
                 }
 
                 if (missionFlags.HasFlag(MissionUpdateFlags.SuppressNotification))
-                    message.SetSuppressNotification(true);
+                    builder.SetSuppressNotification(true);
 
                 if (missionFlags.HasFlag(MissionUpdateFlags.SuspendedState))
-                    message.SetSuspendedState(_isSuspended);
+                    builder.SetSuspendedState(_isSuspended);
 
-                player.SendMessage(message.Build());
+                player.SendMessage(builder.Build());
             }
 
             if (objectiveFlags != MissionObjectiveUpdateFlags.None)

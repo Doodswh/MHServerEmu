@@ -151,7 +151,7 @@ namespace MHServerEmu.Games.Loot
 
         public NetStructLootResultSummary ToProtobuf()
         {
-            var builder = NetStructLootResultSummary.CreateBuilder();
+            using var builderHandle = ProtobufBuilderPool<NetStructLootResultSummary.Builder>.Get(out var builder);
 
             if (Types.HasFlag(LootType.Agent))
             {

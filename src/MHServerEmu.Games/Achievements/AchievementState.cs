@@ -2,6 +2,7 @@
 using Gazillion;
 using MHServerEmu.Core.Extensions;
 using MHServerEmu.Core.Logging;
+using MHServerEmu.Core.Memory;
 using MHServerEmu.Core.Serialization;
 using MHServerEmu.Core.System.Time;
 using MHServerEmu.Games.Common;
@@ -124,13 +125,12 @@ namespace MHServerEmu.Games.Achievements
 
         public NetMessageAchievementStateUpdate.Types.AchievementState ToProtobuf(uint id)
         {
-            var progress = AchievementProgressMap[id];
-            return NetMessageAchievementStateUpdate.Types.AchievementState
-                    .CreateBuilder()
-                    .SetId(id)
-                    .SetCount(progress.Count)
-                    .SetCompleteddate((ulong)(progress.CompletedDate.Ticks / 10))
-                    .Build();
+            AchievementProgress progress = AchievementProgressMap[id];
+            using var builderHandle = ProtobufBuilderPool<NetMessageAchievementStateUpdate.Types.AchievementState.Builder>.Get(out var builder);
+            return builder.SetId(id)
+                .SetCount(progress.Count)
+                .SetCompleteddate((ulong)(progress.CompletedDate.Ticks / 10))   // microseconds
+                .Build();
         }
 
         public override string ToString()
