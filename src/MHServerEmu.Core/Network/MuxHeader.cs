@@ -9,7 +9,7 @@ namespace MHServerEmu.Core.Network
         ConnectAck,
         Disconnect,
         ConnectWithData,
-        Data
+        Data,
     }
 
     /// <summary>
@@ -27,7 +27,7 @@ namespace MHServerEmu.Core.Network
 
         private MuxHeader(ushort muxId, int dataSize, MuxCommand command)
         {
-            if ((dataSize & dataSize & 0xFF000000) != 0)
+            if ((dataSize & 0xFF000000) != 0)
                 throw new("Invalid data size. Must not exceed 24 bits.");
 
             MuxId = muxId;
@@ -69,7 +69,7 @@ namespace MHServerEmu.Core.Network
             bits |= (ulong)Command << 40;
 
             // Reinterpret cast packed data as a byte span and copy to output
-            MemoryMarshal.AsBytes(MemoryMarshal.CreateSpan(ref bits, 1)).CopyTo(bytes);
+            MemoryMarshal.AsBytes(MemoryMarshal.CreateSpan(ref bits, 1))[..Size].CopyTo(bytes);
         }
     }
 }
