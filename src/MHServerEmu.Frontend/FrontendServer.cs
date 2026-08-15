@@ -10,7 +10,7 @@ namespace MHServerEmu.Frontend
     /// </summary>
     public sealed class FrontendServer : TcpServer, IGameService
     {
-        private new static readonly Logger Logger = LogManager.CreateLogger();  // Hide the Server.Logger so that this logger can show the actual server as log source.
+        private static readonly Logger Logger = LogManager.CreateLogger();  // Hide the Server.Logger so that this logger can show the actual server as log source.
 
         private readonly HashSet<FrontendClient> _clients = new();
 
@@ -26,8 +26,8 @@ namespace MHServerEmu.Frontend
             IFrontendClient.FrontendPort = config.Port;
 
             // -1 indicates infinite duration for both Task.Delay() and Socket.SendTimeout
-            _receiveTimeoutMS = config.ReceiveTimeoutMS > 0 ? config.ReceiveTimeoutMS : -1;
-            _sendTimeoutMS = config.SendTimeoutMS > 0 ? config.SendTimeoutMS : -1;
+            ReceiveTimeoutMS = config.ReceiveTimeoutMS > 0 ? config.ReceiveTimeoutMS : -1;
+            SendTimeoutMS = config.SendTimeoutMS > 0 ? config.SendTimeoutMS : -1;
 
             if (Start(config.BindIP, int.Parse(config.Port)) == false) 
                 return;
