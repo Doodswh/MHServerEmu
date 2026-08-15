@@ -12,7 +12,7 @@ namespace MHServerEmu.Frontend
     /// <summary>
     /// An implementation of <see cref="IFrontendClient"/> backed by a <see cref="TcpServer"/>.
     /// </summary>
-    public class FrontendClient : TcpClient, IFrontendClient, IDBAccountOwner
+    public sealed class FrontendClient : TcpClient, IFrontendClient, IDBAccountOwner
     {
         // Rate limit at 8 KB/s with a bit of burst allowed.
         private const int RateLimitBytesPerSecond = 1024 * 8;
@@ -133,14 +133,11 @@ namespace MHServerEmu.Frontend
 
         #endregion
 
-        /// <summary>
-        /// Parses received data.
-        /// </summary>
-        public void HandleIncomingData(byte[] buffer, int length)
+        public override void OnDataReceived(byte[] buffer, int length)
         {
             if (_tokenBucket.CheckLimit(length) == false)
             {
-                Logger.Error($"HandleIncomingData(): Rate limit exceeded for client [{this}]");
+                Logger.Error($"OnDataReceived(): Rate limit exceeded for client [{this}]");
                 Disconnect();
                 return;
             }

@@ -8,7 +8,7 @@ namespace MHServerEmu.Frontend
     /// <summary>
     /// A <see cref="TcpServer"/> that clients connect to.
     /// </summary>
-    public class FrontendServer : TcpServer, IGameService
+    public sealed class FrontendServer : TcpServer, IGameService
     {
         private new static readonly Logger Logger = LogManager.CreateLogger();  // Hide the Server.Logger so that this logger can show the actual server as log source.
 
@@ -77,11 +77,6 @@ namespace MHServerEmu.Frontend
             client.OnDisconnected();
 
             _clients.Remove(client);
-        }
-
-        protected override void OnDataReceived(TcpClientConnection connection, byte[] buffer, int length)
-        {
-            ((FrontendClient)connection.Client).HandleIncomingData(buffer, length);
         }
 
         #endregion

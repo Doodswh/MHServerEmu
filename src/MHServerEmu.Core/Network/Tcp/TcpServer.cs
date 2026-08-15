@@ -169,11 +169,6 @@ namespace MHServerEmu.Core.Network.Tcp
         /// </summary>
         protected abstract void OnClientDisconnected(TcpClientConnection connection);
 
-        /// <summary>
-        /// Raised when the server receives data from a client connection.
-        /// </summary>
-        protected abstract void OnDataReceived(TcpClientConnection connection, byte[] buffer, int length);
-
         #endregion
 
         /// <summary>
@@ -280,7 +275,7 @@ namespace MHServerEmu.Core.Network.Tcp
                     connection.IsReceiveTimeoutSuspended = false;
 
                     // Do the OnDataReceived() callback to parse received data from the connection's buffer.
-                    OnDataReceived(connection, connection.ReceiveBuffer, bytesReceived);
+                    connection.Client.OnDataReceived(connection.ReceiveBuffer, bytesReceived);
 
                     if (connection.Connected == false)  // Stop receiving if no longer connected
                     {
