@@ -36,7 +36,7 @@ namespace MHServerEmu.Frontend
         /// <summary>
         /// Constructs a new <see cref="FrontendClient"/> instance for the provided <see cref="TcpClientConnection"/>.
         /// </summary>
-        public FrontendClient(TcpClientConnection connection) : base(connection)
+        public FrontendClient()
         {
             _muxReader = new(this);
 

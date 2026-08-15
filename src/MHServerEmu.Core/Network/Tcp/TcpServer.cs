@@ -112,7 +112,7 @@ namespace MHServerEmu.Core.Network.Tcp
             if (socket.Connected)
                 socket.Disconnect(false);
 
-            RemoveClientConnection(connection);
+            RemoveClientConnection(connection.Socket);
         }
 
         /// <summary>
@@ -150,18 +150,40 @@ namespace MHServerEmu.Core.Network.Tcp
 
         #endregion
 
+        protected abstract TcpClient CreateTcpClient();
+
+        private void AddClientConnection(Socket socket)
+        {
+            TcpClientConnection connection = new(this, socket);
+
+            lock (_connections)
+                _connections.Add(socket, connection);
+
+            // Allocate a TcpClient instance and bind it
+            TcpClient client = CreateTcpClient();
+            connection.Client = client;
+            client.Connection = connection;
+
+            OnClientConnected(connection);
+            connection.StartAsyncTasks();
+        }
+
         /// <summary>
         /// Removes the provided <see cref="TcpClientConnection"/> and raises the <see cref="OnClientDisconnected(TcpClientConnection)"/> event.
         /// </summary>
-        private void RemoveClientConnection(TcpClientConnection connection)
+        private void RemoveClientConnection(Socket socket)
         {
             bool removed;
+            TcpClientConnection connection;
 
             lock (_connections)
-                removed = _connections.Remove(connection.Socket);
+                removed = _connections.Remove(socket, out connection);
 
-            if (removed)
+            if (removed && Verify.IsNotNull(connection))
+            {
+                connection.StopAsyncTasks();
                 OnClientDisconnected(connection);
+            }
         }
 
         /// <summary>
@@ -172,7 +194,7 @@ namespace MHServerEmu.Core.Network.Tcp
             const int MaxErrorCount = 100;
             int errorCount = 0;
 
-            while (true)
+            while (_cts.IsCancellationRequested == false)
             {
                 try
                 {
@@ -180,14 +202,7 @@ namespace MHServerEmu.Core.Network.Tcp
                     Socket socket = await _listener.AcceptAsync().WaitAsync(_cts.Token);
 
                     // Establish a new client connection
-                    TcpClientConnection connection = new(this, socket);
-
-                    lock (_connections)
-                        _connections.Add(socket, connection);
-
-                    OnClientConnected(connection);
-
-                    connection.StartTasks(_cts);
+                    AddClientConnection(socket);
 
                     // Reset the error counter if everything is fine
                     errorCount = 0;

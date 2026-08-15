@@ -5,13 +5,7 @@
     /// </summary>
     public abstract class TcpClient
     {
-        public TcpClientConnection Connection { get; }
-
-        public TcpClient(TcpClientConnection connection)
-        {
-            Connection = connection;
-            Connection.Client = this;
-        }
+        public TcpClientConnection Connection { get; internal set; }
 
         /// <summary>
         /// Raised when the server receives data from a client connection.

@@ -1,5 +1,6 @@
 ﻿using System.Net;
 using System.Net.Sockets;
+using System.Threading.Channels;
 using MHServerEmu.Core.Config;
 using MHServerEmu.Core.Helpers;
 using MHServerEmu.Core.Logging;
@@ -19,6 +20,9 @@ namespace MHServerEmu.Core.Network.Tcp
 
         private readonly TcpServer _server;
         private readonly byte[] _receiveBuffer;
+
+        private readonly CancellationTokenSource _cts = new();
+        private readonly Channel<IPacket> _sendChannel = Channel.CreateUnbounded<IPacket>();
 
         public Socket Socket { get; }
         public bool Connected { get => Socket.Connected; }
@@ -51,12 +55,6 @@ namespace MHServerEmu.Core.Network.Tcp
             return RemoteEndPoint.ToString();
         }
 
-        public void StartTasks(CancellationTokenSource cts)
-        {
-            // Begin receiving data from our new connection
-            _ = Task.Run(async () => await ReceiveAsync(cts));
-        }
-
         /// <summary>
         /// Disconnects this client connection.
         /// </summary>
@@ -66,42 +64,44 @@ namespace MHServerEmu.Core.Network.Tcp
                 _server.DisconnectClient(this);
         }
 
-        // NOTE: We do not return the number of bytes sent in Send() methods because
-        // they are meant to use as fire and forget to avoid lagging game instances.
-
-        /// <summary>
-        /// Sends a <see cref="byte"/> buffer over this connection.
-        /// </summary>
-        public void Send(byte[] buffer, int size, SocketFlags flags = SocketFlags.None)
-        {
-            ArgumentNullException.ThrowIfNull(buffer);
-
-            Task.Run(async () => await SendAsync(buffer, size, flags));
-        }
-
         /// <summary>
         /// Sends an <see cref="IPacket"/> over this connection.
         /// </summary>
+        /// <remarks>
+        /// We do not return the number of bytes because this is meant to be used
+        /// as fire and forget to avoid lagging game instances.
+        /// </remarks>
         public void Send<T>(T packet, SocketFlags flags = SocketFlags.None) where T: IPacket
         {
             ArgumentNullException.ThrowIfNull(packet);
 
-            Task.Run(async () => await SendAsync(packet, flags));
+            _sendChannel.Writer.TryWrite(packet);
+        }
+
+        internal void StartAsyncTasks()
+        {
+            _ = Task.Run(ReceiveAsync);
+            _ = Task.Run(SendAsync);
+        }
+
+        internal void StopAsyncTasks()
+        {
+            _cts.Cancel();
         }
 
         /// <summary>
         /// Receives data from a <see cref="TcpClientConnection"/> asynchronously.
         /// </summary>
-        private async Task ReceiveAsync(CancellationTokenSource cts)
+        private async Task ReceiveAsync()
         {
-            while (true)
+            while (_cts.IsCancellationRequested == false)
             {
                 try
                 {
                     Task<int> receiveTask = Socket.ReceiveAsync(_receiveBuffer, SocketFlags.None);
-                    await Task.WhenAny(receiveTask, Task.Delay(_server.ReceiveTimeoutMS, cts.Token));
+                    await Task.WhenAny(receiveTask, Task.Delay(_server.ReceiveTimeoutMS, _cts.Token));
 
-                    if (cts.Token.IsCancellationRequested)
+                    if (_cts.Token.IsCancellationRequested)
                         return;
 
                     if (IsReceiveTimeoutSuspended == false && receiveTask.IsCompleted == false)
@@ -139,6 +139,31 @@ namespace MHServerEmu.Core.Network.Tcp
             _server.DisconnectClient(this);
         }
 
+        private async Task SendAsync()
+        {
+            // TODO: refactor this further
+            while (_cts.IsCancellationRequested == false)
+            {
+                try
+                {
+                    IPacket packet = await _sendChannel.Reader.ReadAsync(_cts.Token);
+                    await SendAsync(packet);
+                }
+                catch (TaskCanceledException)
+                {
+                    break;
+                }
+                catch (SocketException)
+                {
+                    break;
+                }
+                catch (Exception e)
+                {
+                    Logger.ErrorException(e, nameof(SendAsync));
+                }
+            }
+        }
+
         /// <summary>
         /// Sends a <see cref="byte"/> buffer over the provided <see cref="TcpClientConnection"/> asynchronously.
         /// Return the number of bytes sent.
@@ -153,7 +178,7 @@ namespace MHServerEmu.Core.Network.Tcp
                 while (bytesRemaining > 0)      // Send all bytes from our buffer
                 {
                     ReadOnlyMemory<byte> bytes = buffer.AsMemory(bytesSentTotal, bytesRemaining);
-                    int bytesSent = await Socket.SendAsync(bytes, flags);
+                    int bytesSent = await Socket.SendAsync(bytes, flags, _cts.Token);
                     bytesRemaining -= bytesSent;
                     bytesSentTotal += bytesSent;
                 }

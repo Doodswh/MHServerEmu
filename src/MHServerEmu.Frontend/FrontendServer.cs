@@ -66,7 +66,8 @@ namespace MHServerEmu.Frontend
         {
             Logger.Trace($"Client connected from {connection}");
 
-            _clients.Add(new FrontendClient(connection));
+            var client = (FrontendClient)connection.Client;
+            _clients.Add(client);
         }
 
         protected override void OnClientDisconnected(TcpClientConnection connection)
@@ -80,5 +81,10 @@ namespace MHServerEmu.Frontend
         }
 
         #endregion
+
+        protected override TcpClient CreateTcpClient()
+        {
+            return new FrontendClient();
+        }
     }
 }
