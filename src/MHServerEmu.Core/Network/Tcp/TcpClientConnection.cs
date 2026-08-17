@@ -100,7 +100,10 @@ namespace MHServerEmu.Core.Network.Tcp
                             break;
 
                         if (IsReceiveTimeoutSuspended == false && receiveTask.IsCompleted == false)
-                            throw new TimeoutException();
+                        {
+                            Logger.Warn($"ReceiveDataAsync(): Connection to {this} timed out");
+                            break;
+                        }
                     }
 
                     int bytesReceived = await receiveTask;
@@ -122,11 +125,6 @@ namespace MHServerEmu.Core.Network.Tcp
                 }
                 catch (OperationCanceledException)
                 {
-                    break;
-                }
-                catch (TimeoutException)
-                {
-                    Logger.Warn($"ReceiveDataAsync(): Connection to {this} timed out");
                     break;
                 }
                 catch (Exception e)
