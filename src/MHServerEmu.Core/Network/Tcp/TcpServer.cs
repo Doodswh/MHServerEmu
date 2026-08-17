@@ -22,10 +22,9 @@ namespace MHServerEmu.Core.Network.Tcp
 
         protected bool _isRunning;
 
-        // The client should send ping messages every 10 seconds, so if we receive no data for 30 seconds, the connection is very likely to be dead.
-        // Send timeouts are more aggressive because it affects for how long game instances can potentially lag when send buffers overflow.
+        public int ReceiveBufferSize { get; protected set; } = 1024 * 8;    // 8 KB, client input should be relatively small
+        public int SendBufferSize { get; protected set; } = 1024 * 64;      // large enough for big loading packets
         public int ReceiveTimeoutMS { get; protected set; } = 30000;
-        public int SendTimeoutMS { get; protected set; } = 6000;
 
         public int ConnectionCount { get => _connections.Count; }
 

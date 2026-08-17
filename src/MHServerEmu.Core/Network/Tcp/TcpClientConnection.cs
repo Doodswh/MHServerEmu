@@ -12,9 +12,6 @@ namespace MHServerEmu.Core.Network.Tcp
     /// </summary>
     public class TcpClientConnection
     {
-        public const int ReceiveBufferSize = 1024 * 8;     // 8 KB, client input should be relatively small
-        public const int SendBufferSize = 1024 * 512;      // 512 KB, enough to fit region loading packets + extra
-
         private static readonly Logger Logger = LogManager.CreateLogger();
         private static readonly bool HideSensitiveInformation = ConfigManager.Instance.GetConfig<LoggingConfig>().HideSensitiveInformation;
 
@@ -37,11 +34,10 @@ namespace MHServerEmu.Core.Network.Tcp
         public TcpClientConnection(TcpServer server, Socket socket)
         {
             _server = server;
-            _receiveBuffer = new byte[ReceiveBufferSize];   // TODO: reuse receive buffers
-
-            socket.SendTimeout = _server.SendTimeoutMS;
-            socket.SendBufferSize = SendBufferSize;
             Socket = socket;
+
+            _receiveBuffer = new byte[_server.ReceiveBufferSize];   // TODO: reuse receive buffers
+            Socket.SendBufferSize = _server.SendBufferSize;
         }
 
         public override string ToString()
@@ -65,13 +61,9 @@ namespace MHServerEmu.Core.Network.Tcp
         }
 
         /// <summary>
-        /// Sends an <see cref="IPacket"/> over this connection.
+        /// Queues an <see cref="IPacket"/> to be sent over this connection.
         /// </summary>
-        /// <remarks>
-        /// We do not return the number of bytes because this is meant to be used
-        /// as fire and forget to avoid lagging game instances.
-        /// </remarks>
-        public void Send<T>(T packet, SocketFlags flags = SocketFlags.None) where T: IPacket
+        public void Send<T>(T packet) where T: IPacket
         {
             ArgumentNullException.ThrowIfNull(packet);
 
@@ -98,14 +90,18 @@ namespace MHServerEmu.Core.Network.Tcp
             {
                 try
                 {
-                    Task<int> receiveTask = Socket.ReceiveAsync(_receiveBuffer, SocketFlags.None);
-                    await Task.WhenAny(receiveTask, Task.Delay(_server.ReceiveTimeoutMS, _cts.Token));
+                    Task<int> receiveTask = Socket.ReceiveAsync(_receiveBuffer.AsMemory(), _cts.Token).AsTask();
 
-                    if (_cts.Token.IsCancellationRequested)
-                        return;
+                    if (_server.ReceiveTimeoutMS > 0)
+                    {
+                        await receiveTask.WaitAsync(TimeSpan.FromMilliseconds(_server.ReceiveTimeoutMS));
 
-                    if (IsReceiveTimeoutSuspended == false && receiveTask.IsCompleted == false)
-                        throw new TimeoutException();
+                        if (_cts.Token.IsCancellationRequested)
+                            break;
+
+                        if (IsReceiveTimeoutSuspended == false && receiveTask.IsCompleted == false)
+                            throw new TimeoutException();
+                    }
 
                     int bytesReceived = await receiveTask;
 
