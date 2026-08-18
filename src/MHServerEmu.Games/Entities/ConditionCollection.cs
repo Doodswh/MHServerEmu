@@ -651,43 +651,43 @@ namespace MHServerEmu.Games.Entities
 
         public void RemoveConditionsWithConditionPrototypeRef(PrototypeId protoRef)
         {
-            RemoveConditionsFiltered(ConditionFilter.IsConditionWithPrototypeFunc, protoRef);
+            RemoveConditionsFiltered(ConditionFilter.IsConditionWithPrototype, protoRef);
         }
 
         public void RemoveConditionsOfPower(PrototypeId powerProtoRef)
         {
-            RemoveConditionsFiltered(ConditionFilter.IsConditionOfPowerFunc, powerProtoRef);
+            RemoveConditionsFiltered(ConditionFilter.IsConditionOfPower, powerProtoRef);
         }
 
         public void RemoveConditionsWithKeyword(PrototypeId keywordProtoRef)
         {
             KeywordPrototype keywordProto = keywordProtoRef.As<KeywordPrototype>();
-            RemoveConditionsFiltered(ConditionFilter.IsConditionWithKeywordFunc, keywordProto);
+            RemoveConditionsFiltered(ConditionFilter.IsConditionWithKeyword, keywordProto);
         }
 
         public void RemoveCancelOnHitConditions()
         {
-            RemoveConditionsFiltered(ConditionFilter.IsConditionCancelOnHitFunc);
+            RemoveConditionsFiltered(ConditionFilter.IsConditionCancelOnHit);
         }
 
         public void RemoveCancelOnKilledConditions()
         {
-            RemoveConditionsFiltered(ConditionFilter.IsConditionCancelOnKilledFunc);
+            RemoveConditionsFiltered(ConditionFilter.IsConditionCancelOnKilled);
         }
 
         public void RemoveCancelOnPowerUseConditions(PowerPrototype powerProto)
         {
-            RemoveConditionsFiltered(ConditionFilter.IsConditionCancelOnPowerUseFunc, powerProto);
+            RemoveConditionsFiltered(ConditionFilter.IsConditionCancelOnPowerUse, powerProto);
         }
 
         public void RemoveCancelOnPowerUsePostConditions(PowerPrototype powerProto)
         {
-            RemoveConditionsFiltered(ConditionFilter.IsConditionCancelOnPowerUsePostFunc, powerProto);
+            RemoveConditionsFiltered(ConditionFilter.IsConditionCancelOnPowerUsePost, powerProto);
         }
 
         public void RemoveCancelOnIntraRegionTeleportConditions()
         {
-            RemoveConditionsFiltered(ConditionFilter.IsConditionCancelOnIntraRegionTeleportFunc);
+            RemoveConditionsFiltered(ConditionFilter.IsConditionCancelOnIntraRegionTeleport);
         }
 
         public void RemoveCancelOnProcTriggerConditions(ProcTriggerType triggerType)
