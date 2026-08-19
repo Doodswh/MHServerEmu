@@ -379,7 +379,7 @@ namespace MHServerEmu.Games.GameData.Prototypes
             MutationResults result = MutationResults.None;
 
             // Pick new base type
-            Picker<Prototype> picker = new(resolver.Random);
+            using var pickerHandle = PickerPool<Prototype>.Get(resolver.Random, out Picker<Prototype> picker);
 
             if (sourceItem.Slot == EquipmentInvUISlot.Invalid)
                 GameDataTables.Instance.LootPickingTable.GetConcreteLootPicker(picker, sourceItem.ItemProto.DataRef, rollFor.As<AgentPrototype>());
@@ -470,8 +470,8 @@ namespace MHServerEmu.Games.GameData.Prototypes
             if (lootCloneRecord.Rank == Rank)
                 return MutationResults.None;
 
-            Picker<Prototype> concretePicker = new(resolver.Random);
-            Picker<Prototype> filteredPicker = new(resolver.Random);
+            using var concretePickerHandle = PickerPool<Prototype>.Get(resolver.Random, out Picker<Prototype> concretePicker);
+            using var filteredPickerHandle = PickerPool<Prototype>.Get(resolver.Random, out Picker<Prototype> filteredPicker);
 
             if (lootCloneRecord.Slot != EquipmentInvUISlot.Invalid && lootCloneRecord.Slot != EquipmentInvUISlot.Costume)
                 LootUtilities.BuildInventoryLootPicker(concretePicker, lootCloneRecord.RollFor, lootCloneRecord.Slot);
@@ -568,7 +568,7 @@ namespace MHServerEmu.Games.GameData.Prototypes
             lootCloneRecord.Slot = Slot;
             lootCloneRecord.Rank = 0;
 
-            Picker<Prototype> picker = new(resolver.Random);
+            using var pickerHandle = PickerPool<Prototype>.Get(resolver.Random, out Picker<Prototype> picker);
             LootUtilities.BuildInventoryLootPicker(picker, lootCloneRecord.RollFor, Slot);
 
             if (LootUtilities.PickValidItem(resolver, picker, null, lootCloneRecord, out ItemPrototype itemProto) == false)

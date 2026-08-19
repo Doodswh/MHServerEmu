@@ -73,7 +73,7 @@ namespace MHServerEmu.Games.DRAG
             {
                 if (entryList == null || entryList.Count == 0) return 0;
 
-                Picker<CellSetRegistryEntry> picker = new(random);
+                using var pickerHandle = PickerPool<CellSetRegistryEntry>.Get(random, out Picker<CellSetRegistryEntry> picker);
                 if (PopulatePickerPhases(picker, entryList, excludedList))
                 {
                     if (!picker.Empty() && picker.Pick(out CellSetRegistryEntry entry))
@@ -94,7 +94,7 @@ namespace MHServerEmu.Games.DRAG
             {
                 if (entryList == null) return 0;
 
-                Picker<CellSetRegistryEntry> picker = new(random);
+                using var pickerHandle = PickerPool<CellSetRegistryEntry>.Get(random, out Picker<CellSetRegistryEntry> picker);
                 if (PopulatePickerPhases(picker, entryList, excludedList))
                 {
                     if (!picker.Empty() && picker.Pick(out CellSetRegistryEntry entry))
@@ -115,7 +115,7 @@ namespace MHServerEmu.Games.DRAG
             {
                 if (entryList == null || entryList.Count == 0) return 0;
 
-                Picker<CellSetRegistryEntry> picker = new(random);
+                using var pickerHandle = PickerPool<CellSetRegistryEntry>.Get(random, out Picker<CellSetRegistryEntry> picker);
                 if (PopulatePickerPhases(picker, entryList, null))
                 {
                     if (!picker.Empty() && picker.Pick(out CellSetRegistryEntry entry))

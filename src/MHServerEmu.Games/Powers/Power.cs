@@ -2131,7 +2131,7 @@ namespace MHServerEmu.Games.Powers
             if (!Verify.IsNotNull(region)) return null;
 
             // Populate potential target picker
-            Picker<WorldEntity> picker = new(Game.Random);
+            using var pickerHandle = PickerPool<WorldEntity>.Get(Game.Random, out Picker<WorldEntity> picker);
             bool requiresLineOfSight = RequiresLineOfSight(powerProto);
             Sphere bounds = new(Owner.RegionLocation.Position, powerProto.Radius);
 

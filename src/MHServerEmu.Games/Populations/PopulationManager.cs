@@ -254,7 +254,7 @@ namespace MHServerEmu.Games.Populations
         private void ScheduleLocationObject()
         {
             var currentTime = Game.CurrentTime;
-            Picker<SpawnScheduler> schedulerPicker = new(Game.Random);
+            using var schedulerPickerHandle = PickerPool<SpawnScheduler>.Get(Game.Random, out Picker<SpawnScheduler> schedulerPicker);
 
             foreach (bool critical in Priority)
             {

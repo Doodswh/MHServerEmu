@@ -283,7 +283,9 @@ namespace MHServerEmu.Games.Populations
             var populationObject = Pop(critical);
             if (populationObject != null)
             {
-                var picker = CellPicker(populationObject);
+                using var pickerHandle = PickerPool<Cell>.Get(populationObject.Random, out Picker<Cell> picker);
+                BuildCellPicker(populationObject, picker);
+
                 if (picker.Pick(out var cell))
                 {
                     bool spawned;
@@ -305,9 +307,8 @@ namespace MHServerEmu.Games.Populations
             }
         }
 
-        private static Picker<Cell> CellPicker(PopulationObject populationObject)
+        private static void BuildCellPicker(PopulationObject populationObject, Picker<Cell> picker)
         {
-            Picker<Cell> picker = new(populationObject.Random);
             var region = populationObject.SpawnLocation.Region;
 
             IEnumerable<Area> spawnAreas;
@@ -329,7 +330,6 @@ namespace MHServerEmu.Games.Populations
                         picker.Add(cell, spawnCell.CellWeight);
                 }
             }
-            return picker;
         }
 
         public void AddFailedObject(PopulationObject populationObject)

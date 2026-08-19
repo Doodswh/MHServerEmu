@@ -1,12 +1,13 @@
 ﻿using MHServerEmu.Core.Collections;
 using MHServerEmu.Core.Collisions;
 using MHServerEmu.Core.Extensions;
+using MHServerEmu.Core.Logging;
 using MHServerEmu.Core.System.Random;
 using MHServerEmu.Core.VectorMath;
+using MHServerEmu.Games.DRAG.Generators.Regions;
 using MHServerEmu.Games.GameData;
 using MHServerEmu.Games.GameData.Prototypes;
 using MHServerEmu.Games.Regions;
-using MHServerEmu.Games.DRAG.Generators.Regions;
 
 namespace MHServerEmu.Games.DRAG.Generators.Areas
 {
@@ -123,8 +124,9 @@ namespace MHServerEmu.Games.DRAG.Generators.Areas
 
         private static PrototypeId PickCellChoiceFromPrototypePtrList(GRandom random, CellChoicePrototype[] cellChoices)
         {
-            if (cellChoices.IsNullOrEmpty()) return 0;
-            Picker<AssetId> picker = new(random);
+            if (!Verify.IsTrue(cellChoices.HasValue())) return PrototypeId.Invalid;
+
+            using var pickerHandle = PickerPool<AssetId>.Get(random, out Picker<AssetId> picker);
 
             foreach (CellChoicePrototype choiceProto in cellChoices)
             {

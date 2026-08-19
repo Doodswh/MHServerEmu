@@ -1,4 +1,5 @@
-﻿using MHServerEmu.Core.Extensions;
+﻿using MHServerEmu.Core.Collections;
+using MHServerEmu.Core.Extensions;
 using MHServerEmu.Core.Logging;
 using MHServerEmu.Core.VectorMath;
 using MHServerEmu.Games.Entities;
@@ -189,7 +190,8 @@ namespace MHServerEmu.Games.Populations
 
             float density = spawnableNavArea / PopulationPrototype.PopulationClusterSq * (populationProto.ClusterDensityPct / 100.0f);
             var themeProto = GameDatabase.GetPrototype<PopulationThemePrototype>(populationProto.Themes.List[0].Object);
-            var picker = PopulationObject.PopulatePicker(manager.Random, themeProto.Enemies.List);
+            using var pickerHandle = PickerPool<PopulationObjectPrototype>.Get(manager.Random, out Picker<PopulationObjectPrototype> picker);
+            PopulationObject.PopulatePicker(themeProto.Enemies.List, picker);
             while (density > 0.0f && picker.Pick(out var objectProto))
             {
                 density -= objectProto.GetAverageSize();

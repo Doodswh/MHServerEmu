@@ -361,7 +361,7 @@ namespace MHServerEmu.Games.Loot
 
             if (rarityEntryList.Count > 0)
             {
-                Picker<PrototypeId> rarityPicker = new(Random);
+                using var rarityPickerHandle = PickerPool<PrototypeId>.Get(Random, out Picker<PrototypeId> rarityPicker);
                 _context.FillRarityPicker(rarityPicker, rarityEntryList, weightSum);
                 pickedRarityProtoRef = rarityPicker.Pick();
             }

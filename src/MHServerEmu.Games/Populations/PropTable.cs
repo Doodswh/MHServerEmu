@@ -116,7 +116,7 @@ namespace MHServerEmu.Games.Populations
 
             if (Map.ContainsKey(propMarkerRef) && Map[propMarkerRef] != null)
             {
-                Picker<PropGroupListEntry> picker = new(random);
+                using var pickerHandle = PickerPool<PropGroupListEntry>.Get(random, out Picker<PropGroupListEntry> picker);
                 foreach (var entry in Map[propMarkerRef])
                     picker.Add(entry);
 

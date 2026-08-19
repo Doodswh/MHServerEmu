@@ -95,7 +95,7 @@ namespace MHServerEmu.Games.MetaGames.MetaStates
         {
             if (_proto.StatesWeighted.HasValue())
             {
-                Picker<PrototypeId> picker = new(MetaGame.Random);
+                using var pickerHandle = PickerPool<PrototypeId>.Get(MetaGame.Random, out Picker<PrototypeId> picker);
                 foreach (var state in _proto.StatesWeighted)
                     picker.Add(state.Ref, state.Weight);
 

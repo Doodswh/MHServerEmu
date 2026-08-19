@@ -24,7 +24,7 @@ namespace MHServerEmu.Games.Loot
 
             while (pickedItemProto == null && (restrictionFlags.HasFlag(RestrictionTestFlags.Rarity) == false || currentArgs.Rarity != PrototypeId.Invalid))
             {
-                Picker<Prototype> iterationPicker = new(basePicker);
+                using var iterationPickerHandle = PickerPool<Prototype>.Get(basePicker, out Picker<Prototype> iterationPicker);
 
                 while (iterationPicker.PickRemove(out Prototype proto))
                 {
@@ -303,7 +303,7 @@ namespace MHServerEmu.Games.Loot
             if (GetCurrentAffixStats(resolver, args, itemSpec, affixCounts, affixSet) == false)
                 return MutationResults.Error;
 
-            Picker<AffixPrototype> picker = new(resolver.Random);
+            using var pickerHandle = PickerPool<AffixPrototype>.Get(resolver.Random, out Picker<AffixPrototype> picker);
             picker.Add(affixProto, 100);
 
             AffixSpec affixSpec = new();
@@ -521,7 +521,7 @@ namespace MHServerEmu.Games.Loot
             if (!Verify.IsNotNull(affixes, $"Failed to get available affixes in category: {categoryProto}."))
                 return MutationResults.Error;
 
-            Picker<AffixPrototype> affixPicker = new(resolver.Random);
+            using var affixPickerHandle = PickerPool<AffixPrototype>.Get(resolver.Random, out Picker<AffixPrototype> affixPicker);
             TryAddAffixesToPicker(args, null, keywords, resolver.Region, affixes, affixPicker);
 
             MutationResults result = MutationResults.None;
@@ -572,7 +572,7 @@ namespace MHServerEmu.Games.Loot
             if (!Verify.IsNotNull(affixes, $"Failed to get available affixes in position: {affixPosition}."))
                 return MutationResults.Error;
 
-            Picker<AffixPrototype> affixPicker = new(resolver.Random);
+            using var affixPickerHandle = PickerPool<AffixPrototype>.Get(resolver.Random, out Picker<AffixPrototype> affixPicker);
 #if GAME_VERSION_1_52 || GAME_VERSION_1_53
             TryAddAffixesToPicker(args, categories, keywords, resolver.Region, affixes, affixPicker);
 #else
@@ -601,7 +601,7 @@ namespace MHServerEmu.Games.Loot
         private static MutationResults AddKeywordAffixesToItemSpec(IItemResolver resolver, DropFilterArguments args, AssetId[] keywords,
             int affixCountNeeded, ItemSpec itemSpec, HashSet<ScopedAffixRef> affixSet)
         {
-            Picker<AffixPrototype> affixPicker = new(resolver.Random);
+            using var affixPickerHandle = PickerPool<AffixPrototype>.Get(resolver.Random, out Picker<AffixPrototype> affixPicker);
 
             foreach (AssetId keywordIt in keywords)
             {

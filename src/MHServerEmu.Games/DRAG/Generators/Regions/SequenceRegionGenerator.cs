@@ -564,7 +564,7 @@ namespace MHServerEmu.Games.DRAG.Generators.Regions
             List<WeightedAreaPrototype> weightedAreas = entry.WeightedAreas;
             if (areaChoices.Length <= weightedAreas.Count) return false;
 
-            Picker<WeightedAreaPrototype> picker = new(random);
+            using var pickerHandle = PickerPool<WeightedAreaPrototype>.Get(random, out Picker<WeightedAreaPrototype> picker);
             foreach (var areaChoice in areaChoices)
             {
                 if (areaChoice == null || areaChoice.Area == 0) continue;
@@ -607,7 +607,7 @@ namespace MHServerEmu.Games.DRAG.Generators.Regions
 
             if (areaInfos.Length <= selectedAreaSequenceInfos.Count) return false;
 
-            Picker<AreaSequenceInfoPrototype> picker = new(random);
+            using var pickerHandle = PickerPool<AreaSequenceInfoPrototype>.Get(random, out Picker<AreaSequenceInfoPrototype> picker);
             foreach (var info in areaInfos)
             {
                 if (info == null || info.AreaChoices.IsNullOrEmpty()) continue;

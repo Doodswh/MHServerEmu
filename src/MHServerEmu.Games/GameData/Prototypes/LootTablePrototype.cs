@@ -117,7 +117,7 @@ namespace MHServerEmu.Games.GameData.Prototypes
             AvatarPrototype usableAvatarProto = settings.UsableAvatar;
             AgentPrototype usableTeamUpProto = settings.UsableTeamUp;
 
-            Picker<Prototype> picker = new(resolver.Random);
+            using var pickerHandle = PickerPool<Prototype>.Get(resolver.Random, out Picker<Prototype> picker);
 
             RestrictionTestFlags restrictionFlags = RestrictionTestFlags.All;
             if (settings.DropChanceModifiers.HasFlag(LootDropChanceModifiers.IgnoreCooldown) ||
@@ -341,7 +341,7 @@ namespace MHServerEmu.Games.GameData.Prototypes
                 return LootRollResult.NoRoll;
 
             // Create a picker of possible nodes
-            Picker<LootNodePrototype> nodePicker = new(resolver.Random);
+            using var nodePickerHandle = PickerPool<LootNodePrototype>.Get(resolver.Random, out Picker<LootNodePrototype> nodePicker);
             foreach (LootNodePrototype proto in Choices)
                 nodePicker.Add(proto, proto.GetWeight());
 
@@ -362,7 +362,7 @@ namespace MHServerEmu.Games.GameData.Prototypes
             // Create a picker of possible nodes.
             // NOTE: Same as the client, we use the Weight prototype field instead of the GetWeight() method.
             // Because of this, PickWeightTryAll is not affected by live tuning.
-            Picker<LootNodePrototype> nodePicker = new(resolver.Random);
+            using var nodePickerHandle = PickerPool<LootNodePrototype>.Get(resolver.Random, out Picker<LootNodePrototype> nodePicker);
             foreach (LootNodePrototype proto in Choices)
                 nodePicker.Add(proto, Weight);
 
@@ -371,7 +371,7 @@ namespace MHServerEmu.Games.GameData.Prototypes
             LootRollResult result = LootRollResult.NoRoll;
             for (int i = 0; i < numPicks; i++)
             {
-                Picker<LootNodePrototype> removePicker = new(nodePicker);
+                using var removePickerHandle = PickerPool<LootNodePrototype>.Get(nodePicker, out Picker<LootNodePrototype> removePicker);
 
                 LootRollResult nodeResult = LootRollResult.NoRoll;
                 while (nodeResult.HasFlag(LootRollResult.Success) == false && removePicker.PickRemove(out LootNodePrototype node))

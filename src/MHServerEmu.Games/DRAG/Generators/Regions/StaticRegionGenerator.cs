@@ -77,7 +77,7 @@ namespace MHServerEmu.Games.DRAG.Generators.Regions
 
             if (!GetSharedConnections(sharedConnections, areaA, areaB)) return false;
 
-            Picker<Vector3> picker = new(random);
+            using var pickerHandle = PickerPool<Vector3>.Get(random, out Picker<Vector3> picker);
             foreach (var point in sharedConnections)
                 picker.Add(point);
 

@@ -45,7 +45,7 @@ namespace MHServerEmu.Games.GameData.Prototypes
             else
             {
                 // Pick one of multiple choices
-                Picker<LootLocationNodePrototype> possibleNodes = new(lootLocationData.Game.Random);
+                using var possibleNodesHandle = PickerPool<LootLocationNodePrototype>.Get(lootLocationData.Game.Random, out Picker<LootLocationNodePrototype> possibleNodes);
                 foreach (LootLocationNodePrototype choiceProto in Choices)
                     possibleNodes.Add(choiceProto, choiceProto.Weight);
 

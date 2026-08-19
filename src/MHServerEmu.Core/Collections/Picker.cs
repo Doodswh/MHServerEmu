@@ -1,9 +1,26 @@
-﻿using MHServerEmu.Core.System.Random;
+﻿using MHServerEmu.Core.Memory;
+using MHServerEmu.Core.System.Random;
 
 namespace MHServerEmu.Core.Collections
 {
-    // TODO: IPoolable
-    public class Picker<T>
+    public sealed class PickerPool<T> : GenericPool<Picker<T>>
+    {
+        public static ObjectPoolHandle<Picker<T>> Get(GRandom random, out Picker<T> picker)
+        {
+            var handle = Get(out picker);
+            picker.Initialize(random);
+            return handle;
+        }
+
+        public static ObjectPoolHandle<Picker<T>> Get(Picker<T> other, out Picker<T> picker)
+        {
+            var handle = Get(out picker);
+            picker.Initialize(other);
+            return handle;
+        }
+    }
+
+    public class Picker<T> : IPoolable
     {
         enum WeightMode
         {
@@ -12,35 +29,17 @@ namespace MHServerEmu.Core.Collections
             UnWeighted
         }
 
-        private readonly List<WeightedElement> _elements;
+        private readonly List<WeightedElement> _elements = new();
 
         private GRandom _random;
         private WeightMode _weightMode;
-        private int _weights;        
+        private int _weights;
 
-        public Picker()
-        {
-            _elements = new();
-        }
+        public Picker() { }
 
         public Picker(GRandom random)
         {
-            _elements = new();
-            _random = random;
-            _weightMode = WeightMode.Invalid;
-            _weights = 0;
-        }
-
-        public Picker(Picker<T> other)
-        {
-            _elements = new(other._elements);
-
-            // IMPORTANT: The copy needs to use the same instance of random as the original to preserve the RNG sequence,
-            // otherwise PickValidItem() and PickWeightTryAll() will keep picking the same things.
-            _random = other._random;
-
-            _weightMode = other._weightMode;
-            _weights = other._weights;
+            Initialize(random);
         }
 
         public void Initialize(GRandom random)
@@ -49,6 +48,18 @@ namespace MHServerEmu.Core.Collections
             _random = random;
             _weightMode = WeightMode.Invalid;
             _weights = 0;
+        }
+
+        public void Initialize(Picker<T> other)
+        {
+            _elements.AddRange(other._elements);
+
+            // IMPORTANT: The copy needs to use the same instance of random as the original to preserve the RNG sequence,
+            // otherwise PickValidItem() and PickWeightTryAll() will keep picking the same things.
+            _random = other._random;
+
+            _weightMode = other._weightMode;
+            _weights = other._weights;
         }
 
         public void Add(T element)
@@ -75,9 +86,23 @@ namespace MHServerEmu.Core.Collections
             }
         }
 
-        public bool Empty() => _elements.Count == 0;
-        public int GetNumElements() => _elements.Count;
-        public int GetRandomIndex() => (_weightMode == WeightMode.UnWeighted) ? GetRandomIndexUnweighted() : GetRandomIndexWeighted();
+        public bool Empty()
+        {
+            return _elements.Count == 0;
+        }
+
+        public int GetNumElements()
+        {
+            return _elements.Count;
+        }
+
+        public int GetRandomIndex()
+        {
+            if (_weightMode == WeightMode.UnWeighted)
+                return GetRandomIndexUnweighted();
+            else
+                return GetRandomIndexWeighted();
+        }
 
         public int GetRandomIndexUnweighted()
         {
@@ -184,6 +209,14 @@ namespace MHServerEmu.Core.Collections
         {
             _elements.Clear();
             _weights = 0;
+        }
+
+        public void ResetForPool()
+        {
+            _elements.Clear();
+            _random = default;
+            _weightMode = default;
+            _weights = default;
         }
 
         private readonly struct WeightedElement(T element, int weight)

@@ -147,11 +147,11 @@ namespace MHServerEmu.Games.Populations
             }
         }
 
-        public static Picker<PopulationObjectPrototype> PopulatePicker(GRandom random, PopulationObjectInstancePrototype[] objectList)
+        public static void PopulatePicker(IReadOnlyList<PopulationObjectInstancePrototype> objectList, Picker<PopulationObjectPrototype> picker)
         {
-            Picker<PopulationObjectPrototype> picker = new(random);
-            foreach (var objectInstance in objectList)
+            for (int i = 0; i < objectList.Count; i++)
             {
+                var objectInstance = objectList[i];
                 var objectProto = GameDatabase.GetPrototype<PopulationObjectPrototype>(objectInstance.Object);
                 if (objectProto == null) continue;
                 int weight = objectInstance.Weight;
@@ -163,15 +163,13 @@ namespace MHServerEmu.Games.Populations
                     picker.Add(objectProto, weight);
                 }
             }
-
-            return picker;
         }
 
         public static bool PickEnemies(GRandom random, int enemyPicks, PopulationObjectInstancePrototype[] objectList, List<PopulationObjectInstancePrototype> enemies)
         {
             if (objectList.IsNullOrEmpty()) return false;
 
-            Picker<PopulationObjectInstancePrototype> picker = new(random);
+            using var pickerHandle = PickerPool<PopulationObjectInstancePrototype>.Get(random, out Picker<PopulationObjectInstancePrototype> picker);
             foreach (var objectInstance in objectList)
             {
                 if (objectInstance == null || objectInstance.Weight <= 0) continue;

@@ -53,7 +53,7 @@ namespace MHServerEmu.Games.Dialog
 
             if (dialogTextList.HasValue())
             {
-                Picker<LocaleStringId> textPicker = new (game.Random);
+                using var textPickerHandle = PickerPool<LocaleStringId>.Get(game.Random, out Picker<LocaleStringId> textPicker);
                 foreach (var textEntry in dialogTextList)
                     if (textEntry != null && textEntry.Text != LocaleStringId.Blank)
                         textPicker.Add(textEntry.Text, (int)textEntry.Weight);
