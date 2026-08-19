@@ -290,8 +290,8 @@ namespace MHServerEmu.Games.Entities
             Trigger(EntityTriggerEnum.Disabled);
             Properties[PropertyEnum.IsDead] = true;
 
-            var killMessage = NetMessageEntityKill.CreateBuilder()
-                .SetIdEntity(Id)
+            using var builderHandle = ProtobufBuilderPool<NetMessageEntityKill.Builder>.Get(out var builder);
+            var killMessage = builder.SetIdEntity(Id)
                 .SetIdKillerEntity(killer != null ? killer.Id : InvalidId)
                 .SetKillFlags(0).Build();
 

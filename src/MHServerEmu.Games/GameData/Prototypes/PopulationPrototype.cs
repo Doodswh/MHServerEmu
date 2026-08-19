@@ -85,7 +85,7 @@ namespace MHServerEmu.Games.GameData.Prototypes
             if (!Verify.IsNotNull(Themes, $"Population contains no themes.\r\t{this}"))
                 return PrototypeId.Invalid;
 
-            Picker<PrototypeId> picker = new(random);
+            using var pickerHandle = PickerPool<PrototypeId>.Get(random, out Picker<PrototypeId> picker);
             foreach (PopulationObjectInstancePrototype instance in Themes.List)
             {
                 if (!Verify.IsNotNull(instance))

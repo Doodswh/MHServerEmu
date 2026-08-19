@@ -142,7 +142,7 @@ namespace MHServerEmu.Games.GameData.Prototypes
                 return null;
 
             GRandom random = new(randomSeed + endlessLevel);
-            Picker<EndlessStateEntryPrototype> picker = new(random);
+            using var pickerHandle = PickerPool<EndlessStateEntryPrototype>.Get(random, out Picker<EndlessStateEntryPrototype> picker);
 
             foreach (EndlessStateEntryPrototype state in Challenges)
             {

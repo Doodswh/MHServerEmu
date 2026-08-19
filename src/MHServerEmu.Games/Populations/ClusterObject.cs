@@ -798,7 +798,7 @@ namespace MHServerEmu.Games.Populations
             if (maxDistance - minDistance < clusterSize)
                 maxDistance = (int)maxClusterDistance;
 
-            var sectorPicker = new Picker<int>(Random);
+            using var sectorPickerHandle = PickerPool<int>.Get(Random, out Picker<int> sectorPicker);
             float distance = minClusterDistance;
             for (int sector = 0; sector < MaxSectors; sector++)
             {

@@ -458,7 +458,7 @@ namespace MHServerEmu.Games.Achievements
             if (Owner.IsInGame == false) return;
 
             bool update = false;
-            var messageBuilder = NetMessageAchievementStateUpdate.CreateBuilder();
+            using var messageBuilderHandle = ProtobufBuilderPool<NetMessageAchievementStateUpdate.Builder>.Get(out var messageBuilder);
 
             foreach (var list in _activeAchievements.Values)
                 foreach (var info in list)

@@ -1,17 +1,31 @@
 ﻿using MHServerEmu.Core.Collections;
+using MHServerEmu.Core.Memory;
 
 namespace MHServerEmu.Games.Navi
 {
-    public class NaviFunnel : FixedDeque<FunnelVertex>
+    public sealed class NaviFunnelPool : GenericPool<NaviFunnel> { }
+
+    public sealed class NaviFunnel : FixedDeque<FunnelVertex>
     {
-        private readonly NaviPoint _pathStart;
+        private NaviPoint _pathStart;
         private FunnelVertex _apex;
 
-        public NaviFunnel(NaviPoint point): base(256) 
+        public NaviFunnel() : base()
+        {
+        }
+
+        public void Initialize(NaviPoint point)
         {
             PushFront(new(point, NaviSide.Point));
             _apex = LeftV();
             _pathStart = point;
+        }
+
+        public override void ResetForPool()
+        {
+            base.ResetForPool();
+            _apex = default;
+            _pathStart = default;
         }
 
         private FunnelVertex LeftV() => Front;

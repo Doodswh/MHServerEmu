@@ -27,7 +27,7 @@ namespace MHServerEmu.Games.Missions.Actions
                 var region = Region; 
                 int seed = (region != null) ? region.RandomSeed : 0;
                 GRandom random = new(seed);
-                Picker<PrototypeId> picker = new(random);
+                using var pickerHandle = PickerPool<PrototypeId>.Get(random, out Picker<PrototypeId> picker);
 
                 foreach (var weightProto in _proto.WeightedMissionPickList)
                 {

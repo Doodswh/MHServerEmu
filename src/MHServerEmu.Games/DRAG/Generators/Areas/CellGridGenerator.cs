@@ -196,7 +196,7 @@ namespace MHServerEmu.Games.DRAG.Generators.Areas
                 List<Point2> coordsOfType = item.Value;
                 if (coordsOfType == null) continue;
 
-                Picker<Point2> picker = new(random);
+                using var pickerHandle = PickerPool<Point2>.Get(random, out Picker<Point2> picker);
                 foreach (Point2 coords in coordsOfType)
                     picker.Add(coords);
 

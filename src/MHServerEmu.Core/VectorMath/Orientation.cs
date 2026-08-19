@@ -1,5 +1,6 @@
 ﻿using Gazillion;
 using MHServerEmu.Core.Helpers;
+using MHServerEmu.Core.Memory;
 
 namespace MHServerEmu.Core.VectorMath
 {
@@ -45,7 +46,11 @@ namespace MHServerEmu.Core.VectorMath
             }
         }
 
-        public NetStructPoint3 ToNetStructPoint3() => NetStructPoint3.CreateBuilder().SetX(Yaw).SetY(Pitch).SetZ(Roll).Build();
+        public readonly NetStructPoint3 ToNetStructPoint3()
+        {
+            using var builderHandle = ProtobufBuilderPool<NetStructPoint3.Builder>.Get(out var builder);
+            return builder.SetX(Yaw).SetY(Pitch).SetZ(Roll).Build();
+        }
 
         public static Orientation operator +(Orientation a, Orientation b) => new(a.Yaw + b.Yaw, a.Pitch + b.Pitch, a.Roll + b.Roll);
         public static Orientation operator -(Orientation a, Orientation b) => new(a.Yaw - b.Yaw, a.Pitch - b.Pitch, a.Roll - b.Roll);

@@ -216,7 +216,9 @@ namespace MHServerEmu.Games.Missions
         { 
             PrototypeId pickedMissionRef = PrototypeId.Invalid;
 
-            var picker = LegendaryMissionCategoryPicker();
+            using var pickerHandle = PickerPool<LegendaryMissionCategoryPrototype>.Get(Game.Random, out Picker<LegendaryMissionCategoryPrototype> picker);
+            BuildLegendaryMissionCategoryPicker(picker);
+
             while (picker.PickRemove(out var categoryProto))
             {
                 List<PrototypeGuid> blacklist = null;
@@ -231,7 +233,9 @@ namespace MHServerEmu.Games.Missions
 
             if (pickedMissionRef == PrototypeId.Invalid)
             {
-                picker = LegendaryMissionCategoryPicker();
+                picker.Clear();
+                BuildLegendaryMissionCategoryPicker(picker);
+
                 while (picker.PickRemove(out var categoryProto))
                 {
                     pickedMissionRef = PickLegendaryMissionForCategory(categoryProto, null);
@@ -247,7 +251,7 @@ namespace MHServerEmu.Games.Missions
             if (categoryProto == null) return PrototypeId.Invalid;
 
             var categoryRef = categoryProto.DataRef;
-            Picker<LegendaryMissionPrototype> picker = new(Game.Random);
+            using var pickerHandle = PickerPool<LegendaryMissionPrototype>.Get(Game.Random, out Picker<LegendaryMissionPrototype> picker);
             foreach (var missionRef in GameDatabase.DataDirectory.IteratePrototypesInHierarchy<LegendaryMissionPrototype>(PrototypeIterateFlags.NoAbstractApprovedOnly))
             {
                 var missionProto = GameDatabase.GetPrototype<LegendaryMissionPrototype>(missionRef);
@@ -282,16 +286,14 @@ namespace MHServerEmu.Games.Missions
             return Eval.RunBool(missionProto.EvalCanStart, evalContext);            
         }
 
-        private Picker<LegendaryMissionCategoryPrototype> LegendaryMissionCategoryPicker()
+        private void BuildLegendaryMissionCategoryPicker(Picker<LegendaryMissionCategoryPrototype> picker)
         {
-            Picker<LegendaryMissionCategoryPrototype> picker = new(Game.Random);
             foreach (var categoryRef in GameDatabase.DataDirectory.IteratePrototypesInHierarchy<LegendaryMissionCategoryPrototype>(PrototypeIterateFlags.NoAbstractApprovedOnly))
             {
                 var categoryProto = GameDatabase.GetPrototype<LegendaryMissionCategoryPrototype>(categoryRef);
                 if (categoryProto != null && categoryProto is not AdvancedMissionCategoryPrototype)
                     picker.Add(categoryProto, categoryProto.Weight);
             }
-            return picker;
         }
 
         private void ActivateLegendaryMission(PrototypeId missionRef, bool shared)
@@ -490,7 +492,7 @@ namespace MHServerEmu.Games.Missions
         {
             if (categoryProto == null) return PrototypeId.Invalid;
 
-            Picker<AdvancedMissionPrototype> picker = new(Game.Random);
+            using var pickerHandle = PickerPool<AdvancedMissionPrototype>.Get(Game.Random, out Picker<AdvancedMissionPrototype> picker);
             foreach (var missionRef in GameDatabase.DataDirectory.IteratePrototypesInHierarchy<AdvancedMissionPrototype>(PrototypeIterateFlags.NoAbstractApprovedOnly))
             {
                 var missionProto = GameDatabase.GetPrototype<AdvancedMissionPrototype>(missionRef);

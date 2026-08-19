@@ -1,4 +1,5 @@
 ﻿using Gazillion;
+using MHServerEmu.Core.Collections;
 using MHServerEmu.Core.Helpers;
 using MHServerEmu.Core.Logging;
 using MHServerEmu.Core.System.Random;
@@ -137,7 +138,8 @@ namespace MHServerEmu.Games.Populations
             var enemies = PickThemeEnemies(random, themeRef);
             if (enemies == null || enemies.Count == 0) return;
 
-            var picker = PopulationObject.PopulatePicker(random, enemies.ToArray());
+            using var pickerHandle = PickerPool<PopulationObjectPrototype>.Get(random, out Picker<PopulationObjectPrototype> picker);
+            PopulationObject.PopulatePicker(enemies, picker);
             if (picker.Pick(out var objectProto))
             {
                 int heat = spawnMap.PickBleedHeat(index);

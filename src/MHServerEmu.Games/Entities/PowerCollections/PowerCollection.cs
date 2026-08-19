@@ -201,7 +201,7 @@ namespace MHServerEmu.Games.Entities.PowerCollections
             AreaOfInterest aoi = player.AOI;
             if (!Verify.IsTrue(aoi.InterestedInEntity(_owner.Id, AOINetworkPolicyValues.AOIChannelProximity))) return false;
 
-            var assignCollectionBuilder = NetMessageAssignPowerCollection.CreateBuilder();
+            using var assignCollectionBuilderHandle = ProtobufBuilderPool<NetMessageAssignPowerCollection.Builder>.Get(out var assignCollectionBuilder);
 
             foreach (PowerCollectionRecord record in _powers.Values)
             {
@@ -210,8 +210,8 @@ namespace MHServerEmu.Games.Entities.PowerCollections
 
                 for (int i = 0; i < record.PowerRefCount; i++)
                 {
-                    assignCollectionBuilder.AddPower(NetMessagePowerCollectionAssignPower.CreateBuilder()
-                        .SetEntityId(_owner.Id)
+                    using var assignPowerBuilderHandle = ProtobufBuilderPool<NetMessagePowerCollectionAssignPower.Builder>.Get(out var assignPowerBulder);
+                    assignCollectionBuilder.AddPower(assignPowerBulder.SetEntityId(_owner.Id)
                         .SetPowerProtoId((ulong)record.PowerPrototypeRef)
                         .SetPowerRank(record.IndexProps.PowerRank)
                         .SetCharacterLevel(record.IndexProps.CharacterLevel)
@@ -338,8 +338,8 @@ namespace MHServerEmu.Games.Entities.PowerCollections
             // Send power assignment message to interested clients
             if (sendPowerAssignmentToClients && _owner != null && _owner.IsInGame)
             {
-                var assignPowerMessage = NetMessagePowerCollectionAssignPower.CreateBuilder()
-                    .SetEntityId(_owner.Id)
+                using var builderHandle = ProtobufBuilderPool<NetMessagePowerCollectionAssignPower.Builder>.Get(out var builder);
+                var assignPowerMessage = builder.SetEntityId(_owner.Id)
                     .SetPowerProtoId((ulong)powerProtoRef)
                     .SetPowerRank(indexProps.PowerRank)
                     .SetCharacterLevel(indexProps.CharacterLevel)
@@ -633,8 +633,8 @@ namespace MHServerEmu.Games.Entities.PowerCollections
             // Send power unassignment message to interested clients
             if (sendPowerUnassignToClients && _owner.IsInGame && _owner.IsInWorld)
             {
-                var unassignPowerMessage = NetMessagePowerCollectionUnassignPower.CreateBuilder()
-                    .SetEntityId(_owner.Id)
+                using var builderHandle = ProtobufBuilderPool<NetMessagePowerCollectionUnassignPower.Builder>.Get(out var builder);
+                var unassignPowerMessage = builder.SetEntityId(_owner.Id)
                     .SetPowerProtoId((ulong)powerProtoRef)
                     .Build();
 

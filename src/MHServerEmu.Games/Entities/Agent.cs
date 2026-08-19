@@ -1773,8 +1773,8 @@ namespace MHServerEmu.Games.Entities
 
             if (showXPAwardedText && owner.InterestedInEntity(this, AOINetworkPolicyValues.AOIChannelOwner))
             {
-                owner.SendMessage(NetMessageShowXPAwardedText.CreateBuilder()
-                    .SetXpAwarded(awardedAmount)
+                using var builderHandle = ProtobufBuilderPool<NetMessageShowXPAwardedText.Builder>.Get(out var builder);
+                owner.SendMessage(builder.SetXpAwarded(awardedAmount)
                     .SetAgentId(Id)
                     .Build());
             }

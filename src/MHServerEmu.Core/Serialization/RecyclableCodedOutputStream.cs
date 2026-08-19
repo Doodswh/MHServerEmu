@@ -4,7 +4,6 @@ using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using Google.ProtocolBuffers;
 using Google.ProtocolBuffers.Descriptors;
-using MHServerEmu.Core.Helpers;
 
 namespace MHServerEmu.Core.Serialization
 {
@@ -15,24 +14,23 @@ namespace MHServerEmu.Core.Serialization
     {
         private static readonly ConcurrentBag<RecyclableCodedOutputStream> Instances = new();
 
-        private readonly byte[] _primaryBuffer = new byte[CodedOutputStream.DefaultBufferSize];
         private readonly byte[] _floatBuffer = new byte[sizeof(float)];
 
         private CodedOutputStream _cos;
 
         private RecyclableCodedOutputStream() { }
 
-        private void Initialize(Stream stream)
+        private void Initialize(byte[] buffer, int offset, int length)
         {
-            _cos = ProtobufHelper.CodedOutputStreamEx.CreateInstance(stream, _primaryBuffer);
+            _cos = CodedOutputStream.CreateInstance(buffer, offset, length);
         }
 
-        public static RecyclableCodedOutputStream CreateInstance(Stream stream)
+        public static RecyclableCodedOutputStream CreateInstance(byte[] buffer, int offset, int length)
         {
             if (Instances.TryTake(out RecyclableCodedOutputStream cos) == false)
                 cos = new();
 
-            cos.Initialize(stream);
+            cos.Initialize(buffer, offset, length);
             return cos;
         }
 

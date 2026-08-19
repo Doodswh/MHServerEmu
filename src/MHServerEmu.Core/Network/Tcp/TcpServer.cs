@@ -10,12 +10,9 @@ namespace MHServerEmu.Core.Network.Tcp
     /// </summary>
     public abstract class TcpServer : IDisposable
     {
-        private const int SendBufferSize = 1024 * 512;  // 512 KB, enough to fit region loading packets + extra
+        private static readonly Logger Logger = LogManager.CreateLogger();
 
-        protected static readonly Logger Logger = LogManager.CreateLogger();
-
-        private readonly Dictionary<Socket, TcpClientConnection> _connectionDict = new();
-        private readonly ArrayPool<byte> _bufferPool = ArrayPool<byte>.Create(SendBufferSize, 50);  // 50 is the default number of buckets for ArrayPool
+        private readonly Dictionary<Socket, TcpClientConnection> _connections = new();
 
         private CancellationTokenSource _cts;
 
@@ -23,14 +20,15 @@ namespace MHServerEmu.Core.Network.Tcp
         private bool _isListening;
         private bool _isDisposed;
 
-        // The client should send ping messages every 10 seconds, so if we receive no data for 30 seconds, the connection is very likely to be dead.
-        // Send timeouts are more aggressive because it affects for how long game instances can potentially lag when send buffers overflow.
-        protected int _receiveTimeoutMS = 30000;
-        protected int _sendTimeoutMS = 6000;
-
         protected bool _isRunning;
 
-        public int ConnectionCount { get => _connectionDict.Count; }
+        public int ReceiveBufferSize { get; protected set; } = 1024 * 8;    // 8 KB, client input should be relatively small
+        public int SendBufferSize { get; protected set; } = 1024 * 64;      // large enough for big loading packets
+        public int ReceiveTimeoutMS { get; protected set; } = 30000;
+
+        public int ConnectionCount { get => _connections.Count; }
+
+        internal ArrayPool<byte> BufferPool { get; } = ArrayPool<byte>.Create();
 
         /// <summary>
         /// Runs the server. This method should generally be executed by its own <see cref="Thread"/>.
@@ -73,7 +71,7 @@ namespace MHServerEmu.Core.Network.Tcp
             _isListening = true;
 
             // Start accepting connections
-            Task.Run(async () => await AcceptConnectionsAsync());
+            _ = Task.Run(AcceptConnectionsAsync);
 
             _isRunning = true;
 
@@ -105,10 +103,15 @@ namespace MHServerEmu.Core.Network.Tcp
         /// <summary>
         /// Disconnects the specified client connection.
         /// </summary>
-        public void DisconnectClient(TcpClientConnection connection)
+        internal void DisconnectClient(TcpClientConnection connection)
         {
-            if (connection == null) throw new ArgumentNullException(nameof(connection));
-            DisconnectClientInternal(connection);
+            // No null check for connection because this is intended to be called only from TcpClientConnection with a this argument.
+
+            Socket socket = connection.Socket;
+            if (socket.Connected)
+                socket.Disconnect(false);
+
+            RemoveClientConnection(connection.Socket);
         }
 
         /// <summary>
@@ -117,9 +120,9 @@ namespace MHServerEmu.Core.Network.Tcp
         public void DisconnectAllClients()
         {
             // Disconnect all clients within a single lock to prevent new clients from being added while we do it
-            lock (_connectionDict)
+            lock (_connections)
             {
-                foreach (TcpClientConnection connection in _connectionDict.Values)
+                foreach (TcpClientConnection connection in _connections.Values)
                 {
                     if (connection.Connected == false)
                         continue;
@@ -128,33 +131,8 @@ namespace MHServerEmu.Core.Network.Tcp
                     OnClientDisconnected(connection);
                 }
 
-                _connectionDict.Clear();
+                _connections.Clear();
             }
-        }
-
-        // NOTE: We do not return the number of bytes sent in Send() methods because
-        // they are meant to use as fire and forget to avoid lagging game instances.
-
-        /// <summary>
-        /// Sends data over the provided <see cref="TcpClientConnection">.
-        /// </summary>
-        public void Send(TcpClientConnection connection, byte[] buffer, int size, SocketFlags flags = SocketFlags.None)
-        {
-            ArgumentNullException.ThrowIfNull(connection);
-            ArgumentNullException.ThrowIfNull(buffer);
-
-            Task.Run(async () => await SendAsync(connection, buffer, size, flags));
-        }
-
-        /// <summary>
-        /// Sends data over the provided <see cref="TcpClientConnection">.
-        /// </summary>
-        public void Send<T>(TcpClientConnection connection, T packet, SocketFlags flags = SocketFlags.None) where T: IPacket
-        {
-            ArgumentNullException.ThrowIfNull(connection);
-            ArgumentNullException.ThrowIfNull(packet);
-
-            Task.Run(async () => await SendAsync(connection, packet, flags));
         }
 
         #region Events
@@ -169,39 +147,42 @@ namespace MHServerEmu.Core.Network.Tcp
         /// </summary>
         protected abstract void OnClientDisconnected(TcpClientConnection connection);
 
-        /// <summary>
-        /// Raised when the server receives data from a client connection.
-        /// </summary>
-        protected abstract void OnDataReceived(TcpClientConnection connection, byte[] buffer, int length);
-
         #endregion
 
-        /// <summary>
-        /// Disconnects and removes the provided <see cref="TcpClientConnection"/>.
-        /// </summary>
-        private void DisconnectClientInternal(TcpClientConnection connection)
+        protected abstract TcpClient CreateTcpClient();
+
+        private void AddClientConnection(Socket socket)
         {
-            // No null check for connection because this should have already been validated
+            TcpClientConnection connection = new(this, socket);
 
-            Socket socket = connection.Socket;
-            if (socket.Connected)
-                socket.Disconnect(false);
+            lock (_connections)
+                _connections.Add(socket, connection);
 
-            RemoveClientConnection(connection);
+            // Allocate a TcpClient instance and bind it
+            TcpClient client = CreateTcpClient();
+            connection.Client = client;
+            client.Connection = connection;
+
+            OnClientConnected(connection);
+            connection.StartAsyncTasks();
         }
 
         /// <summary>
         /// Removes the provided <see cref="TcpClientConnection"/> and raises the <see cref="OnClientDisconnected(TcpClientConnection)"/> event.
         /// </summary>
-        private void RemoveClientConnection(TcpClientConnection connection)
+        private void RemoveClientConnection(Socket socket)
         {
             bool removed;
+            TcpClientConnection connection;
 
-            lock (_connectionDict)
-                removed = _connectionDict.Remove(connection.Socket);
+            lock (_connections)
+                removed = _connections.Remove(socket, out connection);
 
-            if (removed)
+            if (removed && Verify.IsNotNull(connection))
+            {
+                connection.StopAsyncTasks();
                 OnClientDisconnected(connection);
+            }
         }
 
         /// <summary>
@@ -212,25 +193,15 @@ namespace MHServerEmu.Core.Network.Tcp
             const int MaxErrorCount = 100;
             int errorCount = 0;
 
-            while (true)
+            while (_cts.IsCancellationRequested == false)
             {
                 try
                 {
                     // Wait for a connection
                     Socket socket = await _listener.AcceptAsync().WaitAsync(_cts.Token);
-                    socket.SendTimeout = _sendTimeoutMS;
-                    socket.SendBufferSize = SendBufferSize;
 
                     // Establish a new client connection
-                    TcpClientConnection connection = new(this, socket);
-
-                    lock (_connectionDict)
-                        _connectionDict.Add(socket, connection);
-
-                    OnClientConnected(connection);
-
-                    // Begin receiving data from our new connection
-                    _ = Task.Run(async () => await ReceiveDataAsync(connection));
+                    AddClientConnection(socket);
 
                     // Reset the error counter if everything is fine
                     errorCount = 0;
@@ -249,119 +220,6 @@ namespace MHServerEmu.Core.Network.Tcp
                         throw new($"AcceptConnectionsAsync: Maximum error count ({MaxErrorCount}) reached.");
                 }
             }
-        }
-
-        /// <summary>
-        /// Receives data from a <see cref="TcpClientConnection"/> asynchronously.
-        /// </summary>
-        private async Task ReceiveDataAsync(TcpClientConnection connection)
-        {
-            while (true)
-            {
-                try
-                {
-                    Task<int> receiveTask = connection.ReceiveAsync();
-                    await Task.WhenAny(receiveTask, Task.Delay(_receiveTimeoutMS, _cts.Token));
-
-                    if (_cts.Token.IsCancellationRequested)
-                        return;
-
-                    if (connection.IsReceiveTimeoutSuspended == false && receiveTask.IsCompleted == false)
-                        throw new TimeoutException();
-
-                    int bytesReceived = await receiveTask;
-
-                    if (bytesReceived == 0)             // Connection lost
-                    {
-                        DisconnectClientInternal(connection);
-                        return;
-                    }
-
-                    connection.IsReceiveTimeoutSuspended = false;
-
-                    // Do the OnDataReceived() callback to parse received data from the connection's buffer.
-                    OnDataReceived(connection, connection.ReceiveBuffer, bytesReceived);
-
-                    if (connection.Connected == false)  // Stop receiving if no longer connected
-                    {
-                        RemoveClientConnection(connection);
-                        return;
-                    }
-                }
-                catch (SocketException)
-                {
-                    DisconnectClientInternal(connection);
-                    return;
-                }
-                catch (TimeoutException)
-                {
-                    Logger.Warn($"ReceiveDataAsync(): Connection to {connection} timed out");
-                    DisconnectClientInternal(connection);
-                    return;
-                }
-                catch (Exception e)
-                {
-                    Logger.ErrorException(e, nameof(ReceiveDataAsync));
-                    DisconnectClientInternal(connection);
-                    return;
-                }
-            }
-        }
-
-        /// <summary>
-        /// Sends a <see cref="byte"/> buffer over the provided <see cref="TcpClientConnection"/> asynchronously.
-        /// Return the number of bytes sent.
-        /// </summary>
-        private async Task<int> SendAsync(TcpClientConnection connection, byte[] buffer, int size, SocketFlags flags)
-        {
-            int bytesSentTotal = 0;
-            int bytesRemaining = size;
-
-            try
-            {
-                while (bytesRemaining > 0)      // Send all bytes from our buffer
-                {
-                    ReadOnlyMemory<byte> bytes = buffer.AsMemory(bytesSentTotal, bytesRemaining);
-                    int bytesSent = await connection.Socket.SendAsync(bytes, flags);
-                    bytesRemaining -= bytesSent;
-                    bytesSentTotal += bytesSent;
-                }
-            }
-            catch (SocketException)
-            {
-                DisconnectClientInternal(connection);
-            }
-            catch (Exception e)
-            {
-                Logger.ErrorException(e, nameof(Send));
-            }
-
-            return bytesSentTotal;
-        }
-
-        /// <summary>
-        /// Sends an <see cref="IPacket"/> over the provided <see cref="TcpClientConnection"/> asynchronously.
-        /// Returns the number of bytes sent.
-        /// </summary>
-        private async Task<int> SendAsync<T>(TcpClientConnection connection, T packet, SocketFlags flags = SocketFlags.None) where T: IPacket
-        {
-            int sent = 0;
-
-            int size = packet.SerializedSize;
-            byte[] buffer = _bufferPool.Rent(size);
-
-            try
-            {
-                packet.Serialize(buffer);
-                sent = await SendAsync(connection, buffer, size, flags);
-            }
-            finally
-            {
-                _bufferPool.Return(buffer);
-                packet.Dispose();
-            }
-
-            return sent;
         }
 
         #region IDisposable Implementation

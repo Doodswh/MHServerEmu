@@ -816,61 +816,55 @@ namespace MHServerEmu.Games.Missions
 
         public void SendUpdateToPlayer(Player player, MissionObjectiveUpdateFlags objectiveFlags)
         {
-            if (objectiveFlags == MissionObjectiveUpdateFlags.None) return;
+            if (objectiveFlags == MissionObjectiveUpdateFlags.None)
+                return;
 
-            var message = NetMessageMissionObjectiveUpdate.CreateBuilder();
-            message.SetMissionPrototypeId((ulong)Mission.PrototypeDataRef);
-            message.SetObjectiveIndex(PrototypeIndex);
+            using var builderHandle = ProtobufBuilderPool<NetMessageMissionObjectiveUpdate.Builder>.Get(out var builder);
+            builder.SetMissionPrototypeId((ulong)Mission.PrototypeDataRef);
+            builder.SetObjectiveIndex(PrototypeIndex);
 
             if (objectiveFlags.HasFlag(MissionObjectiveUpdateFlags.State))
-                message.SetObjectiveState((uint)State);
+                builder.SetObjectiveState((uint)State);
 
             if (objectiveFlags.HasFlag(MissionObjectiveUpdateFlags.StateExpireTime))
             {
                 ulong time = (ulong)TimeExpire.TotalMilliseconds;
-                message.SetObjectiveStateExpireTime(time); 
+                builder.SetObjectiveStateExpireTime(time); 
             }
 
             if (objectiveFlags.HasFlag(MissionObjectiveUpdateFlags.CurrentCount))
             {
-                message.SetCurrentCount(_currentCount);
-                message.SetRequiredCount(_requiredCount);
+                builder.SetCurrentCount(_currentCount);
+                builder.SetRequiredCount(_requiredCount);
             }
 
             if (objectiveFlags.HasFlag(MissionObjectiveUpdateFlags.FailCurrentCount))
             {
-                message.SetFailCurrentCount(_failCurrentCount);
-                message.SetFailRequiredCount(_failRequiredCount);
+                builder.SetFailCurrentCount(_failCurrentCount);
+                builder.SetFailRequiredCount(_failRequiredCount);
             }
 
             if (objectiveFlags.HasFlag(MissionObjectiveUpdateFlags.InteractedEntities))
-            { 
+            {
                 if (_interactedEntityList.Count == 0)
                 {
-                    var tagMessage = NetStructMissionInteractionTag.CreateBuilder()
-                        .SetEntityId(Entity.InvalidId)
-                        .SetRegionId(0).Build();
-                    message.AddInteractedEntities(tagMessage);
+                    InteractionTag dummyTag = new(Entity.InvalidId, 0);
+                    builder.AddInteractedEntities(dummyTag.ToProtobuf());
                 }
                 else
                 {
-                    foreach(var tag in _interactedEntityList)
-                    {
-                        var tagMessage = NetStructMissionInteractionTag.CreateBuilder()
-                            .SetEntityId(tag.EntityId)
-                            .SetRegionId(tag.RegionId).Build();
-                        message.AddInteractedEntities(tagMessage);
-                    }
+                    foreach (InteractionTag tag in _interactedEntityList)
+                        builder.AddInteractedEntities(tag.ToProtobuf());
                 }
             }
 
             if (objectiveFlags.HasFlag(MissionObjectiveUpdateFlags.SuppressNotification))
-                message.SetSuppressNotification(true);
+                builder.SetSuppressNotification(true);
 
             if (objectiveFlags.HasFlag(MissionObjectiveUpdateFlags.SuspendedState))
-                message.SetSuspendedState(Mission.IsSuspended);
+                builder.SetSuspendedState(Mission.IsSuspended);
 
-            player.SendMessage(message.Build());
+            player.SendMessage(builder.Build());
         }
 
         private void CancelTimeLimitEvent()

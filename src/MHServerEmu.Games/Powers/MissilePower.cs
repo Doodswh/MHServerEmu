@@ -191,7 +191,7 @@ namespace MHServerEmu.Games.Powers
 
                 if (prototype.MissileSelectRandomContext)
                 {
-                    Picker<MissileCreationContextPrototype> picker = new(_random);
+                    using var pickerHandle = PickerPool<MissileCreationContextPrototype>.Get(_random, out Picker<MissileCreationContextPrototype> picker);
                     foreach (MissileCreationContextPrototype context in contexts)
                         picker.Add(context, context.RandomPickWeight);
 

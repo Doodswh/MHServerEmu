@@ -1972,7 +1972,7 @@ namespace MHServerEmu.Games.Regions
                     return true;
                 }
 
-            Picker<DividedStartLocation> picker = new(Game.Random);
+            using var pickerHandle = PickerPool<DividedStartLocation>.Get(Game.Random, out Picker<DividedStartLocation> picker);
             foreach (var startLocation in DividedStartLocations)
                 if (startLocation.Weight > 0) picker.Add(startLocation, startLocation.Weight);
 

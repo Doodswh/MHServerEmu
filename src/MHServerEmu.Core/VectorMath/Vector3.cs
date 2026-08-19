@@ -1,6 +1,7 @@
 ﻿using Gazillion;
 using MHServerEmu.Core.Collisions;
 using MHServerEmu.Core.Helpers;
+using MHServerEmu.Core.Memory;
 using MHServerEmu.Core.System.Random;
 
 namespace MHServerEmu.Core.VectorMath
@@ -65,7 +66,11 @@ namespace MHServerEmu.Core.VectorMath
             Z = v;
         }
 
-        public NetStructPoint3 ToNetStructPoint3() => NetStructPoint3.CreateBuilder().SetX(X).SetY(Y).SetZ(Z).Build();
+        public readonly NetStructPoint3 ToNetStructPoint3()
+        {
+            using var builderHandle = ProtobufBuilderPool<NetStructPoint3.Builder>.Get(out var builder);
+            return builder.SetX(X).SetY(Y).SetZ(Z).Build();
+        }
 
         public static Vector3 operator +(in Vector3 a, in Vector3 b) => new(a.X + b.X, a.Y + b.Y, a.Z + b.Z);
         public static Vector3 operator -(in Vector3 a, in Vector3 b) => new(a.X - b.X, a.Y - b.Y, a.Z - b.Z);

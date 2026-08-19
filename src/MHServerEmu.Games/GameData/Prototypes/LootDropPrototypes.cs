@@ -125,7 +125,7 @@ namespace MHServerEmu.Games.GameData.Prototypes
             ItemPrototype itemProto = null;
 
             // Build picker
-            Picker<Prototype> picker = new(resolver.Random);
+            using var pickerHandle = PickerPool<Prototype>.Get(resolver.Random, out Picker<Prototype> picker);
 
             foreach (PrototypeId charTokenProtoRef in DataDirectory.Instance.IteratePrototypesInHierarchy<CharacterTokenPrototype>(PrototypeIterateFlags.NoAbstractApprovedOnly))
             {
@@ -363,7 +363,7 @@ namespace MHServerEmu.Games.GameData.Prototypes
                 AvatarPrototype resolvedAvatarProto = resolver.ResolveAvatarPrototype(usableAvatarProto, settings.ForceUsable, settings.UsablePercent);
                 PrototypeId rollFor = resolvedAvatarProto != null ? resolvedAvatarProto.DataRef : PrototypeId.Invalid;
 
-                Picker<Prototype> picker = new(resolver.Random);
+                using var pickerHandle = PickerPool<Prototype>.Get(resolver.Random, out Picker<Prototype> picker);
                 LootUtilities.BuildInventoryLootPicker(picker, rollFor, UISlot);
 
                 if (picker.Empty())

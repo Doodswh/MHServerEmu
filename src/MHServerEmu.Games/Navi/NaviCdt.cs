@@ -512,11 +512,11 @@ namespace MHServerEmu.Games.Navi
         }
 
         public void AddEdge(NaviEdge edge)
-        {          
-            FixedDeque<NaviEdge> edges = new (256);
+        {
+            using var edgesHandle = FixedDequePool<NaviEdge>.Get(out FixedDeque<NaviEdge> edges);
             edges.PushBack(edge);
 
-            while (!edges.Empty)
+            while (edges.Empty == false)
             {
                 edge = edges.PopFront();
                 AddEdge(edge, edges);

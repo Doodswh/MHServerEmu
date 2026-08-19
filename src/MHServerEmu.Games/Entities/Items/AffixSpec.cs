@@ -66,8 +66,8 @@ namespace MHServerEmu.Games.Entities.Items
 
         public NetStructAffixSpec ToProtobuf()
         {
-            return NetStructAffixSpec.CreateBuilder()
-                .SetAffixProtoRef((ulong)AffixProto.DataRef)
+            using var builderHandle = ProtobufBuilderPool<NetStructAffixSpec.Builder>.Get(out var builder);
+            return builder.SetAffixProtoRef((ulong)AffixProto.DataRef)
                 .SetScopeProtoRef((ulong)_scopeProtoRef)
                 .SetSeed(_seed)
                 .Build();

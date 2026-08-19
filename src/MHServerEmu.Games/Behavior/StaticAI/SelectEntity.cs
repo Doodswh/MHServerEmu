@@ -181,7 +181,7 @@ namespace MHServerEmu.Games.Behavior.StaticAI
                 if (targets != null && targets.Count > 1)
                 {
                     bestTargetSoFar = null;
-                    Picker<WorldEntity> picker = new (ownersGame.Random);
+                    using var pickerHandle = PickerPool<WorldEntity>.Get(ownersGame.Random, out Picker<WorldEntity> picker);
                     foreach (var entityId in targets)
                     {
                         WorldEntity itEntity = manager.GetEntity<WorldEntity>(entityId);
@@ -227,7 +227,7 @@ namespace MHServerEmu.Games.Behavior.StaticAI
 
             if (selectionContext.SelectionMethod == SelectEntityMethodType.RandomEntity)
             {
-                Picker<WorldEntity> picker = new (ownersGame.Random);
+                using var pickerHandle = PickerPool<WorldEntity>.Get(ownersGame.Random, out Picker<WorldEntity> picker);
                 foreach (var itEntity in region.IterateEntitiesInVolume(bounds, spatialPartitionContext))
                 {
                     if (itEntity == null) continue;

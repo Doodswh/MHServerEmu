@@ -628,7 +628,7 @@ namespace MHServerEmu.Games.GameData.Prototypes
             if (OverheadTexts.IsNullOrEmpty() && OverheadTextsList.IsNullOrEmpty())
                 return null;
 
-            Picker<EntityActionOverheadTextPrototype> picker = new(random);
+            using var pickerHandle = PickerPool<EntityActionOverheadTextPrototype>.Get(random, out Picker<EntityActionOverheadTextPrototype> picker);
 
             if (OverheadTexts.HasValue())
             {
@@ -655,7 +655,7 @@ namespace MHServerEmu.Games.GameData.Prototypes
             if (AIOverrides.IsNullOrEmpty() && AIOverridesList.IsNullOrEmpty())
                 return null;
 
-            Picker<EntityActionAIOverridePrototype> picker = new(random);
+            using var pickerHandle = PickerPool<EntityActionAIOverridePrototype>.Get(random, out Picker<EntityActionAIOverridePrototype> picker);
 
             if (AIOverrides.HasValue())
             {

@@ -372,7 +372,9 @@ namespace MHServerEmu.Games.Navi
             NaviPoint goalPoint = new(_goalPosition);
             NaviSide vertexSide;
             float radiusSq = _radius * _radius;
-            NaviFunnel funnel = new (startPoint);
+
+            using var funnelHandle = NaviFunnelPool.Get(out NaviFunnel funnel);
+            funnel.Initialize(startPoint);
 
             if (pathChannel.Count > 0)
             {

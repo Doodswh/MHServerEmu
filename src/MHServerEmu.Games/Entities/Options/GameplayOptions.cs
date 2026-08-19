@@ -2,6 +2,7 @@
 using Gazillion;
 using MHServerEmu.Core.Collections;
 using MHServerEmu.Core.Logging;
+using MHServerEmu.Core.Memory;
 using MHServerEmu.Core.Serialization;
 using MHServerEmu.Games.Common;
 using MHServerEmu.Games.GameData;
@@ -368,25 +369,34 @@ namespace MHServerEmu.Games.Entities.Options
         /// </summary>
         public NetStructGameplayOptions ToProtobuf()
         {
-            var builder = NetStructGameplayOptions.CreateBuilder();
+            using var builderHandle = ProtobufBuilderPool<NetStructGameplayOptions.Builder>.Get(out var builder);
 
 #if GAME_VERSION_1_52 || GAME_VERSION_1_53
-            builder.AddRangeOptionSettings(_optionSettings.Select(setting => (ulong)setting));
+            for (int i = 0; i < (int)GameplayOptionSetting.Count; i++)
+                builder.AddOptionSettings((ulong)_optionSettings[i]);
 #else
             for (int i = 0; i < (int)GameplayOptionSetting.Count; i++)
                 builder.AddOptionSettings(_optionSettings[i]);
 #endif
 
-            builder.AddRangeChatChannelFiltersMap(_chatChannelFilters.Select(kvp => NetStructChatChannelFilterState.CreateBuilder()
-                .SetChannelProtoId((ulong)kvp.Key)
-                .SetIsSubscribed(kvp.Value)
-                .Build()));
+            using var chatChannelBuilderHandle = ProtobufBuilderPool<NetStructChatChannelFilterState.Builder>.Get(out var chatChannelBuilder);
+            foreach (var kvp in _chatChannelFilters)
+            {
+                builder.AddChatChannelFiltersMap(chatChannelBuilder.Clear()
+                    .SetChannelProtoId((ulong)kvp.Key)
+                    .SetIsSubscribed(kvp.Value));
+            }
 
-            builder.AddRangeChatTabChannelsArray(_chatTabChannels.Select(channel => NetStructChatTabState.CreateBuilder()
-                .SetChannelProtoId((ulong)channel)
-                .Build()));
+            using var chatTabBuilderHandle = ProtobufBuilderPool<NetStructChatTabState.Builder>.Get(out var chatTabBuilder);
+            foreach (PrototypeId channelProtoRef in _chatTabChannels)
+            {
+                builder.AddChatTabChannelsArray(chatTabBuilder.Clear()
+                    .SetChannelProtoId((ulong)channelProtoRef)
+                    .Build());
+            }
 
-            builder.AddRangeArmorRarityVaporizeThresholdProtoId(_armorRarityVaporizeThresholds.Select(kvp => (ulong)kvp.Value));
+            foreach (var kvp in _armorRarityVaporizeThresholds)
+                builder.AddArmorRarityVaporizeThresholdProtoId((ulong)kvp.Value);
 
             return builder.Build();
         }

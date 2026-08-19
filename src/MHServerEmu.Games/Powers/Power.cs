@@ -470,8 +470,8 @@ namespace MHServerEmu.Games.Powers
                 {
                     PowerIndexProperties indexProperties = GetIndexProperties();
 
-                    var updatePropsMessage = NetMessageUpdatePowerIndexProps.CreateBuilder()
-                        .SetEntityId(Owner.Id)
+                    using var builderHandle = ProtobufBuilderPool<NetMessageUpdatePowerIndexProps.Builder>.Get(out var builder);
+                    var updatePropsMessage = builder.SetEntityId(Owner.Id)
                         .SetPowerProtoId((ulong)PrototypeDataRef)
                         .SetPowerRank(indexProperties.CombatLevel)
                         .SetCharacterLevel(indexProperties.CharacterLevel)
@@ -1338,8 +1338,8 @@ namespace MHServerEmu.Games.Powers
         private PowerUseResult StartDelayedActivation(ref PowerActivationSettings settings, SecondaryActivateOnReleasePrototype secondaryActivationProto)
         {
             // Send pre-activation message to nearby clients
-            var preActivatePower = NetMessagePreActivatePower.CreateBuilder()
-                .SetIdUserEntity(Owner.Id)
+            using var builderHandle = ProtobufBuilderPool<NetMessagePreActivatePower.Builder>.Get(out var builder);
+            var preActivatePower = builder.SetIdUserEntity(Owner.Id)
                 .SetPowerPrototypeId((ulong)PrototypeDataRef)
                 .SetIdTargetEntity(settings.TargetEntityId)
                 .SetTargetPosition(settings.TargetPosition.ToNetStructPoint3())
@@ -2131,7 +2131,7 @@ namespace MHServerEmu.Games.Powers
             if (!Verify.IsNotNull(region)) return null;
 
             // Populate potential target picker
-            Picker<WorldEntity> picker = new(Game.Random);
+            using var pickerHandle = PickerPool<WorldEntity>.Get(Game.Random, out Picker<WorldEntity> picker);
             bool requiresLineOfSight = RequiresLineOfSight(powerProto);
             Sphere bounds = new(Owner.RegionLocation.Position, powerProto.Radius);
 
@@ -4064,8 +4064,8 @@ namespace MHServerEmu.Games.Powers
             {
                 // NOTE: Although NetMessageCancelPower is not an archive, it uses power prototype enums
                 ulong powerPrototypeEnum = (ulong)DataDirectory.Instance.GetPrototypeEnumValue<PowerPrototype>(PrototypeDataRef);
-                var cancelPowerMessage = NetMessageCancelPower.CreateBuilder()
-                    .SetIdAgent(Owner.Id)
+                using var builderHandle = ProtobufBuilderPool<NetMessageCancelPower.Builder>.Get(out var builder);
+                var cancelPowerMessage = builder.SetIdAgent(Owner.Id)
                     .SetPowerPrototypeId(powerPrototypeEnum)
                     .SetEndPowerFlags((uint)flags)
                     .Build();
@@ -4961,14 +4961,14 @@ namespace MHServerEmu.Games.Powers
             ulong lastTargetId = payload.TargetId;
             float speed = payload.Properties[PropertyEnum.BounceSpeedPayload];
 
-            NetMessagePowerBounce.Builder bounceMessageBuilder = NetMessagePowerBounce.CreateBuilder()
-                .SetIdPowerUser(payload.PowerOwnerId)
+            using var bounceMessageBuilderHandle = ProtobufBuilderPool<NetMessagePowerBounce.Builder>.Get(out var bounceMessageBuilder);
+            bounceMessageBuilder.SetIdPowerUser(payload.PowerOwnerId)
                 .SetIdLastTarget(lastTargetId)
                 .SetPowerPrototypeId((ulong)payload.PowerProtoRef)
                 .SetUserOriginalAssetId((ulong)payload.Properties[PropertyEnum.CreatorEntityAssetRefBase])
                 .SetUserCurrentAssetId((ulong)payload.Properties[PropertyEnum.CreatorEntityAssetRefCurrent])
                 .SetProjectileSpeed(speed)
-                .SetFxRandomSeed((int)payload.FXRandomSeed);
+                .SetFxRandomSeed(payload.FXRandomSeed);
 
             // Do bouncing if we still have any to do
             int bounceCount = payload.Properties[PropertyEnum.BounceCountPayload];

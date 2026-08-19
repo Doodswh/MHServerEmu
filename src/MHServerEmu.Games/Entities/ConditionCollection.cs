@@ -583,8 +583,8 @@ namespace MHServerEmu.Games.Entities
             Player player = _owner.GetOwnerOfType<Player>();
             if (player != null && player.InterestedInEntity(_owner, AOINetworkPolicyValues.AOIChannelOwner))
             {
-                player.SendMessage(NetMessageChangeConditionDuration.CreateBuilder()
-                    .SetIdEntity(_owner.Id)
+                using var builderHandle = ProtobufBuilderPool<NetMessageChangeConditionDuration.Builder>.Get(out var builder);
+                player.SendMessage(builder.SetIdEntity(_owner.Id)
                     .SetKey(condition.Id)
                     .SetDuration((long)condition.Duration.TotalMilliseconds)
                     .SetStartTime((ulong)condition.StartTime.TotalMilliseconds)
@@ -651,43 +651,43 @@ namespace MHServerEmu.Games.Entities
 
         public void RemoveConditionsWithConditionPrototypeRef(PrototypeId protoRef)
         {
-            RemoveConditionsFiltered(ConditionFilter.IsConditionWithPrototypeFunc, protoRef);
+            RemoveConditionsFiltered(ConditionFilter.IsConditionWithPrototype, protoRef);
         }
 
         public void RemoveConditionsOfPower(PrototypeId powerProtoRef)
         {
-            RemoveConditionsFiltered(ConditionFilter.IsConditionOfPowerFunc, powerProtoRef);
+            RemoveConditionsFiltered(ConditionFilter.IsConditionOfPower, powerProtoRef);
         }
 
         public void RemoveConditionsWithKeyword(PrototypeId keywordProtoRef)
         {
             KeywordPrototype keywordProto = keywordProtoRef.As<KeywordPrototype>();
-            RemoveConditionsFiltered(ConditionFilter.IsConditionWithKeywordFunc, keywordProto);
+            RemoveConditionsFiltered(ConditionFilter.IsConditionWithKeyword, keywordProto);
         }
 
         public void RemoveCancelOnHitConditions()
         {
-            RemoveConditionsFiltered(ConditionFilter.IsConditionCancelOnHitFunc);
+            RemoveConditionsFiltered(ConditionFilter.IsConditionCancelOnHit);
         }
 
         public void RemoveCancelOnKilledConditions()
         {
-            RemoveConditionsFiltered(ConditionFilter.IsConditionCancelOnKilledFunc);
+            RemoveConditionsFiltered(ConditionFilter.IsConditionCancelOnKilled);
         }
 
         public void RemoveCancelOnPowerUseConditions(PowerPrototype powerProto)
         {
-            RemoveConditionsFiltered(ConditionFilter.IsConditionCancelOnPowerUseFunc, powerProto);
+            RemoveConditionsFiltered(ConditionFilter.IsConditionCancelOnPowerUse, powerProto);
         }
 
         public void RemoveCancelOnPowerUsePostConditions(PowerPrototype powerProto)
         {
-            RemoveConditionsFiltered(ConditionFilter.IsConditionCancelOnPowerUsePostFunc, powerProto);
+            RemoveConditionsFiltered(ConditionFilter.IsConditionCancelOnPowerUsePost, powerProto);
         }
 
         public void RemoveCancelOnIntraRegionTeleportConditions()
         {
-            RemoveConditionsFiltered(ConditionFilter.IsConditionCancelOnIntraRegionTeleportFunc);
+            RemoveConditionsFiltered(ConditionFilter.IsConditionCancelOnIntraRegionTeleport);
         }
 
         public void RemoveCancelOnProcTriggerConditions(ProcTriggerType triggerType)
@@ -950,8 +950,8 @@ namespace MHServerEmu.Games.Entities
             using var interestedClientListHandle = ListPool<PlayerConnection>.Get(out List<PlayerConnection> interestedClientList);
             if (networkManager.GetInterestedClients(interestedClientList, _owner))
             {
-                var deleteConditionMessage = NetMessageDeleteCondition.CreateBuilder()
-                    .SetIdEntity(_owner.Id)
+                using var builderHandle = ProtobufBuilderPool<NetMessageDeleteCondition.Builder>.Get(out var builder);
+                var deleteConditionMessage = builder.SetIdEntity(_owner.Id)
                     .SetKey(condition.Id)
                     .Build();
 
@@ -1116,8 +1116,8 @@ namespace MHServerEmu.Games.Entities
             using var interestedClientListHandle = ListPool<PlayerConnection>.Get(out List<PlayerConnection> interestedClientList);
             if (networkManager.GetInterestedClients(interestedClientList, _owner))
             {
-                NetMessageEnableCondition enableConditionMessage = NetMessageEnableCondition.CreateBuilder()
-                    .SetIdEntity(_owner.Id)
+                using var builderHandle = ProtobufBuilderPool<NetMessageEnableCondition.Builder>.Get(out var builder);
+                NetMessageEnableCondition enableConditionMessage = builder.SetIdEntity(_owner.Id)
                     .SetKey(condition.Id)
                     .SetEnable(enable)
                     .Build();
@@ -1188,8 +1188,8 @@ namespace MHServerEmu.Games.Entities
             Player player = _owner.GetOwnerOfType<Player>();
             if (player != null && player.InterestedInEntity(_owner, AOINetworkPolicyValues.AOIChannelOwner))
             {
-                player.SendMessage(NetMessageChangeConditionPauseTime.CreateBuilder()
-                    .SetIdEntity(_owner.Id)
+                using var builderHandle = ProtobufBuilderPool<NetMessageChangeConditionPauseTime.Builder>.Get(out var builder);
+                player.SendMessage(builder.SetIdEntity(_owner.Id)
                     .SetKey(condition.Id)
                     .SetPauseTime((ulong)Game.GetTimeFromStart(condition.PauseTime))
                     .SetStartTime((ulong)condition.StartTime.TotalMilliseconds)

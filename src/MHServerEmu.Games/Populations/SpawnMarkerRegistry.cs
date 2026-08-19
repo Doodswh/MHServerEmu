@@ -20,7 +20,6 @@ namespace MHServerEmu.Games.Populations
         private SpawnReservationMap _regionLookup = new();
         private Dictionary<PrototypeId, SpawnReservationMap> _areaLookup = new();
         private Dictionary<uint, SpawnReservationMap> _cellLookup = new();
-        private Picker<SpawnReservation> _reusablePicker = new();   // TODO: Replace with pooling
         public TimeSpan _respawnDelay;
 
         public SpawnMarkerRegistry(Region region)
@@ -333,8 +332,7 @@ namespace MHServerEmu.Games.Populations
 
         public SpawnReservation ReserveFreeReservation(PrototypeId markerRef, GRandom random, SpawnLocation spawnLocation, SpawnFlags flag, int respawnDelayMS)
         {
-            Picker<SpawnReservation> picker = _reusablePicker;  // TODO: replace with pooling
-            picker.Initialize(random);
+            using var pickerHandle = PickerPool<SpawnReservation>.Get(random, out Picker<SpawnReservation> picker);
             _respawnDelay = TimeSpan.FromMilliseconds(respawnDelayMS);
 
             bool canPick = PickReservation(picker, markerRef, spawnLocation, flag);

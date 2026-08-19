@@ -38,7 +38,7 @@ namespace MHServerEmu.Games.Regions.POIPickers
 
             if (_poiGroups.Count > 0)
             {
-                Picker<POISpiderNode> poiPicker = new(random);
+                using var poiPickerHandle = PickerPool<POISpiderNode>.Get(random, out Picker<POISpiderNode> poiPicker);
                 foreach (var spider in _poiGroups)
                 {
                     poiPicker.Clear();

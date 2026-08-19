@@ -624,7 +624,7 @@ namespace MHServerEmu.Games.GameData.Prototypes
         {
             if (AffixTable != null && random.NextPct(ChancePct))
             {
-                Picker<PrototypeId> picker = new(random);
+                using var pickerHandle = PickerPool<PrototypeId>.Get(random, out Picker<PrototypeId> picker);
 
                 if (affixes.Count > 0)
                 {

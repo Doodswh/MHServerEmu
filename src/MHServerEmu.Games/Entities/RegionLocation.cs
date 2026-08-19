@@ -2,6 +2,7 @@
 using MHServerEmu.Core.Collections;
 using MHServerEmu.Core.Extensions;
 using MHServerEmu.Core.Logging;
+using MHServerEmu.Core.Memory;
 using MHServerEmu.Core.VectorMath;
 using MHServerEmu.Games.GameData.Prototypes;
 using MHServerEmu.Games.Navi;
@@ -67,8 +68,8 @@ namespace MHServerEmu.Games.Entities
                 position = Vector3.Zero;
             }
 
-            return NetStructRegionLocation.CreateBuilder()
-                .SetRegionId(regionId)
+            using var builderHandle = ProtobufBuilderPool<NetStructRegionLocation.Builder>.Get(out var builder);
+            return builder.SetRegionId(regionId)
                 .SetPosition(position.ToNetStructPoint3())
                 .Build();
         }

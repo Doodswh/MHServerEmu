@@ -87,7 +87,7 @@ namespace MHServerEmu.Games.Common
 
             if (ranks.Any(r => r.Rank != Rank.Popcorn) == false)
             {
-                Picker<RankPrototype> picker = new(_region.Game.Random);
+                using var pickerHandle = PickerPool<RankPrototype>.Get(_region.Game.Random, out Picker<RankPrototype> picker);
 #if GAME_VERSION_1_52 || GAME_VERSION_1_53
                 _tuningProto.BuildRankPicker(_region.DifficultyTierRef, noAffixes, picker);
 #else

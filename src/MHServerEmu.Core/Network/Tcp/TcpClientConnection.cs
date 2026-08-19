@@ -1,5 +1,6 @@
 ﻿using System.Net;
 using System.Net.Sockets;
+using System.Threading.Channels;
 using MHServerEmu.Core.Config;
 using MHServerEmu.Core.Helpers;
 using MHServerEmu.Core.Logging;
@@ -11,13 +12,14 @@ namespace MHServerEmu.Core.Network.Tcp
     /// </summary>
     public class TcpClientConnection
     {
-        public const int ReceiveBufferSize = 1024 * 8;
-
+        private static readonly Logger Logger = LogManager.CreateLogger();
         private static readonly bool HideSensitiveInformation = ConfigManager.Instance.GetConfig<LoggingConfig>().HideSensitiveInformation;
 
         private readonly TcpServer _server;
+        private readonly byte[] _receiveBuffer;
 
-        public byte[] ReceiveBuffer { get; } = new byte[ReceiveBufferSize];
+        private readonly CancellationTokenSource _cts = new();
+        private readonly Channel<IPacket> _sendChannel = Channel.CreateUnbounded<IPacket>();
 
         public Socket Socket { get; }
         public bool Connected { get => Socket.Connected; }
@@ -33,6 +35,9 @@ namespace MHServerEmu.Core.Network.Tcp
         {
             _server = server;
             Socket = socket;
+
+            _receiveBuffer = new byte[_server.ReceiveBufferSize];   // TODO: reuse receive buffers
+            Socket.SendBufferSize = _server.SendBufferSize;
         }
 
         public override string ToString()
@@ -47,15 +52,6 @@ namespace MHServerEmu.Core.Network.Tcp
         }
 
         /// <summary>
-        /// Receives data from a connection asynchronously.
-        /// </summary>
-        /// <returns></returns>
-        public async Task<int> ReceiveAsync()
-        {
-            return await Socket.ReceiveAsync(ReceiveBuffer, SocketFlags.None);
-        }
-
-        /// <summary>
         /// Disconnects this client connection.
         /// </summary>
         public void Disconnect()
@@ -65,19 +61,138 @@ namespace MHServerEmu.Core.Network.Tcp
         }
 
         /// <summary>
-        /// Sends a <see cref="byte"/> buffer over this connection.
+        /// Queues an <see cref="IPacket"/> to be sent over this connection.
         /// </summary>
-        public void Send(byte[] buffer, int size, SocketFlags flags = SocketFlags.None)
+        public void Send<T>(T packet) where T: IPacket
         {
-            _server.Send(this, buffer, size, flags);
+            ArgumentNullException.ThrowIfNull(packet);
+
+            _sendChannel.Writer.TryWrite(packet);
+        }
+
+        internal void StartAsyncTasks()
+        {
+            _ = Task.Run(ReceiveAsync);
+            _ = Task.Run(SendAsync);
+        }
+
+        internal void StopAsyncTasks()
+        {
+            _cts.Cancel();
         }
 
         /// <summary>
-        /// Sends an <see cref="IPacket"/> over this connection.
+        /// Receives data from a <see cref="TcpClientConnection"/> asynchronously.
         /// </summary>
-        public void Send<T>(T packet, SocketFlags flags = SocketFlags.None) where T: IPacket
+        private async Task ReceiveAsync()
         {
-            _server.Send(this, packet, flags);
+            while (_cts.IsCancellationRequested == false)
+            {
+                try
+                {
+                    Task<int> receiveTask = Socket.ReceiveAsync(_receiveBuffer.AsMemory(), _cts.Token).AsTask();
+
+                    if (_server.ReceiveTimeoutMS > 0)
+                    {
+                        await receiveTask.WaitAsync(TimeSpan.FromMilliseconds(_server.ReceiveTimeoutMS));
+
+                        if (_cts.Token.IsCancellationRequested)
+                            break;
+
+                        if (IsReceiveTimeoutSuspended == false && receiveTask.IsCompleted == false)
+                        {
+                            Logger.Warn($"ReceiveDataAsync(): Connection to {this} timed out");
+                            break;
+                        }
+                    }
+
+                    int bytesReceived = await receiveTask;
+
+                    if (bytesReceived == 0)             // Connection lost
+                        break;
+
+                    IsReceiveTimeoutSuspended = false;
+
+                    // Do the OnDataReceived() callback to parse received data from the connection's buffer.
+                    Client.OnDataReceived(_receiveBuffer, bytesReceived);
+
+                    if (Connected == false)  // Stop receiving if no longer connected
+                        break;
+                }
+                catch (SocketException)
+                {
+                    break;
+                }
+                catch (OperationCanceledException)
+                {
+                    break;
+                }
+                catch (Exception e)
+                {
+                    Logger.ErrorException(e, nameof(ReceiveAsync));
+                    break;
+                }
+            }
+
+            _server.DisconnectClient(this);
+        }
+
+        private async Task SendAsync()
+        {
+            while (_cts.IsCancellationRequested == false)
+            {
+                try
+                {
+                    IPacket packet = await _sendChannel.Reader.ReadAsync(_cts.Token);
+                    await SendPacketAsync(packet);
+                }
+                catch (SocketException)
+                {
+                    break;
+                }
+                catch (OperationCanceledException)
+                {
+                    break;
+                }
+                catch (Exception e)
+                {
+                    Logger.ErrorException(e, nameof(SendAsync));
+                    break;
+                }
+            }
+
+            _server.DisconnectClient(this);
+        }
+
+        /// <summary>
+        /// Sends an <see cref="IPacket"/> over the provided <see cref="TcpClientConnection"/> asynchronously.
+        /// Returns the number of bytes sent.
+        /// </summary>
+        private async ValueTask<int> SendPacketAsync<T>(T packet, SocketFlags flags = SocketFlags.None) where T : IPacket
+        {
+            int totalSent = 0;
+
+            byte[] buffer = _server.BufferPool.Rent(packet.SerializedSize);
+
+            try
+            {
+                int bytesRemaining = packet.Serialize(buffer, 0);
+
+                while (bytesRemaining > 0)
+                {
+                    ReadOnlyMemory<byte> bytes = buffer.AsMemory(totalSent, bytesRemaining);
+                    int sent = await Socket.SendAsync(bytes, flags, _cts.Token);
+                    bytesRemaining -= sent;
+                    totalSent += sent;
+                }
+            }
+            finally
+            {
+                _server.BufferPool.Return(buffer);
+                packet.Dispose();
+            }
+
+            return totalSent;
         }
     }
 }

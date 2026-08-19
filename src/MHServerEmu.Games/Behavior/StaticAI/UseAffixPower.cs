@@ -65,7 +65,7 @@ namespace MHServerEmu.Games.Behavior.StaticAI
             Game game = agent.Game;
             if (game == null) return false;
 
-            Picker<PrototypeId> randomAffixPower = new(game.Random);
+            using var randomAffixPowerHandle = PickerPool<PrototypeId>.Get(game.Random, out Picker<PrototypeId> randomAffixPower);
 
             foreach (var kvp in agent.Properties.IteratePropertyRange(PropertyEnum.EnemyBoost))
             {

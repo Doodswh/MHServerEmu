@@ -145,8 +145,8 @@ namespace MHServerEmu.Games.Properties
             if (_messageDispatcher.GetInterestedClients(interestedClientList, interestFilter))
             {
                 // Send update to interested
-                var setPropertyMessage = NetMessageSetProperty.CreateBuilder()
-                    .SetReplicationId(ReplicationId)
+                using var builderHandle = ProtobufBuilderPool<NetMessageSetProperty.Builder>.Get(out var builder);
+                var setPropertyMessage = builder.SetReplicationId(ReplicationId)
                     .SetPropertyId(id.Raw.ReverseBits())    // In NetMessageSetProperty all bits are reversed rather than bytes
                     .SetValueBits(ConvertValueToBits(value, propertyInfo.DataType))
                     .Build();
@@ -169,8 +169,8 @@ namespace MHServerEmu.Games.Properties
             if (_messageDispatcher.GetInterestedClients(interestedClientList, interestFilter))
             {
                 // Send update to interested
-                var removePropertyMessage = NetMessageRemoveProperty.CreateBuilder()
-                    .SetReplicationId(ReplicationId)
+                using var builderHandle = ProtobufBuilderPool<NetMessageRemoveProperty.Builder>.Get(out var builder);
+                var removePropertyMessage = builder.SetReplicationId(ReplicationId)
                     .SetPropertyId(id.Raw.ReverseBits())    // In NetMessageRemoveProperty all bits are reversed rather than bytes
                     .Build();
 

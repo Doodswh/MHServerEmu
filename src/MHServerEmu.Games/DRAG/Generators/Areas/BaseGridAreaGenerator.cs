@@ -246,7 +246,7 @@ namespace MHServerEmu.Games.DRAG.Generators.Areas
         {
             if (CellContainer == null) return false;
             if (LogDebug) Logger.Debug($"[{MethodBase.GetCurrentMethod().Name}] => {random}");
-            Picker<Point2> picker = new(random);
+            using var pickerHandle = PickerPool<Point2>.Get(random, out Picker<Point2> picker);
             if (!GetPrototype(out var proto)) return false;
 
             bool failed = false;
@@ -265,7 +265,7 @@ namespace MHServerEmu.Games.DRAG.Generators.Areas
 
             if (!failed && proto.NonRequiredSuperCells.HasValue())
             {
-                Picker<RequiredCellBasePrototype> cellPicker = new(random);
+                using var cellPickerHandle = PickerPool<RequiredCellBasePrototype>.Get(random, out Picker<RequiredCellBasePrototype> cellPicker);
                 AddCellsToPicker(cellPicker, proto.NonRequiredSuperCells);
                 if (!SpawnNonRequiredCellList(random, picker, cellPicker, proto.NonRequiredSuperCellsMin, proto.NonRequiredSuperCellsMax))
                 {
@@ -369,7 +369,7 @@ namespace MHServerEmu.Games.DRAG.Generators.Areas
 
             if (!failed && proto.NonRequiredNormalCells.HasValue())
             {
-                Picker<RequiredCellBasePrototype> cellPicker = new(random);
+                using var cellPickerHandle = PickerPool<RequiredCellBasePrototype>.Get(random, out Picker<RequiredCellBasePrototype> cellPicker);
                 AddCellsToPicker(cellPicker, proto.NonRequiredNormalCells);
                 if (!SpawnNonRequiredCellList(random, picker, cellPicker, proto.NonRequiredNormalCellsMin, proto.NonRequiredNormalCellsMax))
                 {
@@ -487,7 +487,7 @@ namespace MHServerEmu.Games.DRAG.Generators.Areas
         {
             if (superCell == null || superCell.Entries.IsNullOrEmpty()) return false;
 
-            Picker<Point2> picker = new(random);
+            using var pickerHandle = PickerPool<Point2>.Get(random, out Picker<Point2> picker);
             for (int x = 0; x < CellContainer.Width - superCell.Max.X; x++)
             {
                 for (int y = 0; y < CellContainer.Height - superCell.Max.Y; y++)
@@ -559,7 +559,7 @@ namespace MHServerEmu.Games.DRAG.Generators.Areas
                 RandomInstanceListPrototype randomInstanceList = proto.RandomInstances;
                 if (randomInstanceList != null && randomInstanceList.List != null)
                 {
-                    Picker<RandomInstanceRegionPrototype> picker = new(random);
+                    using var pickerHandle = PickerPool<RandomInstanceRegionPrototype>.Get(random, out Picker<RandomInstanceRegionPrototype> picker);
                     foreach (var randomInstanceRegion in randomInstanceList.List)
                     {
                         if (randomInstanceRegion == null) continue;
@@ -613,11 +613,11 @@ namespace MHServerEmu.Games.DRAG.Generators.Areas
         {
             if (!GetPrototype(out var proto)) return;
 
-            List<Point2> deleteList = new();
+            using var deleteListHandle = ListPool<Point2>.Get(out List<Point2> deleteList);
             int min = Math.Min(proto.CellsX / 2, proto.CellsY / 2);
             for (int radius = 0; radius < min && cells > 0; ++radius)
             {
-                Picker<Point2> picker = new(random);
+                using var pickerHandle = PickerPool<Point2>.Get(random, out Picker<Point2> picker);
                 while (cells > 0 && GetEdgeRadiusDeletableCellList(deleteList, radius, true))
                 {
                     picker.Clear();
@@ -642,11 +642,11 @@ namespace MHServerEmu.Games.DRAG.Generators.Areas
         {
             if (!GetPrototype(out var proto)) return;
 
-            List<Point2> deleteList = new();
+            using var deleteListHandle = ListPool<Point2>.Get(out List<Point2> deleteList);
             int max = Math.Max(proto.CellsX / 2, proto.CellsY / 2);
             for (int radius = 0; radius < max && cells > 0; ++radius)
             {
-                Picker<Point2> picker = new(random);
+                using var pickerHandle = PickerPool<Point2>.Get(random, out Picker<Point2> picker);
                 while (cells > 0 && GetCornerRadusDeletableCellList(deleteList, radius, true))
                 {
                     picker.Clear();
@@ -754,7 +754,7 @@ namespace MHServerEmu.Games.DRAG.Generators.Areas
 
         private void DeleteGuessAndCheck(GRandom random, int cells)
         {
-            Picker<Point2> picker = new(random);
+            using var pickerHandle = PickerPool<Point2>.Get(random, out Picker<Point2> picker);
 
             for (int y = 0; y < CellContainer.Height; ++y)
             {
@@ -1008,7 +1008,7 @@ namespace MHServerEmu.Games.DRAG.Generators.Areas
                 RoadInfo info = listRoads[i];
                 if (info.RoadType != Cell.Type.None && !info.InCell)
                 {
-                    Picker<PrototypeId> picker = new(random);
+                    using var pickerHandle = PickerPool<PrototypeId>.Get(random, out Picker<PrototypeId> picker);
                     foreach (var cellAsset in roadGeneratorProto.Cells)
                     {
                         PrototypeId cellRef = GameDatabase.GetDataRefByAsset(cellAsset);

@@ -1023,7 +1023,7 @@ namespace MHServerEmu.Games.Entities.Items
                 {
                     // Restore the previously saved index seed so that affixes don't affect which index gets picked.
                     random.Seed(indexSeed);
-                    Picker<int> picker = new(random);
+                    using var pickerHandle = PickerPool<int>.Get(random, out Picker<int> picker);
 
                     for (int i = 0; i < triggeredActions.Choices.Length; i++)
                     {

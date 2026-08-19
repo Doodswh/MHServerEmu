@@ -24,7 +24,7 @@ namespace MHServerEmu.Games.GameData.Prototypes
             if (Alts.IsNullOrEmpty())
                 return GameDatabase.GetDataRefByAsset(Cell);
 
-            Picker<PrototypeId> picker = new(random);
+            using var pickerHandle = PickerPool<PrototypeId>.Get(random, out Picker<PrototypeId> picker);
 
             if (Cell != 0)
             {
