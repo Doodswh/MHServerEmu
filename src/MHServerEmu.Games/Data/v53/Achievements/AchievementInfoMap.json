@@ -101896,6 +101896,10 @@
       "RewardPrototype": -2712149361056714598,
       "EventData": [
         {
+          "Prototype": 0,
+          "IncludeChildren": false
+        },
+        {
           "Prototype": -2317255996567775008,
           "IncludeChildren": true
         }
@@ -128113,6 +128117,10 @@
       "RewardPrototype": -2712149361056714598,
       "EventData": [
         {
+          "Prototype": 0,
+          "IncludeChildren": false
+        },
+        {
           "Prototype": -5766023770847956355,
           "IncludeChildren": false
         }
@@ -138580,6 +138588,10 @@
       "RewardPrototype": -5125583918845848951,
       "EventData": [
         {
+          "Prototype": 0,
+          "IncludeChildren": false
+        },
+        {
           "Prototype": -4085732298303797771,
           "IncludeChildren": true
         }
@@ -142753,6 +142765,10 @@
     "Context": {
       "RewardPrototype": -5125583918845848951,
       "EventData": [
+        {
+          "Prototype": 0,
+          "IncludeChildren": false
+        },
         {
           "Prototype": -5079616098793486811,
           "IncludeChildren": true
