@@ -509,7 +509,7 @@ namespace MHServerEmu.Games.Network
             foreach (WorldEntity worldEntity in region.IterateEntitiesInVolume(_entitiesVolume, new(_playerConnection.PlayerDbId)))
             {
                 AOINetworkPolicyValues newInterestPolicies = GetNewInterestPolicies(worldEntity);
-                bool wasInterested = _trackedEntities.TryGetValue(worldEntity.Id, out EntityInterestStatus interestStatus);
+                ref EntityInterestStatus interestStatus = ref _trackedEntities.GetValueRef(worldEntity.Id, out bool wasInterested);
                 bool isInterested = newInterestPolicies != AOINetworkPolicyValues.AOIChannelNone;
 
                 if (wasInterested == false && isInterested)
@@ -533,10 +533,9 @@ namespace MHServerEmu.Games.Network
             // Update existing entities
             EntityManager entityManager = _game.EntityManager;
 
-            foreach (var kvp in _trackedEntities)
+            foreach (ulong entityId in _trackedEntities.Keys)
             {
-                ulong entityId = kvp.Key;
-                EntityInterestStatus interestStatus = kvp.Value;
+                ref EntityInterestStatus interestStatus = ref _trackedEntities.GetValueRef(entityId, out _);
 
                 // Skip entities we have already processed in proximity
                 if (interestStatus.LastUpdateFrame >= _currentFrame)
@@ -745,8 +744,8 @@ namespace MHServerEmu.Games.Network
 
         private bool ModifyEntity(Entity entity, AOINetworkPolicyValues newInterestPolicies, EntitySettings settings = null)
         {
-            // No entity to modify
-            if (_trackedEntities.TryGetValue(entity.Id, out EntityInterestStatus interestStatus) == false)
+            ref EntityInterestStatus interestStatus = ref _trackedEntities.GetValueRef(entity.Id, out bool found);
+            if (found == false)
                 return false;
 
             // Policies are the same, so we don't need to do anything
@@ -1170,9 +1169,8 @@ namespace MHServerEmu.Games.Network
             }
         }
 
-        private class EntityInterestStatus
+        private struct EntityInterestStatus
         {
-            // NOTE: This needs to be a class so that we can modify it during iteration
             public ulong LastUpdateFrame;
             public AOINetworkPolicyValues InterestPolicies;
 
