@@ -164,7 +164,7 @@ namespace MHServerEmu.Games.Events
 
             protected override int GetAllocationWarningThreshold()
             {
-                return 16384;
+                return 32768;
             }
         }
     }
