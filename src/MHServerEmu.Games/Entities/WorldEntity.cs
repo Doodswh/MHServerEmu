@@ -1,5 +1,6 @@
 ﻿using System.Text;
 using Gazillion;
+using MHServerEmu.Core.Collections;
 using MHServerEmu.Core.Collisions;
 using MHServerEmu.Core.Extensions;
 using MHServerEmu.Core.Helpers;
@@ -78,6 +79,12 @@ namespace MHServerEmu.Games.Entities
         Teleport
     }
 
+    public enum PropertyCacheEntry
+    {
+        MovementSpeedRate,
+        MovementSpeedOverride,
+    }
+
     public partial class WorldEntity : Entity, IKeyworded
     {
         private static readonly Logger Logger = LogManager.CreateLogger();
@@ -99,6 +106,9 @@ namespace MHServerEmu.Games.Entities
         // Same with map location
         private Vector3 _lastMapPosition = Vector3.Zero;
         private float _lastMapOrientation = 0f;
+
+        // Movement speed cache to avoid property lookups for locomotion
+        private InlineArray2<PropertyValue> _propertyCache;
 
         private AlliancePrototype _allianceProto;
 
@@ -156,8 +166,8 @@ namespace MHServerEmu.Games.Entities
         public KeywordsMask KeywordsMask { get => WorldEntityPrototype?.KeywordsMask; }
         public Vector3 Forward { get => GetTransform().Col0; }
         public Vector3 GetUp { get => GetTransform().Col2; }
-        public float MovementSpeedRate { get => Properties[PropertyEnum.MovementSpeedRate]; } // PropertyTemp[PropertyEnum.MovementSpeedRate]
-        public float MovementSpeedOverride { get => Properties[PropertyEnum.MovementSpeedOverride]; } // PropertyTemp[PropertyEnum.MovementSpeedOverride]
+        public float MovementSpeedRate { get => _propertyCache[(int)PropertyCacheEntry.MovementSpeedRate]; }
+        public float MovementSpeedOverride { get => _propertyCache[(int)PropertyCacheEntry.MovementSpeedOverride]; }
         public float BonusMovementSpeed => Locomotor?.GetBonusMovementSpeed(false) ?? 0.0f;
         public NaviPoint NavigationInfluencePoint { get => NaviInfluence.Point; }
         public bool DefaultRuntimeVisibility { get => WorldEntityPrototype != null && WorldEntityPrototype.VisibleByDefault; }
@@ -185,6 +195,10 @@ namespace MHServerEmu.Games.Entities
 
         public WorldEntity(Game game) : base(game)
         {
+            _trackingContextMap = new();
+            _conditionCollection = new(this);
+            // PowerCollection is allocated on demand when the first power is assigned.
+
             SpatialPartitionLocation = new(this);
             Physics = new();
             HasNavigationInfluence = false;
@@ -195,7 +209,16 @@ namespace MHServerEmu.Games.Entities
         {
             if (!Verify.IsTrue(base.Initialize(settings))) return false;
 
+            InitPropertyCache();
+
+            OnAllianceChanged(Properties[PropertyEnum.AllianceOverride]);
+
             WorldEntityPrototype worldEntityProto = WorldEntityPrototype;
+            if (!Verify.IsNotNull(worldEntityProto)) return false;
+
+            ShouldSnapToFloorOnSpawn = settings.OptionFlags.HasFlag(EntitySettingsOptionFlags.HasOverrideSnapToFloor)
+                ? settings.OptionFlags.HasFlag(EntitySettingsOptionFlags.OverrideSnapToFloorValue)
+                : worldEntityProto.SnapToFloorOnSpawn;
 
             if (worldEntityProto.IsVacuumable)
                 SetFlag(EntityFlags.IsNeverAffectedByPowers, true);
@@ -203,16 +226,10 @@ namespace MHServerEmu.Games.Entities
             if (settings.IgnoreNavi)
                 SetFlag(EntityFlags.IgnoreNavi, true);
 
-            ShouldSnapToFloorOnSpawn = settings.OptionFlags.HasFlag(EntitySettingsOptionFlags.HasOverrideSnapToFloor)
-                ? settings.OptionFlags.HasFlag(EntitySettingsOptionFlags.OverrideSnapToFloorValue)
-                : worldEntityProto.SnapToFloorOnSpawn;
-
-            OnAllianceChanged(Properties[PropertyEnum.AllianceOverride]);
-
             SpawnSpec = settings.SpawnSpec;
             SetFlag(EntityFlags.IsPopulation, settings.IsPopulation);
 
-            if (worldEntityProto.Bounds != null)
+            if (Verify.IsNotNull(worldEntityProto.Bounds, $"Trying to initialize Bounds from prototype for entity {this}, but it has no bounds!"))
             {
                 _bounds.InitializeFromPrototype(worldEntityProto.Bounds);
                 if (settings.BoundsScaleOverride != 1f)
@@ -220,10 +237,6 @@ namespace MHServerEmu.Games.Entities
             }
 
             Physics.Initialize(this);
-
-            _trackingContextMap = new();
-            _conditionCollection = new(this);
-            // PowerCollection is allocated on demand when the first power is assigned.
 
             if (Properties.HasProperty(PropertyEnum.Rank) == false && worldEntityProto.Rank != null)
                 Properties[PropertyEnum.Rank] = worldEntityProto.Rank.DataRef;
@@ -3697,6 +3710,14 @@ namespace MHServerEmu.Games.Entities
                 case PropertyEnum.ImmuneToPower:
                     SetFlag(EntityFlags.ImmuneToPower, newValue);
                     break;
+
+                case PropertyEnum.MovementSpeedRate:
+                    _propertyCache[(int)PropertyCacheEntry.MovementSpeedRate] = newValue;
+                    break;
+
+                case PropertyEnum.MovementSpeedOverride:
+                    _propertyCache[(int)PropertyCacheEntry.MovementSpeedOverride] = newValue;
+                    break;
             }
         }
 
@@ -4737,6 +4758,14 @@ namespace MHServerEmu.Games.Entities
             if (!Verify.IsNotNull(vendorTypeProto)) return PrototypeId.Invalid;
 
             return vendorTypeProto.GlobalEvent;
+        }
+
+        private void InitPropertyCache()
+        {
+            _propertyCache[(int)PropertyCacheEntry.MovementSpeedRate] = Properties[PropertyEnum.MovementSpeedRate];
+
+            // MovementSpeedOverride is not here in client code, but it probably should be.
+            _propertyCache[(int)PropertyCacheEntry.MovementSpeedOverride] = Properties[PropertyEnum.MovementSpeedOverride];
         }
 
         #region Scheduled Events
