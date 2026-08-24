@@ -7,12 +7,12 @@ namespace MHServerEmu.Core.Extensions
     {
         /// <summary>
         /// Retrieves a <see langword="ref"/> to a value corresponding to a <typeparamref name="TKey"/> key in this <see cref="Dictionary{TKey, TValue}"/>.
-        /// Returns <see langword="true"/> if a value was found.
         /// </summary>
-        public static bool TryGetValueRef<TKey, TValue>(this Dictionary<TKey, TValue> dictionary, TKey key, ref TValue value)
+        public static ref TValue GetValueRef<TKey, TValue>(this Dictionary<TKey, TValue> dictionary, TKey key, out bool found)
         {
-            value = ref CollectionsMarshal.GetValueRefOrNullRef(dictionary, key);
-            return Unsafe.IsNullRef(ref value) == false;
+            ref TValue value = ref CollectionsMarshal.GetValueRefOrNullRef(dictionary, key);
+            found = Unsafe.IsNullRef(ref value) == false;
+            return ref value;
         }
 
         /// <summary>

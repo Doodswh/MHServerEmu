@@ -677,13 +677,15 @@ namespace MHServerEmu.Games.Entities
             
             HotspotPrototype hotspotProto = HotspotPrototype;
             if (!Verify.IsNotNull(hotspotProto)) return;
-            
+
             PowerTargetMap powerTarget = new();
 
             if (hotspotProto.AppliesPowers.HasValue())
                 ApplyActivePowers(target, ref powerTarget);
+
             if (Debug) Logger.Debug($"OverlapBegin Add {target.PrototypeName}[{target.Id}]");
-            _overlapPowerTargets[target.Id] = powerTarget;
+
+            if (!Verify.IsTrue(_overlapPowerTargets.TryAdd(target.Id, powerTarget))) return;
 
             ScheduleActivePowersEvent();
             ScheduleIntervalPowersEvent();
@@ -696,10 +698,12 @@ namespace MHServerEmu.Games.Entities
             ulong targetId = target.Id;
             EntityManager entityManager = Game.EntityManager;
 
-            if (_overlapPowerTargets.TryGetValue(targetId, out PowerTargetMap powerTarget) == false)
+            ref PowerTargetMap powerTarget = ref _overlapPowerTargets.GetValueRef(targetId, out bool found);
+            if (found == false)
                 return;
 
             if (Debug) Logger.Debug($"OverlapEnd {target.PrototypeName}[{target.Id}]");
+
             if (powerTarget.ActivePowers.Any)
             {
                 EndPowerForActivePowers(target, ref powerTarget);
@@ -740,22 +744,12 @@ namespace MHServerEmu.Games.Entities
                 if (!Verify.IsTrue(index < HotspotPowerMask.Size))
                     return;
 
-                // TODO: iterate _overlapPowerTargets keys and get refs using GetValueOrDefault() to remove this pooled dictionary?
-                using var changedHandle = ListPool<(ulong, PowerTargetMap)>.Get(out List<(ulong, PowerTargetMap)> changed);
-
-                foreach (var kvp in _overlapPowerTargets)
+                foreach (ulong key in _overlapPowerTargets.Keys)
                 {
-                    ulong key = kvp.Key;
-                    PowerTargetMap powerTarget = kvp.Value;
+                    ref PowerTargetMap powerTarget = ref _overlapPowerTargets.GetValueRefOrAddDefault(key);
                     if (powerTarget.ActivePowers[index])
-                    {
                         ClearActiveTargetPowers(ref powerTarget, index);
-                        changed.Add((key, powerTarget));
-                    }
                 }
-
-                foreach (var kv in changed)
-                    _overlapPowerTargets[kv.Item1] = kv.Item2;
             }
         }
 
@@ -933,8 +927,8 @@ namespace MHServerEmu.Games.Entities
                         continue;
 
                     picker.Clear();
-                    foreach (var targetPower in _overlapPowerTargets)
-                        picker.Add(targetPower.Key);
+                    foreach (ulong potentialTargetId in _overlapPowerTargets.Keys)
+                        picker.Add(potentialTargetId);
 
                     int numTargets = hotspotProto.IntervalPowersNumRandomTargets;
                     ulong targetId = InvalidId;
@@ -951,7 +945,7 @@ namespace MHServerEmu.Games.Entities
             else
             {
                 int numTargets = 0;
-                foreach (var powerTarget in _overlapPowerTargets)
+                foreach (ulong targetId in _overlapPowerTargets.Keys)
                 {
                     bool? hasLOS = null;
                     bool activated = false;
@@ -961,7 +955,6 @@ namespace MHServerEmu.Games.Entities
                         if (!Verify.IsNotNull(powerProto))
                             continue;
 
-                        ulong targetId = powerTarget.Key;
                         activated |= ActivateIntervalPowerForTarget(powerProto.DataRef, targetId, ref hasLOS);
                     }
 
@@ -1032,26 +1025,18 @@ namespace MHServerEmu.Games.Entities
         {
             if (!Verify.IsNotNull(_overlapPowerTargets)) return;
 
-            var manager = Game.EntityManager;
+            EntityManager entityManager = Game.EntityManager;
 
-            // TODO: same ref based optimization as in OnPowerEnded()
-            using var changedHandle = ListPool<(ulong, PowerTargetMap)>.Get(out List<(ulong, PowerTargetMap)> changed);
-
-            foreach (var entry in _overlapPowerTargets)
+            foreach (ulong targetId in _overlapPowerTargets.Keys)
             {
-                ulong targetId = entry.Key;
-                PowerTargetMap powerTarget = entry.Value;
+                ref PowerTargetMap powerTarget = ref _overlapPowerTargets.GetValueRefOrAddDefault(targetId);
                 
-                WorldEntity target = manager.GetEntity<WorldEntity>(targetId);
+                WorldEntity target = entityManager.GetEntity<WorldEntity>(targetId);
                 if (!Verify.IsNotNull(target))
                     continue;
                 
                 ApplyActivePowers(target, ref powerTarget);
-                changed.Add((targetId, powerTarget));
             }
-
-            foreach (var kv in changed)
-                _overlapPowerTargets[kv.Item1] = kv.Item2;
 
             ScheduleActivePowersEvent();
         }
