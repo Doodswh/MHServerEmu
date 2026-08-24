@@ -1425,6 +1425,9 @@ namespace MHServerEmu.Games.GameData.Prototypes
             BehaviorBlackboard ownerBlackboard = ownerController.Blackboard;
 
             int syncAttackIndex = GetRandomSyncAttackIndex(ownerBlackboard, game);
+            if (syncAttackIndex == -1)
+                return;
+
             if (!Verify.IsTrue(syncAttackIndex >= 0 && syncAttackIndex < IDPropertiesLength)) return;
 
             ulong targetId = ownerBlackboard.PropertyCollection[IDProperties[syncAttackIndex]];            
