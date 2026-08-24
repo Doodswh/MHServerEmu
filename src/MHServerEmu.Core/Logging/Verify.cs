@@ -1,4 +1,5 @@
-﻿using System.Runtime.CompilerServices;
+﻿using System.Diagnostics;
+using System.Runtime.CompilerServices;
 using MHServerEmu.Core.Extensions;
 
 namespace MHServerEmu.Core.Logging
@@ -176,7 +177,13 @@ namespace MHServerEmu.Core.Logging
                 KnownFailures.GetValueRefOrAddDefault((file, line), out isNew)++;
 
             if (isNew)
+            {
                 stackTrace = $" StackTrace:\n{Environment.StackTrace}";
+#if DEBUG
+                if (Debugger.IsAttached)
+                    Debugger.Break();
+#endif
+            }
 
             Logger.Log(level, $"Verify failed: {message}\n\tFile:{file} Line:{line} Member:{member}(){stackTrace}", LogChannels.General, LogCategory.Verify);
         }
