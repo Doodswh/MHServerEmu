@@ -14,10 +14,16 @@ namespace MHServerEmu.Games.Entities
         IsDestroyed
     }
 
-    public class EntityTrackingData
+    public readonly struct EntityTrackingData
     {
-        public Dictionary<ulong, EntityTrackingFlag> Entities = new();
-        public SortedVector<ulong> Hotspots = new();
+        public readonly Dictionary<ulong, EntityTrackingFlag> Entities;
+        public readonly SortedVector<ulong> Hotspots;
+
+        public EntityTrackingData()
+        {
+            Entities = new();
+            Hotspots = new();
+        }
     }
 
     public class EntityTracker
@@ -181,6 +187,7 @@ namespace MHServerEmu.Games.Entities
         public IEnumerable<WorldEntity> Iterate(PrototypeId contextRef,
                 EntityTrackingFlag flags = EntityTrackingFlag.None, EntityTrackerOptions options = EntityTrackerOptions.None)
         {
+            // TODO: this is ugly and needs to be rewritten
             var iterator = new Iterator(this, contextRef, flags, options);
 
             try
