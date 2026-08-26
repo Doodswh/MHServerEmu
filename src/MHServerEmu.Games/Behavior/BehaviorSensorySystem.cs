@@ -1,5 +1,7 @@
 ﻿using MHServerEmu.Core.Collisions;
 using MHServerEmu.Core.Helpers;
+using MHServerEmu.Core.Logging;
+using MHServerEmu.Core.Memory;
 using MHServerEmu.Core.VectorMath;
 using MHServerEmu.Games.Behavior.StaticAI;
 using MHServerEmu.Games.Common;
@@ -116,7 +118,8 @@ namespace MHServerEmu.Games.Behavior
                         if (wakeRange > 0 && distToAvatarSq <= wakeRange * wakeRange)
                         {
                             ownerAgent.SetDormant(false);
-                            List<WorldEntity> entities = SpawnGroup.GetEntities(ownerAgent, SpawnGroupEntityQueryFilterFlags.All);
+                            using var entitiesHandle = ListPool<WorldEntity>.Get(out List<WorldEntity> entities);
+                            SpawnGroup.GetEntities(entities, ownerAgent, SpawnGroupEntityQueryFilterFlags.All);
                             foreach (WorldEntity entity in entities)
                                 if (entity is Agent groupAgent && ownerAgent != groupAgent && groupAgent.IsDormant)
                                     groupAgent.SetDormant(false);
@@ -203,17 +206,22 @@ namespace MHServerEmu.Games.Behavior
             }
         }
 
-        public void NotifyAlliesOnTargetAquired()
+        public void NotifyAlliesOnTargetAquired()   // same typo in the method name as the client
         {
             Agent ownerAgent = _pAIController.Owner;
-            if (ownerAgent == null) return;
+            if (!Verify.IsNotNull(ownerAgent)) return;
 
-            List<WorldEntity> allies = GetPopulationGroup();
-            foreach (var entity in allies)
+            using var alliesHandle = ListPool<WorldEntity>.Get(out List<WorldEntity> allies);
+            GetPopulationGroup(allies);
+            foreach (WorldEntity entity in allies)
             {
-                if (entity is not Agent ally) continue;
+                if (entity is not Agent ally)
+                    continue;
+
                 AIController brain = ally.AIController;
-                if (brain == null) continue;
+                if (brain == null)
+                    continue;
+
                 if (brain.Blackboard.PropertyCollection[PropertyEnum.AIRawTargetEntityID] == 0)
                 {
                     brain.SetTargetEntity(GetCurrentTarget());
@@ -222,28 +230,36 @@ namespace MHServerEmu.Games.Behavior
             }
         }
 
-        public List<WorldEntity> GetPopulationGroup()
+        public bool GetPopulationGroup(List<WorldEntity> entities)
         {
-            List<WorldEntity> populationGroup = new ();
-            if (_pAIController != null)
-            {
-                Agent ownerAgent = _pAIController.Owner;
-                ownerAgent?.SpawnSpec?.Group?.GetEntities(out populationGroup, SpawnGroupEntityQueryFilterFlags.All);
-            }
-            return populationGroup;
+            if (!Verify.IsNotNull(_pAIController)) return false;
+
+            Agent ownerAgent = _pAIController.Owner;
+            if (!Verify.IsNotNull(ownerAgent)) return false;
+
+            SpawnGroup spawnGroup = ownerAgent.SpawnSpec?.Group;
+            if (spawnGroup == null)
+                return false;
+
+            return spawnGroup.GetEntities(entities, SpawnGroupEntityQueryFilterFlags.All);
         }
 
         public void NotifyAlliesOnOwnerKilled()
         {
             Agent ownerAgent = _pAIController.Owner;
-            if (ownerAgent == null) return;
+            if (!Verify.IsNotNull(ownerAgent)) return;
 
-            List<WorldEntity> allies = GetPopulationGroup();
-            foreach (var entity in allies)
+            using var alliesHandle = ListPool<WorldEntity>.Get(out List<WorldEntity> allies);
+            GetPopulationGroup(allies);
+            foreach (WorldEntity entity in allies)
             {
-                if (entity is not Agent ally) continue;
+                if (entity is not Agent ally)
+                    continue;
+
                 AIController brain = ally.AIController;
-                if (brain == null) continue;                
+                if (brain == null)
+                    continue;      
+                
                 brain.Senses?.OnLeaderDeath(ownerAgent);
             }
         }
