@@ -41,11 +41,11 @@ namespace MHServerEmu.Games.Entities
             EntityTrackingContextMap entityTracking = entity.TrackingContextMap;
             bool hasOldTracking = entityTracking.Count > 0;
 
-            EntityTrackingContextMap interactionTracking = new();
+            using var interactionTrackingHandle = EntityTrackingContextMapPool.Get(out EntityTrackingContextMap interactionTracking);
             bool hasNewTracking = GameDatabase.InteractionManager.GetEntityContextInvolvement(entity, interactionTracking);
 
-            EntityTrackingContextMap insertMap = new();
-            EntityTrackingContextMap removeMap = new();
+            using var insertMapHandle = EntityTrackingContextMapPool.Get(out EntityTrackingContextMap insertMap);
+            using var removeMapHandle = EntityTrackingContextMapPool.Get(out EntityTrackingContextMap removeMap);
 
             if (hasNewTracking)
             {

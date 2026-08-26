@@ -842,7 +842,7 @@ namespace MHServerEmu.Games.Entities
 
         private void InitializeMissionEntityTracker()
         {
-            EntityTrackingContextMap involvementMap = new();
+            using var involvementMapHandle = EntityTrackingContextMapPool.Get(out EntityTrackingContextMap involvementMap);
             if (GameDatabase.InteractionManager.GetEntityContextInvolvement(this, involvementMap) == false)
                 return;
 

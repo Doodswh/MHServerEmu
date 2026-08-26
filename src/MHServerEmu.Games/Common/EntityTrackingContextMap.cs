@@ -1,15 +1,20 @@
-﻿using MHServerEmu.Core.Serialization;
+﻿using MHServerEmu.Core.Memory;
+using MHServerEmu.Core.Serialization;
 using MHServerEmu.Games.Dialog;
 using MHServerEmu.Games.GameData;
 
 namespace MHServerEmu.Games.Common
 {
+    public sealed class EntityTrackingContextMapPool : GenericPool<EntityTrackingContextMap> { }
+
     /// <summary>
     /// A <see cref="Dictionary{TKey, TValue}"/> of <see cref="PrototypeId"/> and <see cref="EntityTrackingFlag"/> that implements <see cref="ISerialize"/>.
     /// </summary>
-    public class EntityTrackingContextMap : Dictionary<PrototypeId, EntityTrackingFlag>, ISerialize
+    public sealed class EntityTrackingContextMap : Dictionary<PrototypeId, EntityTrackingFlag>, ISerialize, IPoolable
     {
         // NOTE: Consider making this a wrapper around Dictionary rather than inherit from it.
+
+        public EntityTrackingContextMap() { }
 
         public bool Serialize(Archive archive)
         {
@@ -51,6 +56,11 @@ namespace MHServerEmu.Games.Common
                 this[contextRef] |= flag;
             else
                 Add(contextRef, flag);
+        }
+
+        public void ResetForPool()
+        {
+            Clear();
         }
     }
 }
