@@ -467,7 +467,7 @@ namespace MHServerEmu.Games.Entities
                     MissionConditionPrototype conditionProto = context.ConditionProto;
                     if (EvaluateTargetCondition(target, missionRef, conditionProto))
                     {
-                        _missionConditionEntityCounter[context]++;
+                        _missionConditionEntityCounter.GetValueRef(context, out _)++;
                         hasMissionEvent = true;
                     }
                 }
@@ -500,7 +500,7 @@ namespace MHServerEmu.Games.Entities
                     MissionConditionPrototype conditionProto = context.ConditionProto;
                     if (EvaluateTargetCondition(target, missionRef, conditionProto))
                     {
-                        _missionConditionEntityCounter[context]--;
+                        _missionConditionEntityCounter.GetValueRef(context, out _)--;
                         hasMissionEvent = true;
                     }
                 }
@@ -865,7 +865,7 @@ namespace MHServerEmu.Games.Entities
                     if (EvaluateHotspotCondition(missionRef, conditionProto))
                     {
                         MissionConditionContext key = new(missionRef, conditionProto);
-                        _missionConditionEntityCounter[key] = 0;
+                        _missionConditionEntityCounter.Add(key, 0);
                     }
                 }
             }
@@ -1285,10 +1285,10 @@ namespace MHServerEmu.Games.Entities
         #endregion
     }
 
-    public class MissionConditionContext    // TODO: change to struct
+    public readonly struct MissionConditionContext
     {
-        public PrototypeId MissionRef;
-        public MissionConditionPrototype ConditionProto;
+        public readonly PrototypeId MissionRef;
+        public readonly MissionConditionPrototype ConditionProto;
 
         public MissionConditionContext(PrototypeId missionRef, MissionConditionPrototype conditionProto)
         {
@@ -1298,14 +1298,15 @@ namespace MHServerEmu.Games.Entities
 
         public override bool Equals(object obj)
         {
-            if (obj == null || GetType() != obj.GetType()) return false;
-            var other = (MissionConditionContext)obj;
-            return MissionRef.Equals(other.MissionRef) && ConditionProto.Equals(other.ConditionProto);
+            if (obj is not MissionConditionContext other)
+                return false;
+
+            return MissionRef == other.MissionRef && ConditionProto == other.ConditionProto;
         }
 
         public override int GetHashCode()
         {
-            return MissionRef.GetHashCode() ^ ConditionProto.GetHashCode();
+            return HashCode.Combine(MissionRef, ConditionProto);
         }
     }
 
