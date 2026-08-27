@@ -36,10 +36,6 @@ namespace MHServerEmu.Games.Network
         private readonly Dictionary<uint, CellInterestStatus> _trackedCells = new();
         private readonly Dictionary<ulong, EntityInterestStatus> _trackedEntities = new();
 
-        // See Update() for explanation on why we need two entity update stacks.
-        private readonly Stack<EntityTrackingUpdate> _entityUpdateStackPreEnvironment = new(64);
-        private readonly Stack<EntityTrackingUpdate> _entityUpdateStackPostEnvironment = new(64);
-
         private readonly PlayerConnection _playerConnection;
         private readonly Game _game;
 
@@ -114,16 +110,18 @@ namespace MHServerEmu.Games.Network
             // for world entities in the world. For this reason we remove entities before the environment and add them after.
             // Losing proximity causes an entity to be removed from the world client-side, so we do that before the environment,
             // but other policy modifications happen after, because gaining proximity causes an entity to enter the world.
+            using var preEnvironmentUpdatesHandle = StackPool<EntityTrackingUpdate>.Get(out PoolableStack<EntityTrackingUpdate> preEnvironmentUpdates);
+            using var postEnvironmentUpdatesHandle = StackPool<EntityTrackingUpdate>.Get(out PoolableStack<EntityTrackingUpdate> postEnvironmentUpdates);
 
             // For the very first update when we switch to a region we skip entity scan because the client doesn't have any
             // environment ready at that point. If we don't do the scan our update stacks will be empty.
             if (updateEntities)
-                ScanEntities();
+                ScanEntities(preEnvironmentUpdates, postEnvironmentUpdates);
 
             // Process pre-environment entity updates (exit world)
-            while (_entityUpdateStackPreEnvironment.Count > 0)
+            while (preEnvironmentUpdates.Count > 0)
             {
-                EntityTrackingUpdate update = _entityUpdateStackPreEnvironment.Pop();
+                EntityTrackingUpdate update = preEnvironmentUpdates.Pop();
 
                 switch (update.Operation)
                 {
@@ -153,9 +151,9 @@ namespace MHServerEmu.Games.Network
                 RegenerateClientNavi();
 
             // Process post-environment entity updates (enter world)
-            while (_entityUpdateStackPostEnvironment.Count > 0)
+            while (postEnvironmentUpdates.Count > 0)
             {
-                EntityTrackingUpdate update = _entityUpdateStackPostEnvironment.Pop();
+                EntityTrackingUpdate update = postEnvironmentUpdates.Pop();
 
                 switch (update.Operation)
                 {
@@ -503,7 +501,7 @@ namespace MHServerEmu.Games.Network
             }
         }
 
-        private void ScanEntities()
+        private void ScanEntities(Stack<EntityTrackingUpdate> preEnvironmentUpdates, Stack<EntityTrackingUpdate> postEnvironmentUpdates)
         {
             Region region = Region;
 
@@ -511,19 +509,19 @@ namespace MHServerEmu.Games.Network
             foreach (WorldEntity worldEntity in region.IterateEntitiesInVolume(_entitiesVolume, new(_playerConnection.PlayerDbId)))
             {
                 AOINetworkPolicyValues newInterestPolicies = GetNewInterestPolicies(worldEntity);
-                bool wasInterested = _trackedEntities.TryGetValue(worldEntity.Id, out EntityInterestStatus interestStatus);
+                ref EntityInterestStatus interestStatus = ref _trackedEntities.GetValueRef(worldEntity.Id, out bool wasInterested);
                 bool isInterested = newInterestPolicies != AOINetworkPolicyValues.AOIChannelNone;
 
                 if (wasInterested == false && isInterested)
                 {
                     // New entity found in proximity
-                    _entityUpdateStackPostEnvironment.Push(new(InterestTrackOperation.Add, worldEntity, newInterestPolicies));
+                    postEnvironmentUpdates.Push(new(InterestTrackOperation.Add, worldEntity, newInterestPolicies));
                 }
                 else if (wasInterested && isInterested == false)
                 {
                     // Entity left proximity and does not have any other interest policies
                     interestStatus.LastUpdateFrame = _currentFrame;
-                    _entityUpdateStackPreEnvironment.Push(new(InterestTrackOperation.Remove, worldEntity));
+                    preEnvironmentUpdates.Push(new(InterestTrackOperation.Remove, worldEntity));
                 }
                 else if (wasInterested && isInterested && interestStatus.InterestPolicies == newInterestPolicies)
                 {
@@ -535,10 +533,9 @@ namespace MHServerEmu.Games.Network
             // Update existing entities
             EntityManager entityManager = _game.EntityManager;
 
-            foreach (var kvp in _trackedEntities)
+            foreach (ulong entityId in _trackedEntities.Keys)
             {
-                ulong entityId = kvp.Key;
-                EntityInterestStatus interestStatus = kvp.Value;
+                ref EntityInterestStatus interestStatus = ref _trackedEntities.GetValueRef(entityId, out _);
 
                 // Skip entities we have already processed in proximity
                 if (interestStatus.LastUpdateFrame >= _currentFrame)
@@ -554,7 +551,7 @@ namespace MHServerEmu.Games.Network
                 AOINetworkPolicyValues newInterestPolicies = GetNewInterestPolicies(entity);
                 if (newInterestPolicies == AOINetworkPolicyValues.AOIChannelNone)
                 {
-                    _entityUpdateStackPreEnvironment.Push(new(InterestTrackOperation.Remove, entity));
+                    preEnvironmentUpdates.Push(new(InterestTrackOperation.Remove, entity));
                     continue;
                 }
 
@@ -567,9 +564,9 @@ namespace MHServerEmu.Games.Network
                     EntityTrackingUpdate modifyUpdate = new(InterestTrackOperation.Modify, entity, newInterestPolicies);
 
                     if (lostPolicies.HasFlag(AOINetworkPolicyValues.AOIChannelProximity))
-                        _entityUpdateStackPreEnvironment.Push(modifyUpdate);
+                        preEnvironmentUpdates.Push(modifyUpdate);
                     else
-                        _entityUpdateStackPostEnvironment.Push(modifyUpdate);
+                        postEnvironmentUpdates.Push(modifyUpdate);
                 }
             }
         }
@@ -747,8 +744,8 @@ namespace MHServerEmu.Games.Network
 
         private bool ModifyEntity(Entity entity, AOINetworkPolicyValues newInterestPolicies, EntitySettings settings = null)
         {
-            // No entity to modify
-            if (_trackedEntities.TryGetValue(entity.Id, out EntityInterestStatus interestStatus) == false)
+            ref EntityInterestStatus interestStatus = ref _trackedEntities.GetValueRef(entity.Id, out bool found);
+            if (found == false)
                 return false;
 
             // Policies are the same, so we don't need to do anything
@@ -1172,9 +1169,8 @@ namespace MHServerEmu.Games.Network
             }
         }
 
-        private class EntityInterestStatus
+        private struct EntityInterestStatus
         {
-            // NOTE: This needs to be a class so that we can modify it during iteration
             public ulong LastUpdateFrame;
             public AOINetworkPolicyValues InterestPolicies;
 

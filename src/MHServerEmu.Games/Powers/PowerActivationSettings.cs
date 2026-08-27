@@ -1,5 +1,4 @@
-﻿using Gazillion;
-using MHServerEmu.Core.System.Time;
+﻿using MHServerEmu.Core.System.Time;
 using MHServerEmu.Core.VectorMath;
 using MHServerEmu.Games.GameData;
 
@@ -40,32 +39,6 @@ namespace MHServerEmu.Games.Powers
         public PowerActivationSettings(Vector3 userPosition)
         {
             UserPosition = userPosition;
-        }
-
-        public void ApplyProtobuf(NetMessageTryActivatePower tryActivatePower)
-        {
-            if (tryActivatePower.HasIdTargetEntity)
-                TargetEntityId = tryActivatePower.IdTargetEntity;
-
-            if (tryActivatePower.HasTargetPosition)
-                TargetPosition = new(tryActivatePower.TargetPosition);
-
-            if (tryActivatePower.HasMovementSpeed)
-                MovementSpeed = tryActivatePower.MovementSpeed;
-
-            if (tryActivatePower.HasMovementTimeMS)
-                MovementTime = TimeSpan.FromMilliseconds(tryActivatePower.MovementTimeMS);
-
-            if (tryActivatePower.HasPowerRandomSeed)
-                PowerRandomSeed = (int)tryActivatePower.PowerRandomSeed;
-
-            if (tryActivatePower.HasItemSourceId)
-                ItemSourceId = tryActivatePower.ItemSourceId;
-
-            FXRandomSeed = (int)tryActivatePower.FxRandomSeed;
-
-            if (tryActivatePower.HasTriggeringPowerPrototypeId)
-                TriggeringPowerRef = (PrototypeId)tryActivatePower.TriggeringPowerPrototypeId;
         }
     }
 }

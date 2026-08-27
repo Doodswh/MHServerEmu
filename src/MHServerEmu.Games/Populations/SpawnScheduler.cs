@@ -311,11 +311,17 @@ namespace MHServerEmu.Games.Populations
         {
             var region = populationObject.SpawnLocation.Region;
 
-            IEnumerable<Area> spawnAreas;
+            using var spawnAreasHandle = ListPool<Area>.Get(out List<Area> spawnAreas);
+
             if (populationObject.SpawnEvent is PopulationAreaSpawnEvent popEvent)
-                spawnAreas = [popEvent.Area];
+            {
+                spawnAreas.Add(popEvent.Area);
+            }
             else
-                spawnAreas = region.IterateAreas();
+            {
+                foreach (Area area in region.IterateAreas())
+                    spawnAreas.Add(area);
+            }
 
             foreach (var area in spawnAreas)
             {

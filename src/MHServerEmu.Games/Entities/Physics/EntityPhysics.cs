@@ -16,7 +16,7 @@ namespace MHServerEmu.Games.Entities.Physics
         public WorldEntity Entity { get; private set; } = null;
         public uint RegisteredPhysicsFrameId { get; set; } = 0;
         public int CollisionId { get; private set; } = -1;
-        public SortedDictionary<ulong, OverlapEntityEntry> OverlappedEntities { get; } = new();
+        public SortedList<ulong, OverlapEntityEntry> OverlappedEntities { get; } = new();
         public SortedVector<ulong> AttachedEntities { get; private set; }
 
         public EntityPhysics()

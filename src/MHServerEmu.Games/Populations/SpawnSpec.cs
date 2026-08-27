@@ -382,9 +382,8 @@ namespace MHServerEmu.Games.Populations
             return false;
         }
 
-        public bool GetEntities(out List<WorldEntity> entities, SpawnGroupEntityQueryFilterFlags filterFlag, AlliancePrototype allianceProto = null)
+        public bool GetEntities(List<WorldEntity> entities, SpawnGroupEntityQueryFilterFlags filterFlag, AlliancePrototype allianceProto = null)
         {
-            entities = new();
             foreach (SpawnSpec spec in Specs)
             {
                 WorldEntity entity = spec.ActiveEntity;
@@ -398,14 +397,19 @@ namespace MHServerEmu.Games.Populations
                         entities.Add(entity);
                 }
             }
+
             return entities.Count > 0;
         }
 
-        public static List<WorldEntity> GetEntities(WorldEntity owner, SpawnGroupEntityQueryFilterFlags filterFlag = SpawnGroupEntityQueryFilterFlags.All)
+        public static bool GetEntities(List<WorldEntity> entities, WorldEntity owner, SpawnGroupEntityQueryFilterFlags filterFlag = SpawnGroupEntityQueryFilterFlags.All)
         {
-            List<WorldEntity> entities = new();
-            owner?.SpawnGroup?.GetEntities(out entities, filterFlag, owner.Alliance);
-            return entities;
+            entities.Clear();
+
+            if (!Verify.IsNotNull(owner)) return false;
+
+            owner.SpawnGroup?.GetEntities(entities, filterFlag, owner.Alliance);
+
+            return entities.Count > 0;
         }
 
         public static bool EntityQueryAllianceCheck(SpawnGroupEntityQueryFilterFlags filterFlag, WorldEntity entity, AlliancePrototype allianceProto)

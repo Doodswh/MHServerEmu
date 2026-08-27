@@ -6,6 +6,7 @@ using MHServerEmu.Core.VectorMath;
 using MHServerEmu.Core.Logging;
 using MHServerEmu.Core.Collisions;
 using MHServerEmu.Core.System.Random;
+using MHServerEmu.Core.Memory;
 
 namespace MHServerEmu.Games.Behavior.StaticAI
 {
@@ -65,7 +66,8 @@ namespace MHServerEmu.Games.Behavior.StaticAI
             if (game == null) return failResult;
 
             BehaviorSensorySystem senses = ownerController.Senses;
-            List<WorldEntity> allies = senses.GetPopulationGroup();
+            using var alliesHandle = ListPool<WorldEntity>.Get(out List<WorldEntity> allies);
+            senses.GetPopulationGroup(allies);
             bool noAllies = allies.Count <= 1;
 
             var result = StaticBehaviorReturnType.Running;

@@ -52,7 +52,7 @@ namespace MHServerEmu.Games.Regions
         public Region Region { get => Area?.Region; }
         public Area Area { get; private set; }
         public Game Game { get => Area?.Game; }
-        public IEnumerable<Entity> Entities { get => Game.EntityManager.IterateEntities(this); } // TODO: Optimize
+        public EntityIterator Entities { get => new(Game.EntityManager, this); }
 
         public List<uint> CellConnections = new();
         public List<ReservedSpawn> Encounters { get; } = new();
