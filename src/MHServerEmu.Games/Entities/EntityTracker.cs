@@ -1,4 +1,5 @@
-﻿using MHServerEmu.Core.Collections;
+﻿using System.Collections;
+using MHServerEmu.Core.Collections;
 using MHServerEmu.Core.Logging;
 using MHServerEmu.Games.Common;
 using MHServerEmu.Games.Dialog;
@@ -11,7 +12,7 @@ namespace MHServerEmu.Games.Entities
     public enum EntityTrackerOptions
     {
         None,
-        IsDestroyed
+        IncludeDestroyed
     }
 
     public readonly struct EntityTrackingData
@@ -29,8 +30,10 @@ namespace MHServerEmu.Games.Entities
     public class EntityTracker
     {
         private readonly Region _region;
-        private readonly LinkedList<Iterator> _iterators = new();
         private readonly Dictionary<PrototypeId, EntityTrackingData> _contextTrackingDataMap = new();
+
+        private readonly List<Iterator> _activeIterators = new();
+        private readonly Stack<Iterator> _inactiveIterators = new();
 
         public EntityTracker(Region region)
         {
@@ -153,6 +156,11 @@ namespace MHServerEmu.Games.Entities
                 data = new();
                 _contextTrackingDataMap.Add(contextRef, data);
             }
+            else
+            {
+                // There can be invalid iterators to invalidate only if tracking data already exists.
+                InvalidateIterators(contextRef);
+            }
 
             ulong entityId = entity.Id;
             data.Entities[entityId] = flags;
@@ -170,115 +178,182 @@ namespace MHServerEmu.Games.Entities
             if (!Verify.IsTrue(data.Entities.ContainsKey(entityId), $"Unable to find entity to remove. ENTITYID={entityId} CONTEXT={contextRef.GetNameFormatted()} TRACKER={this}"))
                 return;
 
-            /*
-            if (_iterators.Count > 0)
-                foreach (var iterator in _iterators)
-                    if (iterator.Entities == data.Entities && iterator.CurrentKey == entityId)
-                    {
-                        iterator.MoveNext();
-                        iterator.Break = true;
-                    }
-            */
+            InvalidateIterators(contextRef);
 
             data.Entities.Remove(entityId);
             data.Hotspots.Remove(entityId);
         }
 
-        public IEnumerable<WorldEntity> Iterate(PrototypeId contextRef,
-                EntityTrackingFlag flags = EntityTrackingFlag.None, EntityTrackerOptions options = EntityTrackerOptions.None)
+        public Iterator Iterate(PrototypeId contextRef, EntityTrackingFlag flags = EntityTrackingFlag.None,
+            EntityTrackerOptions options = EntityTrackerOptions.None)
         {
-            // TODO: this is ugly and needs to be rewritten
-            var iterator = new Iterator(this, contextRef, flags, options);
+            Iterator iterator = _inactiveIterators.Count > 0 ? _inactiveIterators.Pop() : new(this);
+            iterator.Initialize(contextRef, flags, options);
+            return iterator;
+        }
 
-            try
+        private void InvalidateIterators(PrototypeId contextRef)
+        {
+            if (_activeIterators.Count == 0)
+                return;
+
+            foreach (Iterator iterator in _activeIterators)
             {
-                while (iterator.End() == false)
-                {
-                    var element = iterator.Current;
-                    iterator.MoveNext();
-                    yield return element;
-                }
-            }
-            finally
-            {
-                _iterators.Remove(iterator);
+                if (iterator.ContextRef == contextRef)
+                    iterator.IsOutOfDate = true;
             }
         }
 
-        public class Iterator
+        public sealed class Iterator : IEnumerator<WorldEntity>
         {
-            public readonly Dictionary<ulong, EntityTrackingFlag> Entities;
-            public ulong CurrentKey { get; private set; }
-
-            private List<ulong> _keys;
-            private int _index;
             private readonly EntityTracker _tracker;
-            private readonly EntityTrackingFlag _flags;
-            private readonly EntityTrackerOptions _options;
-            private readonly EntityManager _manager;
-            private WorldEntity _current;
+            private readonly EntityManager _entityManager;
 
-            public Iterator(EntityTracker tracker, PrototypeId contextRef, EntityTrackingFlag flags, EntityTrackerOptions options)
+            private Dictionary<ulong, EntityTrackingFlag> _entities;
+            private EntityTrackingFlag _flags;
+            private EntityTrackerOptions _options;
+
+            // We keep a sorted snapshot of entity ids to mimic the original std::map based implementation.
+            // When an entity is added or removed, this snapshot gets invalidated and rebuilt.
+            private readonly List<ulong> _entityIds = new();
+            private int _index;
+            private ulong _lastEntityId;
+
+            private bool _isActive;
+
+            public WorldEntity Current { get; private set; }
+            object IEnumerator.Current { get => Current; }
+
+            public PrototypeId ContextRef { get; private set; }
+            public bool IsOutOfDate { get; set; }
+
+            public Iterator(EntityTracker tracker)
             {
                 _tracker = tracker;
-                _manager = _tracker._region.Game.EntityManager;
+                _entityManager = tracker._region.Game.EntityManager;
+            }
+
+            public Iterator GetEnumerator()
+            {
+                return this;
+            }
+
+            public void Initialize(PrototypeId contextRef, EntityTrackingFlag flags, EntityTrackerOptions options)
+            {
+                if (!Verify.IsTrue(_isActive == false)) return;
+
+                _tracker._activeIterators.Add(this);
+                _isActive = true;
+
+                if (!Verify.IsTrue(contextRef != PrototypeId.Invalid)) return;
+
+                ContextRef = contextRef;
                 _flags = flags;
                 _options = options;
-                _keys = new();
 
-                if (contextRef == PrototypeId.Invalid) return;
+                if (_tracker._contextTrackingDataMap.TryGetValue(contextRef, out EntityTrackingData trackingData) == false)
+                    return;
 
-                _tracker._iterators.AddLast(this);
-                if (_tracker._contextTrackingDataMap.TryGetValue(contextRef, out var trackingData) == false) return;
+                _entities = trackingData.Entities;
 
-                _index = 0;
-                Entities = trackingData.Entities;
-                if (Entities == null) return;
-                _keys = Entities.Keys.ToList();
-
-                MoveNext();
+                Reset();
             }
 
-            public void Advance()
+            public void Dispose()
             {
-                if (End()) return;
-                if (_index < _keys.Count)
+                if (Verify.IsTrue(_isActive))
                 {
-                    // update keys
-                    if (Entities.Count > _keys.Count)
-                        _keys = Entities.Keys.ToList();
-                    CurrentKey = _keys[_index];                   
-                } 
-                _index++;
+                    ContextRef = default;
+                    _entities = default;
+                    _flags = default;
+                    _options = default;
+
+                    Reset();
+
+                    Verify.IsTrue(_tracker._activeIterators.Remove(this));
+                    _tracker._inactiveIterators.Push(this);
+                    _isActive = false;
+                }
             }
 
-            public void MoveNext()
+            public bool MoveNext()
             {
-                Advance();
-                while (IsValid() == false && End() == false)
-                    Advance();
-            }
-
-            private bool IsValid()
-            {
-                if (End()) return false;
-                if (Entities.TryGetValue(CurrentKey, out var flag) == false) return false; // Break
-                if (_flags != 0 && (flag & _flags) == 0) return false;
-
-                var entityId = CurrentKey;
-                var entity = _manager.GetEntity<WorldEntity>(entityId);
-                if (entity == null) return false;
-
-                if (_options.HasFlag(EntityTrackerOptions.IsDestroyed) == false && entity.IsDestroyed)
+                if (_entities == null)
                     return false;
 
-                _current = entity;
-                return true;
+                if (IsOutOfDate)
+                {
+                    Reset();
+                    RestoreIndex();
+                    IsOutOfDate = false;
+                }
+
+                while (++_index < _entityIds.Count)
+                {
+                    ulong entityId = _entityIds[_index];
+
+                    // This verify firing would mean our snapshot somehow got out of date without us noticing.
+                    if (!Verify.IsTrue(_entities.TryGetValue(entityId, out EntityTrackingFlag itFlags)))
+                        continue;
+
+                    if (_flags != EntityTrackingFlag.None && ((_flags & itFlags) == 0))
+                        continue;
+
+                    WorldEntity entity = _entityManager.GetEntity<WorldEntity>(entityId);
+                    if (entity == null)
+                        continue;
+
+                    if (_options.HasFlag(EntityTrackerOptions.IncludeDestroyed) == false && entity.IsDestroyed)
+                        continue;
+
+                    _lastEntityId = entityId;
+                    Current = entity;
+                    return true;
+                }
+
+                _lastEntityId = 0;
+                Current = null;
+                return false;
             }
 
-            public bool End() => _index > _keys.Count || Entities == null;
-            public WorldEntity Current => IsValid() ? _current : null;
+            public void Reset()
+            {
+                _index = -1;
+                Current = null;
 
+                _entityIds.Clear();
+                if (_entities != null)
+                {
+                    _entityIds.AddRange(_entities.Keys);
+                    _entityIds.Sort();
+                }
+            }
+
+            private void RestoreIndex()
+            {
+                if (_lastEntityId == 0)
+                    return;
+
+                _index = -1;
+
+                for (int i = 0; i < _entityIds.Count; i++)
+                {
+                    ulong entityId = _entityIds[i];
+
+                    if (entityId == _lastEntityId)
+                    {
+                        // Point to the same id if it's still here
+                        _index = i;
+                        break;
+                    }
+                    else if (entityId > _lastEntityId)
+                    {
+                        // Point to the id before next if the last current entity was removed
+                        _index = i - 1;
+                        break;
+                    }
+                }
+            }
         }
     }
 }
