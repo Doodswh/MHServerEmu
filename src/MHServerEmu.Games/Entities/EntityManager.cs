@@ -446,29 +446,6 @@ namespace MHServerEmu.Games.Entities
             return false;
         }
 
-        // TODO: fix these iterators
-
-        public IEnumerable<Entity> IterateEntities(Area area)
-        {
-            foreach (var entity in _entityMap.Values)
-                if (entity is WorldEntity worldEntity && worldEntity.Area == area)
-                    yield return entity;
-        }
-
-        public IEnumerable<Entity> IterateEntities(Cell cell)
-        {
-            foreach (var entity in _entityMap.Values)
-                if (entity is WorldEntity worldEntity && worldEntity.Cell == cell)
-                    yield return entity;
-        }
-
-        public IEnumerable<Entity> IterateEntities(Region region)
-        {
-            foreach (var entity in _entityMap.Values)
-                if (entity is WorldEntity worldEntity && worldEntity.Region == region)
-                    yield return entity;
-        }
-
         public void PhysicsResolveEntities()
         {
             PhysicsManager.ResolveEntities();

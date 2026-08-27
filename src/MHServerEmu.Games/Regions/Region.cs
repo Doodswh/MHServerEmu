@@ -119,7 +119,7 @@ namespace MHServerEmu.Games.Regions
 
         public Dictionary<uint, Area> Areas { get; } = new();
         public CellSpatialPartition.ElementIterator<Aabb> Cells { get => IterateCellsInVolume(Aabb); }
-        public IEnumerable<Entity> Entities { get => Game.EntityManager.IterateEntities(this); }
+        public EntityIterator Entities { get => new(Game.EntityManager, this); }
 
         // ArchiveData
         public ReplicatedPropertyCollection Properties { get; } = new();
