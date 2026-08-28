@@ -1006,7 +1006,7 @@ namespace MHServerEmu.Games.Network
             int randomSeed = 0;
             if (continuousPowerUpdate.HasRandomSeed)
             {
-                if (Verify.IsTrue(continuousPowerUpdate.RandomSeed != _lastContinuousPowerSeed,
+                if (Verify.IsTrue(continuousPowerUpdate.PowerPrototypeId == 0 || continuousPowerUpdate.RandomSeed != _lastContinuousPowerSeed,
                     $"Duplicate ContinuousPowerSeed: player=[{Player}], power=[{powerProtoRef.GetName()}]"))
                 {
                     randomSeed = (int)continuousPowerUpdate.RandomSeed;
