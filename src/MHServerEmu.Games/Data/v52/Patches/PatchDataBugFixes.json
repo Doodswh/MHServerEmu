@@ -160,7 +160,7 @@
         "Value": {
             "ParentDataRef": 5074715296837012907,
             "Value": 1500,
-			"Op": "LoadFloat"
+            "Op": "LoadFloat"
         }
     },
 	{
@@ -172,7 +172,7 @@
         "Value": {
             "ParentDataRef": 5074715296837012907,
             "Value": 1500,
-			"Op": "LoadFloat"
+            "Op": "LoadFloat"
         }
     },
 	{
@@ -184,7 +184,7 @@
         "Value": {
             "ParentDataRef": 5074715296837012907,
             "Value": 1500,
-			"Op": "LoadFloat"
+            "Op": "LoadFloat"
         }
     },
 	{
@@ -196,7 +196,15 @@
         "Value": {
             "ParentDataRef": 5074715296837012907,
             "Value": 1500,
-			"Op": "LoadFloat"
+            "Op": "LoadFloat"
         }
+    },
+	{
+        "Enabled": true,
+        "Prototype": "Powers/Player/ScarletWitch/Rework/HexSphereSummonBox.prototype",
+        "Path": "SummonEntityContexts[0].EvalOnSummon[0].Eval.Value",
+        "Description": "Change HexSphereSummonBox alliance to Vacuumables",
+        "ValueType": "PrototypeId",
+        "Value": 8872392721780117362
     }
 ]
