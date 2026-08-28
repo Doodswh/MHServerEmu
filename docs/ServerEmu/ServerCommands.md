@@ -1,6 +1,6 @@
 # Server Commands
 
-This list was automatically generated on `2026.05.18 10:03:54 UTC` using server version `1.0.1`.
+This list was automatically generated on `2026.08.28 11:37:55 UTC` using server version `1.0.2`.
 
 To see an up to date list of all commands, type !commands in the server console or the in-game chat. When invoking a command from in-game your account has to meet the user level requirement for the command.
 
@@ -70,7 +70,6 @@ Debug commands for development.
 | !debug crashserver           | Crashes the entire server.                                                                                              | Admin      | ServerConsole  |
 | !debug difficulty            | Shows information about the current difficulty level.                                                                   | Any        | Client         |
 | !debug forcegc               | Requests the garbage collector to perform a collection.                                                                 | Admin      | Any            |
-| !debug getconditionlist      | Gets a list of all conditions tracked by the ConditionPool in the current game.                                         | Moderator  | Client         |
 | !debug geteventpoolreport    | Returns a report representing the state of the ScheduledEventPool in the current game.                                  | Moderator  | Client         |
 | !debug metagame [on/off]     | No description available.                                                                                               | Admin      | Any            |
 | !debug navi2obj [PathFlags]  | Default PathFlags is Walk, can be [None/Fly/Power/Sight].                                                               | Admin      | Client         |
@@ -212,13 +211,12 @@ Commands related to PvP matchmaking.
 ## Region
 Region management commands.
 
-| Command                 | Description                               | User Level | Invoker Type  |
-| ----------------------- | ----------------------------------------- | ---------- | ------------  |
-| !region generateallsafe | Generates all safe regions.               | Admin      | Client        |
-| !region info            | Prints info for the current region.       | Any        | Client        |
-| !region properties      | Prints properties for the current region. | Admin      | Client        |
-| !region reload          | Reloads the current region.               | Admin      | Client        |
-| !region warp [name]     | Warps the player to another region.       | Admin      | Client        |
+| Command             | Description                               | User Level | Invoker Type  |
+| ------------------- | ----------------------------------------- | ---------- | ------------  |
+| !region info        | Prints info for the current region.       | Any        | Client        |
+| !region properties  | Prints properties for the current region. | Admin      | Client        |
+| !region reload      | Reloads the current region.               | Admin      | Client        |
+| !region warp [name] | Warps the player to another region.       | Admin      | Client        |
 
 ## Server
 Server management commands.
