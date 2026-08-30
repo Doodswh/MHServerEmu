@@ -1,4 +1,5 @@
 ﻿using MHServerEmu.Core.Collisions;
+using MHServerEmu.Core.Extensions;
 using MHServerEmu.Core.Logging;
 using MHServerEmu.Core.Memory;
 using MHServerEmu.Core.VectorMath;
@@ -84,11 +85,16 @@ namespace MHServerEmu.Games.Entities.Physics
                 EntityPhysics entityPhysics = worldEntity.Physics;
                 EntityManager entityManager = _game.EntityManager;
 
+                // It's probably fine to remove this temporary list and iterate OverlappedEntities directly,
+                // but the client uses a sorted collection for OverlappedEntities, so the result could potentially
+                // deviate from the client and be less consistent in general.
                 using var overlappedEntitiesHandle = ListPool<KeyValuePair<ulong, OverlapEntityEntry>>.Get(out var overlappedEntities);
                 overlappedEntities.AddRange(entityPhysics.OverlappedEntities);
+                overlappedEntities.Sort(static (a, b) => a.Key.CompareTo(b.Key));
 
                 foreach (var overlappedEntry in overlappedEntities)
                 {
+                    // If the frame wasn't updated before getting here, it means entities are no longer overlapping.
                     if (overlappedEntry.Value.Frame != _physicsFrame)
                     {
                         WorldEntity overlappedEntity = entityManager.GetEntity<WorldEntity>(overlappedEntry.Key);
@@ -544,13 +550,14 @@ namespace MHServerEmu.Games.Entities.Physics
 
             if (type == OverlapEventType.Update)
             {
-                if (Verify.IsTrue(who.Physics.OverlappedEntities.TryGetValue(whom.Id, out var overlappedEntity)))
+                ref OverlapEntityEntry overlappedEntity = ref who.Physics.OverlappedEntities.GetValueRef(whom.Id, out bool found);
+                if (Verify.IsTrue(found))
                 {
-                    bool overlapped = who.CanCollideWith(whom);
-                    if (overlappedEntity.Overlapped != overlapped)
+                    bool canCollideWith = who.CanCollideWith(whom);
+                    if (overlappedEntity.CanCollideWith != canCollideWith)
                     {
-                        who.Physics.OverlappedEntities[whom.Id] = new(overlapped, overlappedEntity.Frame);
-                        if (overlapped)
+                        overlappedEntity.CanCollideWith = canCollideWith;
+                        if (canCollideWith)
                             NotifyEntityOverlapBegin(who, whom, whoPos, whomPos);
                         else
                             NotifyEntityOverlapEnd(who, whom);
@@ -559,11 +566,9 @@ namespace MHServerEmu.Games.Entities.Physics
             }
             else if (type == OverlapEventType.Remove)
             {
-                if (who.Physics.OverlappedEntities.TryGetValue(whom.Id, out var overlappedEntity))
+                if (who.Physics.OverlappedEntities.Remove(whom.Id, out OverlapEntityEntry overlappedEntity))
                 {
-                    bool overlapped = overlappedEntity.Overlapped;
-                    who.Physics.OverlappedEntities.Remove(whom.Id);
-                    if (overlapped)
+                    if (overlappedEntity.CanCollideWith)
                         NotifyEntityOverlapEnd(who, whom);
                 }
             }
@@ -582,21 +587,19 @@ namespace MHServerEmu.Games.Entities.Physics
                 var entry = entityPhysics.OverlappedEntities.First();
                 
                 ulong whomId = entry.Key;
-                bool overlapped = entry.Value.Overlapped;
+                bool canCollideWith = entry.Value.CanCollideWith;
                 entityPhysics.OverlappedEntities.Remove(whomId);
 
                 WorldEntity whom = entityManager.GetEntity<WorldEntity>(whomId);
                 if (whom == null)
                     continue;
                 
-                if (overlapped)
+                if (canCollideWith)
                     NotifyEntityOverlapEnd(who, whom);
 
-                if (whom.Physics.OverlappedEntities.TryGetValue(who.Id, out var overlappedEntity))
+                if (whom.Physics.OverlappedEntities.Remove(who.Id, out OverlapEntityEntry overlappedEntry))
                 {
-                    overlapped = overlappedEntity.Overlapped;
-                    whom.Physics.OverlappedEntities.Remove(who.Id);
-                    if (overlapped)
+                    if (overlappedEntry.CanCollideWith)
                         NotifyEntityOverlapEnd(whom, who);
                 }
             }
@@ -625,10 +628,12 @@ namespace MHServerEmu.Games.Entities.Physics
 
         private void UpdateOverlapEntryHelper(EntityPhysics entityPhysics, WorldEntity otherEntity)
         {
-            if (entityPhysics.OverlappedEntities.TryGetValue(otherEntity.Id, out var entry) == false)
+            ref OverlapEntityEntry entry = ref entityPhysics.OverlappedEntities.GetValueRefOrAddDefault(otherEntity.Id, out bool added);
+
+            if (added)
                 RegisterEntityForPendingPhysicsResolve(entityPhysics.Entity);
 
-            entityPhysics.OverlappedEntities[otherEntity.Id] = new(entry.Overlapped, _physicsFrame);
+            entry.Frame = _physicsFrame;
         }
 
         private static void ApplyRepulsionForces(WorldEntity entityA, WorldEntity entityB)

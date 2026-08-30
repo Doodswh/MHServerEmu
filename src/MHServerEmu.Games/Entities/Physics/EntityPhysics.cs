@@ -16,7 +16,7 @@ namespace MHServerEmu.Games.Entities.Physics
         public WorldEntity Entity { get; private set; } = null;
         public uint RegisteredPhysicsFrameId { get; set; } = 0;
         public int CollisionId { get; private set; } = -1;
-        public SortedList<ulong, OverlapEntityEntry> OverlappedEntities { get; } = new();
+        public Dictionary<ulong, OverlapEntityEntry> OverlappedEntities { get; } = new();
         public SortedVector<ulong> AttachedEntities { get; private set; }
 
         public EntityPhysics()
@@ -104,9 +104,12 @@ namespace MHServerEmu.Games.Entities.Physics
         {
             foreach (var kvp in OverlappedEntities)
             {
-                if (kvp.Value.Overlapped)
+                if (kvp.Value.CanCollideWith)
                     overlappingEntities.Add(kvp.Key);
             }
+
+            // The client uses a sorted collection for OverlappedEntities, so sort here for consistency.
+            overlappingEntities.Sort();
 
             return overlappingEntities.Count > 0;
         }
@@ -224,18 +227,18 @@ namespace MHServerEmu.Games.Entities.Physics
             if (OverlappedEntities.TryGetValue(entityId, out OverlapEntityEntry overlappedEntity) == false)
                 return false;
 
-            return overlappedEntity.Overlapped;
+            return overlappedEntity.CanCollideWith;
         }
     }
 
-    public readonly struct OverlapEntityEntry
+    public struct OverlapEntityEntry
     {
-        public readonly bool Overlapped;
-        public readonly uint Frame;
+        public bool CanCollideWith;
+        public uint Frame;
 
-        public OverlapEntityEntry(bool overlapped = false, uint frame = 0)
+        public OverlapEntityEntry(bool canCollideWith = false, uint frame = 0)
         {
-            Overlapped = overlapped;
+            CanCollideWith = canCollideWith;
             Frame = frame;
         }
     }
