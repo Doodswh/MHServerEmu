@@ -54,10 +54,6 @@ namespace MHServerEmu.Games.Network
 
         private bool _doNotUpdateDBAccount = false;
 
-        private uint _lastPowerRandomSeed = 0;
-        private uint _lastFXRandomSeed = 0;
-        private uint _lastContinuousPowerSeed = 0;
-
         public Game Game { get; }
 
         public AreaOfInterest AOI { get; }
@@ -911,24 +907,12 @@ namespace MHServerEmu.Games.Network
                 settings.MovementTime = TimeSpan.FromMilliseconds(tryActivatePower.MovementTimeMS);
 
             if (tryActivatePower.HasPowerRandomSeed)
-            {
-                if (Verify.IsTrue(tryActivatePower.PowerRandomSeed != _lastPowerRandomSeed,
-                    $"Duplicate PowerRandomSeed: player=[{Player}], power=[{powerProtoRef.GetName()}]"))
-                {
-                    settings.PowerRandomSeed = (int)tryActivatePower.PowerRandomSeed;
-                    _lastPowerRandomSeed = tryActivatePower.PowerRandomSeed;
-                }
-            }
+                settings.PowerRandomSeed = (int)tryActivatePower.PowerRandomSeed;
 
             if (tryActivatePower.HasItemSourceId)
                 settings.ItemSourceId = tryActivatePower.ItemSourceId;
 
-            if (Verify.IsTrue(tryActivatePower.FxRandomSeed != _lastFXRandomSeed,
-                $"Duplicate FXRandomSeed: player=[{Player}], power=[{powerProtoRef.GetName()}]"))
-            {
-                settings.FXRandomSeed = (int)tryActivatePower.FxRandomSeed;
-                _lastFXRandomSeed = tryActivatePower.FxRandomSeed;
-            }
+            settings.FXRandomSeed = (int)tryActivatePower.FxRandomSeed;
 
             if (tryActivatePower.HasTriggeringPowerPrototypeId)
                 settings.TriggeringPowerRef = (PrototypeId)tryActivatePower.TriggeringPowerPrototypeId;
@@ -1002,17 +986,7 @@ namespace MHServerEmu.Games.Network
             PrototypeId powerProtoRef = (PrototypeId)continuousPowerUpdate.PowerPrototypeId;
             ulong targetId = continuousPowerUpdate.HasIdTargetEntity ? continuousPowerUpdate.IdTargetEntity : 0;
             Vector3 targetPosition = continuousPowerUpdate.HasTargetPosition ? new(continuousPowerUpdate.TargetPosition) : Vector3.Zero;
-
-            int randomSeed = 0;
-            if (continuousPowerUpdate.HasRandomSeed)
-            {
-                if (Verify.IsTrue(continuousPowerUpdate.PowerPrototypeId == 0 || continuousPowerUpdate.RandomSeed != _lastContinuousPowerSeed,
-                    $"Duplicate ContinuousPowerSeed: player=[{Player}], power=[{powerProtoRef.GetName()}]"))
-                {
-                    randomSeed = (int)continuousPowerUpdate.RandomSeed;
-                    _lastContinuousPowerSeed = continuousPowerUpdate.RandomSeed;
-                }
-            }
+            int randomSeed = continuousPowerUpdate.HasRandomSeed ? (int)continuousPowerUpdate.RandomSeed : 0;
 
             avatar.SetContinuousPower(powerProtoRef, targetId, targetPosition, randomSeed, false);
         }
