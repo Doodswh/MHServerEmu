@@ -34,7 +34,7 @@ namespace MHServerEmu.Commands.Implementations
 
             // Check for unsafe warps (regions that are potentially missing assets and can make the client get stuck)
             DBAccount account = CommandHelper.GetClientAccount(client);
-            bool allowUnsafe = account.UserLevel == AccountUserLevel.Admin && @params.Length > 1 && @params[1].ToLower() == "unsafe";
+            bool allowUnsafe = account.UserLevel >= AccountUserLevel.Admin && @params.Length > 1 && @params[1].ToLower() == "unsafe";
             if (allowUnsafe == false && Enum.GetValues<RegionPrototypeId>().Contains((RegionPrototypeId)regionProtoRef) == false)
                 return $"Unsafe warp destination: {regionName}.";
 

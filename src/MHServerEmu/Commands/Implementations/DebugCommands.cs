@@ -52,6 +52,32 @@ namespace MHServerEmu.Commands.Implementations
             
             return "Manual garbage collection successfully requested.";
         }
+        [Command("dumpprotos")]
+        [CommandDescription("Dumps all prototype GUIDs and names to a text file for MHDBEditor.")]
+        [CommandUserLevel(AccountUserLevel.Admin)]
+        public string DumpProtos(string[] @params, NetClient client)
+        {
+            System.IO.Directory.CreateDirectory("Download");
+
+            string filePath = $"Download/prototype_guids_{DateTime.UtcNow.ToString(FileHelper.FileNameDateFormat)}.txt";
+
+            using (System.IO.StreamWriter writer = new(filePath))
+            {
+                // Iterate over every prototype globally without relying on a blueprint search
+                foreach (PrototypeId protoRef in GameDatabase.DataDirectory.IterateAllPrototypes())
+                {
+                    ulong guid = (ulong)GameDatabase.GetPrototypeGuid(protoRef);
+                    string name = GameDatabase.GetPrototypeName(protoRef);
+
+                    if (!string.IsNullOrWhiteSpace(name))
+                    {
+                        writer.WriteLine($"{guid}\t{name}");
+                    }
+                }
+            }
+
+            return $"Dumped prototype GUIDs to {filePath}. Load this into MHDBEditor!";
+        }
 
         [Command("compactloh")]
         [CommandDescription("Requests the garbage collector to compact the large object heap (LOH) during the next full-blocking garbage collection.")]

@@ -10,7 +10,6 @@ using MHServerEmu.Games.GameData;
 using MHServerEmu.Games.GameData.Prototypes;
 using MHServerEmu.Games.Network;
 using MHServerEmu.Games.Powers;
-using MHServerEmu.Games.Powers.Conditions;
 using MHServerEmu.Games.Properties;
 
 namespace MHServerEmu.Games.Entities.PowerCollections
@@ -518,8 +517,6 @@ namespace MHServerEmu.Games.Entities.PowerCollections
             // It has to be in this order though to initialize PowerChargesMax before applying PowerChargesMaxBonus.
             _owner.OnPowerAssigned(power);
             power.OnAssign();
-
-    
         }
 
         private bool AssignTriggeredPowers(Power power)
@@ -602,10 +599,10 @@ namespace MHServerEmu.Games.Entities.PowerCollections
                         // Transform enter/exit powers are not unassigned when a transform mode is active (see UnassignTriggeredPowers()).
                         // Because these are combo powers, this can result in multiple instances of enter/exit powers being assigned.
                         // We prevent this here by skipping assignment if we already have records for these powers.
-                        if (GetPowerRecordByRef(transformModeProto.EnterTransformModePower) == null)
+                        if (_powerDict.ContainsKey(transformModeProto.EnterTransformModePower) == false)
                             triggeredPowerRefList.Add(transformModeProto.EnterTransformModePower);
 
-                        if (GetPowerRecordByRef(transformModeProto.ExitTransformModePower) == null)
+                        if (_powerDict.ContainsKey(transformModeProto.ExitTransformModePower) == false)
                             triggeredPowerRefList.Add(transformModeProto.ExitTransformModePower);
 
                         break;
@@ -741,7 +738,7 @@ namespace MHServerEmu.Games.Entities.PowerCollections
 
             UnassignTriggeredPowers(power);
         }
-    
+
         private bool UnassignTriggeredPowers(Power power)
         {
             // NOTE: This is very similar to AssignTriggeredPowers()

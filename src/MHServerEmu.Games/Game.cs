@@ -27,6 +27,7 @@ using MHServerEmu.Games.Social;
 using MHServerEmu.Games.Social.Guilds;
 using MHServerEmu.Games.Social.Parties;
 using MHServerEmu.Games.UI;
+using MHServerEmu.Games.Populations;
 
 namespace MHServerEmu.Games
 {
@@ -44,7 +45,7 @@ namespace MHServerEmu.Games
         GameInstanceCrash
     }
 
-    public class Game
+    public partial class Game
     {
         public const string Version = "1.52.0.1700";
 
@@ -55,7 +56,6 @@ namespace MHServerEmu.Games
         public static readonly TimeSpan StartTime = TimeSpan.FromMilliseconds(1);
         public readonly NetStructGameOptions GameOptions;
         public readonly CustomGameOptionsConfig CustomGameOptions;
-
         private static readonly Logger Logger = LogManager.CreateLogger();
 
         private readonly Stopwatch _gameTimer = new();
@@ -90,7 +90,6 @@ namespace MHServerEmu.Games
         public GuildManager GuildManager { get; }
         public LiveTuningData LiveTuningData { get => LiveTuningData.Current; }
         public List<PrototypeId> EventDailyGifts { get => LiveTuningData.EventDailyGifts; }
-
         public ConditionPool ConditionPool { get; } = new();
 
         public TimeSpan FixedTimeBetweenUpdates { get; } = TimeSpan.FromMilliseconds(1000f / TargetFrameRate);
@@ -125,9 +124,9 @@ namespace MHServerEmu.Games
             // Initialize game options
             var config = ConfigManager.Instance.GetConfig<GameOptionsConfig>();
             GameOptions = config.ToProtobuf();
-
-            CustomGameOptions = ConfigManager.Instance.GetConfig<CustomGameOptionsConfig>();
-
+           
+            var customConfig = ConfigManager.Instance.GetConfig<CustomGameOptionsConfig>();
+            CustomGameOptions = customConfig;
             // The game uses 16 bits of the current UTC time in seconds as the initial replication id
             _currentRepId = (ulong)(DateTime.UtcNow.Ticks / TimeSpan.TicksPerSecond) & 0xFFFF;
 
@@ -142,6 +141,7 @@ namespace MHServerEmu.Games
             PartyManager = new(this);
             GuildManager = new(this);
             Random = new();
+            InitializeEndlessScenarios();
 
             Initialize();
         }
@@ -160,6 +160,7 @@ namespace MHServerEmu.Games
 
             success &= RegionManager.Initialize(this);
             success &= EntityManager.Initialize();
+  
 
             State = GameState.Running;
             Logger.Info($"Game 0x{Id:X} started, initial replication id: {_currentRepId}");
@@ -333,6 +334,7 @@ namespace MHServerEmu.Games
             ServiceMailbox.ProcessMessages();
 
             GameEventScheduler.TriggerEvents(_currentGameTime);
+            UpdateEndlessScenarios(_currentGameTime);
 
             EntityManager.LocomoteEntities();
 

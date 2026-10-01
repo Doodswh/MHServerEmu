@@ -52,5 +52,39 @@ namespace MHServerEmu.Games.Common
             else
                 Add(contextRef, flag);
         }
+
+        #region Pooling
+
+        // Scratch maps are needed every time an entity's tracking is reconsidered, so reuse them instead of allocating.
+        // Each game runs on its own thread, so a per-thread pool needs no locking.
+        [ThreadStatic]
+        private static Stack<EntityTrackingContextMap> _pool;
+
+        private const int MaxPooled = 16;
+
+        /// <summary>
+        /// Returns an empty map from the pool. Give it back with <see cref="Return"/> (use try/finally).
+        /// </summary>
+        public static EntityTrackingContextMap Rent()
+        {
+            return _pool != null && _pool.Count > 0 ? _pool.Pop() : new();
+        }
+
+        /// <summary>
+        /// Clears <paramref name="map"/> and returns it to the pool. Do not use it afterwards.
+        /// </summary>
+        public static void Return(EntityTrackingContextMap map)
+        {
+            if (map == null)
+                return;
+
+            map.Clear();
+
+            _pool ??= new();
+            if (_pool.Count < MaxPooled)
+                _pool.Push(map);
+        }
+
+        #endregion
     }
 }

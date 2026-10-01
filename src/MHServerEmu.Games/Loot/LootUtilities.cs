@@ -9,13 +9,15 @@ using MHServerEmu.Games.GameData.Prototypes;
 using MHServerEmu.Games.GameData.Tables;
 using MHServerEmu.Games.Properties;
 using MHServerEmu.Games.Regions;
+using MHServerEmu.Games.Scripting;
 
 namespace MHServerEmu.Games.Loot
 {
     public static class LootUtilities
     {
         private static readonly Logger Logger = LogManager.CreateLogger();
-
+        // Items with this rarity keep stacked duplicate affixes and may exceed affix limits when affixes are copied (crafting)
+        public const string OmegaRarityName = "Entity/Items/Rarity/R6Omega.prototype";
         public static bool PickValidItem(IItemResolver resolver, Picker<Prototype> basePicker, AgentPrototype teamUpProto, DropFilterArguments filterArgs,
             ref ItemPrototype pickedItemProto, RestrictionTestFlags restrictionFlags, ref PrototypeId? rarityProtoRef)
         {
@@ -144,42 +146,101 @@ namespace MHServerEmu.Games.Loot
         }
 
         private static MutationResults UpdateAffixesHelper(IItemResolver resolver, LootRollSettings settings, DropFilterArguments args,
-            ItemSpec itemSpec, HashSet<ScopedAffixRef> affixSet)
+             ItemSpec itemSpec, HashSet<ScopedAffixRef> affixSet)
         {
             ItemPrototype itemProto = itemSpec.ItemProtoRef.As<ItemPrototype>();
             if (itemProto == null) return Logger.WarnReturn(MutationResults.Error, "UpdateAffixesHelper(): itemProto == null");
 
             if (itemProto.IsPetItem)
                 return ItemPrototype.UpdatePetTechAffixes(resolver.Random, args.RollFor, itemSpec);
-
-            // CUSTOM: Apply Cosmic Boss Logic
-            // Checks difficulty and filters item types (See ShouldApplyCosmicBossLogic for details)
-            if (ShouldApplyCosmicBossLogic(resolver, args, itemProto, settings))
+            if (itemProto.IsGem)
             {
-                // FORCE Rarity Logic
+                Logger.Info($"[GemLoot] --- Generating Visual Gem: {args.ItemProto.DataRef.GetName()} | RollFor (Hero): {args.RollFor.GetName()} ---");
+
                 PrototypeId targetRarity = GameDatabase.LootGlobalsPrototype.RarityCosmic;
-
-                if (args.Rarity == GameDatabase.LootGlobalsPrototype.RarityUnique)
-                {
-                    targetRarity = GameDatabase.LootGlobalsPrototype.RarityUnique;
-                }
-
                 args.Rarity = targetRarity;
                 itemSpec.RarityProtoRef = targetRarity;
+                itemSpec.ItemLevel = 60;
 
-                // FORCE ITEM LEVEL based on type
-                if (itemProto is LegendaryPrototype)
+                Picker<AffixPrototype> gemAffixPicker = new Picker<AffixPrototype>(resolver.Random);
+                Picker<AffixPrototype> visualPicker = new Picker<AffixPrototype>(resolver.Random);
+
+                int gemCount = 0;
+                int visualCount = 0;
+
+                foreach (PrototypeId affixId in GameDatabase.DataDirectory.IteratePrototypesInHierarchy<AffixPrototype>(PrototypeIterateFlags.NoAbstractApprovedOnly))
                 {
-                    itemSpec.ItemLevel = 80;
+                    AffixPrototype proto = affixId.As<AffixPrototype>();
+                    if (proto == null) continue;
+
+                    string affixName = GameDatabase.GetPrototypeName(affixId);
+
+
+                    if (proto.IsGemAffix && proto.Position == AffixPosition.Socket1 &&
+                        !affixName.Contains("DoNotDelete", StringComparison.OrdinalIgnoreCase))
+                    {
+                        gemAffixPicker.Add(proto, 100);
+                        gemCount++;
+                    }
+
+                    else if (proto.Position == AffixPosition.Visual &&
+                             affixName.StartsWith("Entity/Items/Affixes/BuiltInVFX/", StringComparison.OrdinalIgnoreCase))
+                    {
+                        visualPicker.Add(proto, 100);
+                        visualCount++;
+                    }
                 }
-                else
+                HashSet<ScopedAffixRef> gemAffixSet = HashSetPool<ScopedAffixRef>.Instance.Get();
+                if (gemCount > 0)
                 {
-                    itemSpec.ItemLevel = 69;
+                    AffixSpec gemSpec = new AffixSpec();
+                    gemSpec.RollAffix(resolver.Random, args.RollFor, itemSpec, gemAffixPicker, gemAffixSet);
+                    itemSpec.AddAffixSpec(gemSpec);
+                    Logger.Info($"[GemLoot] Attached Gem ID: {gemSpec.AffixProto}");
+                }
+                if (visualCount > 0)
+                {
+                    AffixPrototype visualProto = visualPicker.Pick();
+                    if (visualProto != null)
+                    {
+                        AffixSpec visualSpec = new AffixSpec(visualProto, PrototypeId.Invalid, resolver.Random.Next());
+                        itemSpec.AddAffixSpec(visualSpec);
+
+                        Logger.Info($"[GemLoot] FORCED Visual VFX: {visualSpec.AffixProto}");
+                    }
                 }
 
-                ApplyCosmicBossLogic(resolver, args, itemSpec, affixSet);
+                HashSetPool<ScopedAffixRef>.Instance.Return(gemAffixSet);
+                return MutationResults.AffixChange;
             }
 
+            // CUSTOM: Scripts can reshape an item before its normal affixes are rolled (Omega items: Data/Scripts/omega/omega_items.csx).
+            // This runs before affix limits are looked up, so a rarity change applies to them. Gems are handled above.
+            int maxAffixesPerStat = 0;
+            if (ScriptHooks.ItemAffixesRolling.HasHandlers)
+            {
+                ItemAffixesRollingArgs hookArgs = new(resolver, settings, args, itemSpec, affixSet, itemProto);
+                ScriptHooks.ItemAffixesRolling.Invoke(hookArgs);
+
+                // A script built the whole item itself (e.g. gems)
+                if (hookArgs.SkipNormalAffixes)
+                    return MutationResults.AffixChange;
+
+                maxAffixesPerStat = hookArgs.MaxAffixesPerStat;
+            }
+
+            MutationResults rollResult = RollNormalAffixes(resolver, settings, args, itemSpec, affixSet, itemProto);
+
+            // CUSTOM: a script-set cap on affixes per stat applies to the finished item (script affixes + the normal roll)
+            if (maxAffixesPerStat > 0 && EnforceAffixStatCap(itemSpec, itemProto, maxAffixesPerStat))
+                rollResult |= MutationResults.AffixChange;
+
+            return rollResult;
+        }
+
+        private static MutationResults RollNormalAffixes(IItemResolver resolver, LootRollSettings settings, DropFilterArguments args,
+            ItemSpec itemSpec, HashSet<ScopedAffixRef> affixSet, ItemPrototype itemProto)
+        {
             MutationResults result = MutationResults.None;
 
             AffixLimitsPrototype affixLimits = itemProto.GetAffixLimits(args.Rarity, args.LootContext);
@@ -252,206 +313,231 @@ namespace MHServerEmu.Games.Loot
             return result;
         }
 
-        private static bool ShouldApplyCosmicBossLogic(IItemResolver resolver, DropFilterArguments args, ItemPrototype itemProto, LootRollSettings settings)
-        {
-            if (settings == null) return false;
-
-            // 1. DIFFICULTY CHECK FIRST (Performance Optimization)
-            if (settings.DifficultyTier == PrototypeId.Invalid) return false;
-
-            string diffName = GameDatabase.GetPrototypeName(settings.DifficultyTier);
-            bool isCosmicDifficulty = !string.IsNullOrEmpty(diffName) &&
-                                      (diffName.Contains("Omega1", StringComparison.OrdinalIgnoreCase) ||
-                                       diffName.Contains("Omega", StringComparison.OrdinalIgnoreCase));
-
-            if (!isCosmicDifficulty) return false;
-
-            string itemName = GameDatabase.GetPrototypeName(itemProto.DataRef);
-
-            // 2. EXCLUSION LIST (Blacklist)
-            // Filter out Crafting Ingredients (Elements, Cores)
-            if (itemProto is CraftingIngredientPrototype) return false;
-
-            // Filter out Costumes
-            if (itemProto is CostumePrototype) return false;
-
-            // Filter out Stackable Items (Relics, Currencies, Splinters, Fragments)
-            if (itemProto.StackSettings != null && itemProto.StackSettings.MaxStacks > 1) return false;
-
-            // Filter out specific names as a safety net (Runes, Uru, Tokens)
-            if (itemName.Contains("Rune", StringComparison.OrdinalIgnoreCase) ||
-                itemName.Contains("Uru", StringComparison.OrdinalIgnoreCase) ||
-                itemName.Contains("Token", StringComparison.OrdinalIgnoreCase) ||
-                itemName.Contains("Credit", StringComparison.OrdinalIgnoreCase) ||
-                itemName.Contains("Currency", StringComparison.OrdinalIgnoreCase) ||
-                itemName.Contains("Bundle", StringComparison.OrdinalIgnoreCase) ||
-                itemName.Contains("Box", StringComparison.OrdinalIgnoreCase) ||
-                itemName.Contains("Chest", StringComparison.OrdinalIgnoreCase))
-            {
-                return false;
-            }
-
-            // 3. INCLUSION LIST (Whitelist)
-            // Allow Team-Up Gear explicitly by Class Type
-            if (itemProto is TeamUpGearPrototype)
-            {
-                Logger.Info($"[CosmicLoot] APPLIED to Team-Up Gear: {itemName}");
-                return true;
-            }
-
-            // Allow Gems
-            if (itemProto.IsGem)
-            {
-                return true;
-            }
-
-            // Allow Standard Player Equipment (must be a valid slot)
-            EquipmentInvUISlot slot = args.Slot;
-            if (slot == EquipmentInvUISlot.Invalid)
-            {
-                AgentPrototype agentProto = args.RollFor.As<AgentPrototype>();
-                if (agentProto != null)
-                    slot = itemProto.GetInventorySlotForAgent(agentProto);
-            }
-
-            if (slot != EquipmentInvUISlot.Invalid)
-            {
-                // This is a standard piece of gear (Head, Chest, Ring, etc.)
-                return true;
-            }
-
-            return false;
-        }
-
-        private static void ApplyCosmicBossLogic(IItemResolver resolver, DropFilterArguments args, ItemSpec itemSpec, HashSet<ScopedAffixRef> affixSet)
-        {
-            AddUniqueRandomAffixes(resolver, args, itemSpec, affixSet, AffixPosition.Cosmic, 1, true);
-            AddUniqueRandomAffixes(resolver, args, itemSpec, affixSet, AffixPosition.Prefix, 4, true);
-            AddUniqueRandomAffixes(resolver, args, itemSpec, affixSet, AffixPosition.Suffix, 4, true);
-            AddUniqueRandomAffixes(resolver, args, itemSpec, affixSet, AffixPosition.Runeword, 1, true);
-            AddUniqueRandomAffixes(resolver, args, itemSpec, affixSet, AffixPosition.Blessing, 1, true);
-            AddUniqueRandomAffixes(resolver, args, itemSpec, affixSet, AffixPosition.Unique, 1, true);
-            AddUniqueRandomAffixes(resolver, args, itemSpec, affixSet, AffixPosition.Ultimate, 1, true);
-            AddUniqueRandomAffixes(resolver, args, itemSpec, affixSet, AffixPosition.Socket1, 1, true);
-            AddUniqueRandomAffixes(resolver, args, itemSpec, affixSet, AffixPosition.Visual, 1, true);
-        }
-
-        private static void AddUniqueRandomAffixes(IItemResolver resolver, DropFilterArguments args, ItemSpec itemSpec, HashSet<ScopedAffixRef> affixSet, AffixPosition position, int count, bool skipChecks = false)
+        /// <summary>
+        /// Adds up to <paramref name="count"/> random affixes of <paramref name="position"/> to <paramref name="itemSpec"/>.
+        /// Without stack dictionaries each affix (and each affected stat) is used once. With them (stacking mode) affixes may repeat
+        /// up to the given per-affix / per-proc-affix / per-stat caps, which is how Omega items get their stacked affixes.
+        /// Used by the ItemAffixesRolling script hook (see ScriptHooks).
+        /// </summary>
+        internal static void AddUniqueRandomAffixes(IItemResolver resolver, DropFilterArguments args, ItemSpec itemSpec,
+    HashSet<ScopedAffixRef> affixSet, AffixPosition position, int count, bool skipChecks = false,
+    Dictionary<PrototypeId, int> affixStacks = null, Dictionary<PropertyId, int> propertyStacks = null,
+    int maxStacksPerAffix = 2, int maxStacksPerProcAffix = 1, int maxStacksPerProperty = 4)
         {
             IReadOnlyList<AffixPrototype> pool = GameDataTables.Instance.LootPickingTable.GetAffixesByPosition(position);
             if (pool == null) return;
+
+            bool stackingMode = affixStacks != null;
 
             List<AffixPrototype> valid = ListPool<AffixPrototype>.Instance.Get();
             foreach (var affix in pool)
             {
                 if (skipChecks || affix.AllowAttachment(args))
-                {
                     valid.Add(affix);
-                }
             }
 
             if (valid.Count > 0)
             {
-                int n = valid.Count;
-                while (n > 1)
-                {
-                    n--;
-                    int k = resolver.Random.Next(n + 1);
-                    (valid[k], valid[n]) = (valid[n], valid[k]);
-                }
-
-                HashSet<PropertyId> usedProperties = new();
+                HashSet<PropertyEnum> usedProperties = stackingMode ? null : new HashSet<PropertyEnum>();
 
                 int added = 0;
-                foreach (var affix in valid)
+                int safetyCounter = 0;
+
+                while (added < count && valid.Count > 0 && safetyCounter < 200)
                 {
-                    if (added >= count) break;
+                    safetyCounter++;
 
-                    bool duplicate = false;
-                    if (affix.PropertyEntries != null)
+                    int randomIndex = resolver.Random.Next(valid.Count);
+                    var affix = valid[randomIndex];
+                    bool blocked = false;
+
+                    if (stackingMode)
                     {
-                        foreach (var entry in affix.PropertyEntries)
+                        int effectiveMaxStacks = IsProcAffix(affix) ? maxStacksPerProcAffix : maxStacksPerAffix;
+
+                        affixStacks.TryGetValue(affix.DataRef, out int affixCount);
+                        if (affixCount >= effectiveMaxStacks)
+                            blocked = true;
+
+                        if (!blocked)
                         {
-                            if (usedProperties.Contains(entry.Prop))
+                            foreach (PropertyId propId in EnumerateAffectedProperties(affix))
                             {
-                                duplicate = true;
-                                break;
-                            }
-                        }
-                    }
-                    if (duplicate) continue;
-
-                    if (affix.Properties != null)
-                    {
-                        foreach (var kvp in affix.Properties)
-                        {
-                            if (usedProperties.Contains(kvp.Key))
-                            {
-                                duplicate = true;
-                                break;
-                            }
-                        }
-                    }
-                    if (duplicate) continue;
-
-                    Picker<AffixPrototype> singlePicker = new(resolver.Random);
-                    singlePicker.Add(affix, 1);
-                    Logger.Info($"[QuickDiag] === Rolling Affix: {GameDatabase.GetPrototypeName(affix.DataRef)} ===");
-                    Logger.Info($"[QuickDiag] ItemSpec.Seed: {itemSpec.Seed}");
-                    Logger.Info($"[QuickDiag] Resolver.Random test: {resolver.Random.Next(1000)}");
-                    Logger.Info($"[QuickDiag] Has PropertyEntries: {affix.PropertyEntries != null && affix.PropertyEntries.Length > 0}");
-
-                    if (affix.PropertyEntries != null && affix.PropertyEntries.Length > 0)
-                    {
-                        Logger.Info($"[QuickDiag] PropertyEntries Count: {affix.PropertyEntries.Length}");
-                        foreach (var entry in affix.PropertyEntries)
-                        {
-                            Logger.Info($"[QuickDiag]   Entry.Prop: {entry.Prop}");
-
-                            // Check if it's a ProcProp
-                            if (entry.Prop.Enum == PropertyEnum.Proc)
-                            {
-                                Logger.Info($"[QuickDiag]   This is a PROC PROPERTY entry");
-                                Logger.Info($"[QuickDiag]   ValueMin: {entry.ValueMin}");
-                                Logger.Info($"[QuickDiag]   ValueMax: {entry.ValueMax}");
+                                propertyStacks.TryGetValue(propId, out int propCount);
+                                if (propCount >= maxStacksPerProperty)
+                                {
+                                    blocked = true;
+                                    break;
+                                }
                             }
                         }
                     }
                     else
                     {
-                        Logger.Warn($"[QuickDiag] PROBLEM: Affix has NO PropertyEntries to roll!");
+                        if (affix.PropertyEntries != null)
+                            foreach (var entry in affix.PropertyEntries)
+                                if (usedProperties.Contains(entry.Prop.Enum)) { blocked = true; break; }
+                        if (!blocked && affix.Properties != null)
+                            foreach (var kvp in affix.Properties)
+                                if (usedProperties.Contains(kvp.Key.Enum)) { blocked = true; break; }
                     }
 
-                    if (affix.Properties != null)
+                    if (blocked)
                     {
-                        Logger.Info($"[QuickDiag] Static Properties Count: {affix.Properties.Count()}");
-                        foreach (var kvp in affix.Properties)
-                        {
-                            Logger.Info($"[QuickDiag]   Static: {kvp.Key} = {kvp.Value}");
-                        }
+                        valid.RemoveAt(randomIndex);
+                        continue;
                     }
+
+                    HashSet<ScopedAffixRef> rollSet = stackingMode ? new HashSet<ScopedAffixRef>() : affixSet;
+                    Picker<AffixPrototype> singlePicker = new(resolver.Random);
+                    singlePicker.Add(affix, 1);
 
                     AffixSpec spec = new();
-                    if (spec.RollAffix(resolver.Random, args.RollFor, itemSpec, singlePicker, affixSet) != MutationResults.Error)
+                    if (spec.RollAffix(resolver.Random, args.RollFor, itemSpec, singlePicker, rollSet) != MutationResults.Error)
                     {
                         itemSpec.AddAffixSpec(spec);
                         added++;
 
-                        if (affix.PropertyEntries != null)
+                        if (stackingMode)
                         {
-                            foreach (var entry in affix.PropertyEntries)
-                                usedProperties.Add(entry.Prop);
+                            affixStacks.TryGetValue(affix.DataRef, out int affixCount);
+                            affixStacks[affix.DataRef] = affixCount + 1;
+
+                            foreach (PropertyId propId in EnumerateAffectedProperties(affix))
+                            {
+                                propertyStacks.TryGetValue(propId, out int propCount);
+                                propertyStacks[propId] = propCount + 1;
+                            }
                         }
-                        if (affix.Properties != null)
+                        else
                         {
-                            foreach (var kvp in affix.Properties)
-                                usedProperties.Add(kvp.Key);
+                            affixSet.Add(new(spec.AffixProto.DataRef, spec.ScopeProtoRef));
+                            if (affix.PropertyEntries != null)
+                                foreach (var entry in affix.PropertyEntries) usedProperties.Add(entry.Prop.Enum);
+                            if (affix.Properties != null)
+                                foreach (var kvp in affix.Properties) usedProperties.Add(kvp.Key.Enum);
+                            valid.RemoveAt(randomIndex);
                         }
+                    }
+                    else
+                    {
+                        valid.RemoveAt(randomIndex);
                     }
                 }
             }
 
             ListPool<AffixPrototype>.Instance.Return(valid);
+        }
+
+        /// <summary>
+        /// CUSTOM: removes rolled affixes so that no stat (PropertyId, including its params) is touched by more than
+        /// <paramref name="maxPerStat"/> affixes. Built-in affixes and the special positions (runeword, blessing, unique, ultimate,
+        /// sockets, visuals...) always count and are never removed; regular affixes are kept in roll order until a stat is full.
+        /// Returns <see langword="true"/> if anything was removed.
+        /// </summary>
+        private static bool EnforceAffixStatCap(ItemSpec itemSpec, ItemPrototype itemProto, int maxPerStat)
+        {
+            Dictionary<PropertyId, int> counts = new();
+
+            void Count(AffixPrototype affixProto)
+            {
+                foreach (PropertyId propId in EnumerateAffectedProperties(affixProto))
+                    counts[propId] = counts.GetValueOrDefault(propId) + 1;
+            }
+
+            // Built-in affixes of the item and of its rarity
+            if (itemProto.AffixesBuiltIn.HasValue())
+            {
+                foreach (AffixEntryPrototype entry in itemProto.AffixesBuiltIn)
+                {
+                    AffixPrototype affixProto = entry.Affix.As<AffixPrototype>();
+                    if (affixProto != null) Count(affixProto);
+                }
+            }
+
+            RarityPrototype rarityProto = itemSpec.RarityProtoRef.As<RarityPrototype>();
+            if (rarityProto != null && rarityProto.AffixesBuiltIn.HasValue())
+            {
+                foreach (AffixEntryPrototype entry in rarityProto.AffixesBuiltIn)
+                {
+                    AffixPrototype affixProto = entry.Affix.As<AffixPrototype>();
+                    if (affixProto != null) Count(affixProto);
+                }
+            }
+
+            // Special positions are kept no matter what
+            IReadOnlyList<AffixSpec> affixSpecs = itemSpec.AffixSpecs;
+            foreach (AffixSpec affixSpec in affixSpecs)
+            {
+                if (affixSpec.AffixProto != null && IsCappableAffixPosition(affixSpec.AffixProto.Position) == false)
+                    Count(affixSpec.AffixProto);
+            }
+
+            // Regular affixes in roll order: drop the ones that would overfill a stat
+            List<AffixSpec> kept = new(affixSpecs.Count);
+            int removed = 0;
+
+            foreach (AffixSpec affixSpec in affixSpecs)
+            {
+                AffixPrototype affixProto = affixSpec.AffixProto;
+                if (affixProto == null || IsCappableAffixPosition(affixProto.Position) == false)
+                {
+                    kept.Add(affixSpec);
+                    continue;
+                }
+
+                bool overCap = false;
+                foreach (PropertyId propId in EnumerateAffectedProperties(affixProto))
+                {
+                    if (counts.GetValueOrDefault(propId) >= maxPerStat)
+                    {
+                        overCap = true;
+                        break;
+                    }
+                }
+
+                if (overCap)
+                {
+                    removed++;
+                    continue;
+                }
+
+                Count(affixProto);
+                kept.Add(affixSpec);
+            }
+
+            if (removed == 0)
+                return false;
+
+            itemSpec.SetAffixes(kept);
+            return true;
+        }
+
+        private static bool IsCappableAffixPosition(AffixPosition position)
+        {
+            switch (position)
+            {
+                case AffixPosition.Prefix:
+                case AffixPosition.Suffix:
+                case AffixPosition.Cosmic:
+                    return true;
+
+                default:
+                    return false;
+            }
+        }
+
+        private static IEnumerable<PropertyId> EnumerateAffectedProperties(AffixPrototype affixProto)
+        {
+            if (affixProto.PropertyEntries != null)
+                foreach (var entry in affixProto.PropertyEntries)
+                    if (entry.Prop.Enum != PropertyEnum.Invalid)
+                        yield return entry.Prop;
+
+            if (affixProto.Properties != null)
+                foreach (var kvp in affixProto.Properties)
+                    if (kvp.Key.Enum != PropertyEnum.Invalid)
+                        yield return kvp.Key;
         }
 
         public static MutationResults AddAffixes(IItemResolver resolver, DropFilterArguments args, short affixCountNeeded,
@@ -961,6 +1047,10 @@ namespace MHServerEmu.Games.Loot
 
             addedPositionCounts.Fill(0, (int)AffixPosition.NumPositions);
 
+            // CUSTOM: Omega items intentionally carry stacked duplicate affixes and exceed normal affix limits,
+            // so copying them (crafting / upgrade paths) must not drop duplicates or fail on limits.
+            bool isOmegaItem = IsOmegaRarity(destItemSpec.RarityProtoRef) || IsOmegaRarity(sourceItemSpec.RarityProtoRef);
+
             IReadOnlyList<AffixSpec> sourceAffixSpecs = sourceItemSpec.AffixSpecs;
             for (int i = 0; i < sourceAffixSpecs.Count; i++)
             {
@@ -997,8 +1087,8 @@ namespace MHServerEmu.Games.Loot
                     break;
                 }
 
-                // Check for duplicates
-                if (affixSet.Contains(new(affixProto.DataRef, affixSpecCopy.ScopeProtoRef)))
+                // Check for duplicates (Omega items keep their stacked duplicates)
+                if (isOmegaItem == false && affixSet.Contains(new(affixProto.DataRef, affixSpecCopy.ScopeProtoRef)))
                 {
                     switch (affixProto.DuplicateHandlingBehavior)
                     {
@@ -1037,8 +1127,8 @@ namespace MHServerEmu.Games.Loot
                 }
             }
 
-            // Check limits if needed
-            if (affixLimits != null)
+            // Check limits if needed (Omega items are built past the normal limits on purpose)
+            if (affixLimits != null && isOmegaItem == false)
             {
                 // Position limits
                 for (AffixPosition positionIt = 0; positionIt < AffixPosition.NumPositions; positionIt++)
@@ -1073,13 +1163,38 @@ namespace MHServerEmu.Games.Loot
             if (result.HasFlag(MutationResults.Error) == false)
                 destItemSpec.AddAffixSpecs(affixSpecsToAdd);
 
-            end:
+        end:
             ListPool<AffixSpec>.Instance.Return(affixSpecsToAdd);
             ListPool<int>.Instance.Return(addedPositionCounts);
             DictionaryPool<AffixCategoryPrototype, int>.Instance.Return(addedCategoryCounts);
             return result;
         }
+        private static PrototypeId _omegaRarityRef = PrototypeId.Invalid;
 
+        internal static bool IsOmegaRarity(PrototypeId rarityProtoRef)
+        {
+            if (rarityProtoRef == PrototypeId.Invalid)
+                return false;
+
+            if (_omegaRarityRef == PrototypeId.Invalid)
+                _omegaRarityRef = GameDatabase.GetPrototypeRefByName(OmegaRarityName);
+
+            return rarityProtoRef == _omegaRarityRef;
+        }
+
+        private static bool IsProcAffix(AffixPrototype affixProto)
+        {
+            if (affixProto.Properties == null)
+                return false;
+
+            foreach (var kvp in affixProto.Properties)
+            {
+                if (kvp.Key.Enum.ToString().Contains("Proc", StringComparison.OrdinalIgnoreCase))
+                    return true;
+            }
+
+            return false;
+        }
         private static bool GetCurrentAffixStats(IItemResolver resolver, DropFilterArguments args, ItemSpec itemSpec,
             List<AffixCountData> affixCounts, HashSet<ScopedAffixRef> affixSet)
         {

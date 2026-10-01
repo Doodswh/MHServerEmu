@@ -30,6 +30,7 @@ using MHServerEmu.Games.Populations;
 using MHServerEmu.Games.Properties;
 using MHServerEmu.Games.Properties.Evals;
 using MHServerEmu.Games.Regions.ObjectiveGraphs;
+using MHServerEmu.Games.Scripting;
 using MHServerEmu.Games.UI;
 
 namespace MHServerEmu.Games.Regions
@@ -84,9 +85,31 @@ namespace MHServerEmu.Games.Regions
         public ulong Id { get; private set; } // InstanceAddress
         public RegionSettings Settings { get; private set; }
         public int RandomSeed { get; private set; }
+
+        /// <summary>CUSTOM: generation tweaks set by scripts (see ScriptHooks.RegionGenerating), or null.</summary>
+        public RegionGenerationOverrides GenerationOverrides { get; private set; }
         public ulong MatchNumber { get => Settings.MatchNumber; }
         public int RegionLevel { get; private set; }
-        public PrototypeId DifficultyTierRef { get => Properties[PropertyEnum.DifficultyTier]; }
+        private PrototypeId _difficultyTierRef;
+
+        public PrototypeId DifficultyTierRef
+        {
+            get => Properties[PropertyEnum.DifficultyTier];
+            set => Properties[PropertyEnum.DifficultyTier] = value;
+        }
+
+        // CUSTOM: Omega difficulty tiers (e.g. Tier5Omega1), not normally accessible unlike Cosmic/Superheroic
+        public bool IsOmegaDifficulty
+        {
+            get
+            {
+                PrototypeId difficultyTierRef = DifficultyTierRef;
+                if (difficultyTierRef == PrototypeId.Invalid) return false;
+
+                string diffName = GameDatabase.GetPrototypeName(difficultyTierRef);
+                return string.IsNullOrEmpty(diffName) == false && diffName.Contains("Omega", StringComparison.OrdinalIgnoreCase);
+            }
+        }
 
         public RegionPrototype Prototype { get; private set; }
         public PrototypeId PrototypeDataRef { get => Prototype != null ? Prototype.DataRef : PrototypeId.Invalid; }
@@ -264,6 +287,21 @@ namespace MHServerEmu.Games.Regions
 
             RegionPrototype regionProto = Prototype;
             RandomSeed = settings.Seed;
+
+            // CUSTOM: scripts can pick the layout seed and tune the random grid generators before anything is generated
+            if (settings.GenerateAreas && ScriptHooks.RegionGenerating.HasHandlers)
+            {
+                RegionGeneratingArgs generatingArgs = new(this, settings);
+                ScriptHooks.RegionGenerating.Invoke(generatingArgs);
+
+                if (generatingArgs.Seed != RandomSeed && generatingArgs.Seed != 0)
+                {
+                    RandomSeed = generatingArgs.Seed;
+                    settings.Seed = generatingArgs.Seed;
+                }
+
+                GenerationOverrides = generatingArgs.GetOverrides();
+            }
             Aabb = settings.Bounds;
             AvatarSwapEnabled = Prototype.EnableAvatarSwap;
             RestrictedRosterEnabled = Prototype.RestrictedRoster.HasValue();
@@ -1027,6 +1065,16 @@ namespace MHServerEmu.Games.Regions
 
             bool found = false;
 
+            // CUSTOM: an empty target (no area / cell / entity) into a script-built map means "the arrival room". Without this, the cell
+            // search below matches any marker whose entity can't be resolved (invalid == invalid), e.g. decoration over lava.
+            if (areaProtoRef == PrototypeId.Invalid && cellProtoRef == PrototypeId.Invalid && entityProtoRef == PrototypeId.Invalid
+                && TryGetBuiltMapStartPosition(out Vector3 builtMapStart))
+            {
+                markerPos = builtMapStart;
+                markerRot = Orientation.Zero;
+                return true;
+            }
+
             // If we have a valid area ref, search only that area
             if (areaProtoRef != PrototypeId.Invalid)
             {
@@ -1061,7 +1109,93 @@ namespace MHServerEmu.Games.Regions
                 }
             }
 
+            // CUSTOM: script-built maps (RegionGenerating BuildLayout) have no target markers, use the map's arrival room
+            if (found == false && TryGetBuiltMapStartPosition(out Vector3 layoutStart))
+            {
+                markerPos = layoutStart;
+                markerRot = Orientation.Zero;
+                return true;
+            }
+
             return found;
+        }
+
+        private Vector3? _builtMapStartPosition;
+
+        /// <summary>
+        /// CUSTOM: Where players arrive in a script-built map: a walkable spot in its S room (a room's center can be lava or a
+        /// drop), preferably one that can walk to the neighboring rooms. Found once and reused.
+        /// </summary>
+        public bool TryGetBuiltMapStartPosition(out Vector3 position)
+        {
+            position = Vector3.Zero;
+            ScriptedLayout layout = GenerationOverrides?.Layout;
+            if (layout?.StartPosition is not Vector3 roomCenter)
+                return false;
+
+            if (_builtMapStartPosition.HasValue)
+            {
+                position = _builtMapStartPosition.Value;
+                return true;
+            }
+
+            Vector3 fallback = RegionLocation.ProjectToFloor(this, roomCenter);
+            Vector3? firstWalkable = null;
+
+            // A walkable point of another room, to check the arrival spot isn't on an island
+            Vector3? otherRoomSpot = null;
+            foreach (char c in layout.Rows.SelectMany(row => row).Distinct())
+            {
+                foreach (Vector3 center in layout.GetMarkers(c))
+                {
+                    if (Vector3.DistanceSquared2D(center, roomCenter) < 1f) continue;
+                    if (TryFindWalkableSpot(center, 1100f, out Vector3 spot)) { otherRoomSpot = spot; break; }
+                }
+                if (otherRoomSpot.HasValue) break;
+            }
+
+            const float RoomHalfSize = 1100f;
+            for (int attempt = 0; attempt < 24; attempt++)
+            {
+                float radius = RoomHalfSize * (attempt + 1) / 24f;
+                if (TryFindWalkableSpot(roomCenter, Math.Max(radius, 200f), out Vector3 candidate) == false)
+                    continue;
+
+                firstWalkable ??= candidate;
+
+                if (otherRoomSpot.HasValue == false ||
+                    NaviPath.CheckCanPathTo(NaviMesh, candidate, otherRoomSpot.Value, 32f, PathFlags.Walk) == NaviPathResult.Success)
+                {
+                    _builtMapStartPosition = candidate;
+                    position = candidate;
+                    Logger.Info($"TryGetBuiltMapStartPosition(): S room center {roomCenter}, arrival {candidate} (attempt {attempt + 1}, connected check {(otherRoomSpot.HasValue ? "passed" : "skipped")})");
+                    return true;
+                }
+            }
+
+            _builtMapStartPosition = firstWalkable ?? fallback;
+            Logger.Warn($"TryGetBuiltMapStartPosition(): S room center {roomCenter}: " + (firstWalkable.HasValue
+                ? $"only found walkable spots not connected to the other rooms, using {firstWalkable.Value}"
+                : $"no walkable spot found at all, using the center {fallback}") + $" (other room spot: {otherRoomSpot?.ToString() ?? "none"})");
+
+            position = _builtMapStartPosition.Value;
+            return true;
+        }
+
+        private bool TryFindWalkableSpot(Vector3 near, float maxDistance, out Vector3 position)
+        {
+            Bounds bounds = new();
+            bounds.InitializeCapsule(32f, 48f, BoundsCollisionType.Blocking, BoundsFlags.None);
+            bounds.Center = RegionLocation.ProjectToFloor(this, near);
+
+            if (ChooseRandomPositionNearPoint(ref bounds, PathFlags.Walk, PositionCheckFlags.None, BlockingCheckFlags.None,
+                0f, maxDistance, out position, null, null, 32))
+            {
+                position = RegionLocation.ProjectToFloor(this, position);
+                return true;
+            }
+
+            return false;
         }
 
         public PrototypeId GetBodysliderPowerRef()

@@ -1,0 +1,35 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>disable</Nullable>
+    <Platforms>x64</Platforms>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Gazillion\Gazillion.csproj" />
+    <ProjectReference Include="..\MHServerEmu.Core\MHServerEmu.Core.csproj" />
+    <ProjectReference Include="..\MHServerEmu.Games\MHServerEmu.Games.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="MoonSharp" Version="2.0.0" />
+    <PackageReference Include="Microsoft.CodeAnalysis.CSharp.Scripting" Version="4.8.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Reference Include="Google.ProtocolBuffers">
+      <HintPath>..\..\dep\protobuf-csharp\Google.ProtocolBuffers.dll</HintPath>
+    </Reference>
+  </ItemGroup>
+
+  <!-- Scripts ship next to the server in Data\Scripts -->
+  <ItemGroup>
+    <None Include="Scripts\**\*">
+      <Link>Data\Scripts\%(RecursiveDir)%(Filename)%(Extension)</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+  </ItemGroup>
+
+</Project>

@@ -16,6 +16,65 @@ using MHServerEmu.Games.Social.Parties;
 
 namespace MHServerEmu.Commands.Implementations
 {
+    [CommandGroup("Teleport")]
+    [CommandGroupDescription("Teleports to a specific region prototype.\nUsage:\n/region 13284513933487907420\n/region Regions/Story/CH04EastSide/UpperEastSide/PoliceDepartment/Portals/JailTarget.prototype")]
+    [CommandGroupUserLevel(AccountUserLevel.Admin)]
+    [CommandGroupFlags(CommandGroupFlags.SingleCommand)]
+    public class TeleportCommand : CommandGroup
+    {
+        [DefaultCommand]
+        [CommandInvokerType(CommandInvokerType.Client)]
+        [CommandParamCount(1)]
+        public string TeleportToRegion(string[] @params, NetClient client)
+        {
+            Player player = ((PlayerConnection)client).Player;
+            if (player == null) return "Player not found.";
+
+            string regionInput = @params[0];
+            PrototypeId regionProtoRef;
+
+            // First, try to parse the input as a direct PrototypeId (ulong)
+            if (ulong.TryParse(regionInput, out ulong rawId))
+            {
+                regionProtoRef = (PrototypeId)rawId;
+            }
+            else
+            {
+                // If it's not a number, attempt to look it up by its prototype path
+                regionProtoRef = GameDatabase.GetPrototypeRefByName(regionInput);
+            }
+
+            // Verify the prototype is valid before attempting to teleport
+            if (regionProtoRef == PrototypeId.Invalid)
+            {
+                return $"Error: Could not find region prototype '{regionInput}'.";
+            }
+
+            // Execute the teleport
+            Teleporter.DebugTeleportToTarget(player, regionProtoRef);
+
+            return $"Teleporting to region: {regionProtoRef}";
+        }
+    }
+    [CommandGroup("skipbreak")]
+    [CommandGroupDescription("Skips the current Endless Danger Room break so the next wave starts right away.")]
+    [CommandGroupUserLevel(AccountUserLevel.User)]
+    [CommandGroupFlags(CommandGroupFlags.SingleCommand)]
+    public class SkipBreakCommand : CommandGroup
+    {
+        [DefaultCommand]
+        [CommandInvokerType(CommandInvokerType.Client)]
+        public string SkipBreak(string[] @params, NetClient client)
+        {
+            Player player = ((PlayerConnection)client).Player;
+            if (player?.Game == null)
+                return "You cannot use this right now.";
+
+            player.Game.TrySkipEndlessScenarioBreak(player, out string message);
+            return message;
+        }
+    }
+
     [CommandGroup("tower")]
     [CommandGroupDescription("Teleports to Avengers Tower (original).")]
     [CommandGroupUserLevel(AccountUserLevel.Admin)]
@@ -126,8 +185,8 @@ namespace MHServerEmu.Commands.Implementations
         }
     }
     [CommandGroup("difficulty")]
-    [CommandGroupUserLevel(AccountUserLevel.Admin)]
-    [CommandGroupDescription("Sets your account's preferred difficulty tier to omega. Bypasses UI locks.")]
+    [CommandGroupUserLevel(AccountUserLevel.Dev)]
+    [CommandGroupDescription("Sets your account's preferred difficulty tier to omega.")]
     [CommandGroupFlags(CommandGroupFlags.SingleCommand)]
     public class SetDifficultyCommand : CommandGroup
     {
@@ -138,6 +197,7 @@ namespace MHServerEmu.Commands.Implementations
         {
             Player player = ((PlayerConnection)client).Player;
             if (player == null) return "Player not found.";
+            if (player.CurrentAvatar == null) return "No active avatar.";
 
             string difficultyName = @params[0].ToLower();
             string prototypeName;
@@ -147,10 +207,8 @@ namespace MHServerEmu.Commands.Implementations
                 case "omega":
                     prototypeName = "Difficulty/Tiers/Tier5Omega1.prototype";
 
-                    if (player.CurrentAvatar != null && !player.CurrentAvatar.IsAtMaxPrestigeLevel())
-                    {
+                    if (player.CurrentAvatar.IsAtMaxPrestigeLevel() == false)
                         return "You must reach maximum prestige to access this difficulty tier.";
-                    }
                     break;
 
                 default:
@@ -161,17 +219,26 @@ namespace MHServerEmu.Commands.Implementations
             if (difficultyProtoRef == PrototypeId.Invalid)
                 return $"Error: Could not find prototype {prototypeName}";
 
-            player.AdminDifficultyOverride = difficultyProtoRef;
-            player.SendDifficultyTierPreferenceToPlayerManager();
-            player.UpdatePartyDifficulty(difficultyProtoRef);
+            if (player.CanChangeDifficulty(difficultyProtoRef) == false)
+                return "You can't change to that difficulty tier right now.";
 
-            return $"Account difficulty preference temporarily set to: {difficultyName} ({difficultyProtoRef})";
+            player.CurrentAvatar.Properties[PropertyEnum.DifficultyTierPreference] = difficultyProtoRef;
+            player.DifficultyPreferenceLocked = true;
+            player.SendDifficultyTierPreferenceToPlayerManager();
+
+            if (player.GetParty() != null)
+            {
+                player.UpdatePartyDifficulty(difficultyProtoRef);
+                return $"Difficulty set to {difficultyName}. Broadcast to party (leader only).";
+            }
+
+            return $"Difficulty preference set to: {difficultyName} ({difficultyProtoRef})";
         }
     }
 
     [CommandGroup("reset_diff")]
-    [CommandGroupUserLevel(AccountUserLevel.Admin)]
-    [CommandGroupDescription("Returns difficulty behavior to normal and refreshes state.")]
+    [CommandGroupUserLevel(AccountUserLevel.User)]
+    [CommandGroupDescription("Clears your difficulty preference.")]
     [CommandGroupFlags(CommandGroupFlags.SingleCommand)]
     public class ResetDifficultyCommand : CommandGroup
     {
@@ -181,9 +248,10 @@ namespace MHServerEmu.Commands.Implementations
         {
             Player player = ((PlayerConnection)client).Player;
             if (player == null) return "Player not found.";
+            if (player.CurrentAvatar == null) return "No active avatar.";
 
-            player.AdminDifficultyOverride = PrototypeId.Invalid;
-
+            player.CurrentAvatar.Properties[PropertyEnum.DifficultyTierPreference] = PrototypeId.Invalid;
+            player.DifficultyPreferenceLocked = false;
             player.SendDifficultyTierPreferenceToPlayerManager();
 
             Party party = player.GetParty();
@@ -200,7 +268,7 @@ namespace MHServerEmu.Commands.Implementations
                 ServerManager.Instance.SendMessageToService(GameServiceType.PlayerManager, message);
             }
 
-            return "Difficulty override cleared. Normal region behavior resumed.";
+            return "Difficulty preference reset.";
         }
     }
 
@@ -273,53 +341,7 @@ namespace MHServerEmu.Commands.Implementations
         }
     }
 
-    [CommandGroup("tp")]
-    [CommandGroupDescription("Teleports to position.\nUsage:\ntp x:+1000 (relative to current position)\ntp x100 y500 z10 (absolute position)")]
-    [CommandGroupUserLevel(AccountUserLevel.Admin)]
-    [CommandGroupFlags(CommandGroupFlags.SingleCommand)]
-    public class TeleportCommand : CommandGroup
-    {
-        [DefaultCommand]
-        [CommandInvokerType(CommandInvokerType.Client)]
-        [CommandParamCount(1)]
-        public string Teleport(string[] @params, NetClient client)
-        {
-            PlayerConnection playerConnection = (PlayerConnection)client;
-            Avatar avatar = playerConnection.Player.CurrentAvatar;
-            if (avatar == null || avatar.IsInWorld == false)
-                return "Avatar not found.";
-
-            float x = 0f, y = 0f, z = 0f;
-            foreach (string param in @params)
-            {
-                switch (param[0])
-                {
-                    case 'x':
-                        if (float.TryParse(param.AsSpan(1), out x) == false) x = 0f;
-                        break;
-
-                    case 'y':
-                        if (float.TryParse(param.AsSpan(1), out y) == false) y = 0f;
-                        break;
-
-                    case 'z':
-                        if (float.TryParse(param.AsSpan(1), out z) == false) z = 0f;
-                        break;
-
-                    default:
-                        return $"Invalid parameter: {param}";
-                }
-            }
-
-            Vector3 teleportPoint = new(x, y, z);
-
-            if (@params.Length < 3)
-                teleportPoint += avatar.RegionLocation.Position;
-
-            avatar.ChangeRegionPosition(teleportPoint, null, ChangePositionFlags.Teleport);
-
-            return $"Teleporting to {teleportPoint.ToStringNames()}.";
-        }
+   
         [CommandGroup("convertraid")]
         [CommandGroupDescription("Converts the current party into a raid (bypassing the UI drop-down).")]
         [CommandGroupUserLevel(AccountUserLevel.Admin)]
@@ -375,4 +397,4 @@ namespace MHServerEmu.Commands.Implementations
             }
         }
     }
-}
+

@@ -178,6 +178,8 @@ namespace MHServerEmu.Games.Entities
 
         public bool UseTransition(Player player)
         {
+            if (Game.TryUseEndlessScenarioReturnPortal(player, this))
+                return true;
             switch (TransitionPrototype.Type)
             {
                 case RegionTransitionType.Transition:

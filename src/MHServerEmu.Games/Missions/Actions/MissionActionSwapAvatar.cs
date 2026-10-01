@@ -29,7 +29,7 @@ namespace MHServerEmu.Games.Missions.Actions
                             avatar.TryRestoreThrowable();
 
                         if (_proto.UseAvatarSwapPowers)
-                            player.BeginAvatarSwitch(_proto.AvatarPrototype);
+                            player.BeginAvatarSwitch(_proto.AvatarPrototype, true);    // Mission swaps skip gameplay restrictions
                         else
                         {
                             player.Properties[PropertyEnum.AvatarSwitchPending, _proto.AvatarPrototype] = true;

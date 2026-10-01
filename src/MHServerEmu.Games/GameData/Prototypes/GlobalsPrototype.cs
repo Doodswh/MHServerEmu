@@ -1107,6 +1107,7 @@ namespace MHServerEmu.Games.GameData.Prototypes
         public PrototypeId SpecialOnKilledLootTable { get; protected set; }
         public int SpecialOnKilledLootCooldownHours { get; protected set; }
         public PrototypeId RarityCosmic { get; protected set; }
+        public PrototypeId RarityOmega { get; protected set; }
         public CurveId LootBonusFlatCreditsCurve { get; protected set; }
         public PrototypeId RarityUruForged { get; protected set; }
         public PrototypeId LootTableBlueprint { get; protected set; }

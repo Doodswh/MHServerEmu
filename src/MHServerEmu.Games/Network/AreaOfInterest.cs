@@ -1,4 +1,6 @@
-﻿using System.Text;
+﻿using System.Runtime.CompilerServices;
+using System.Runtime.InteropServices;
+using System.Text;
 using Gazillion;
 using Google.ProtocolBuffers;
 using MHServerEmu.Core.Collections;
@@ -190,6 +192,26 @@ namespace MHServerEmu.Games.Network
                 RemoveEntity(entity);
             else if (wasInterested && isInterested)
                 ModifyEntity(entity, newInterestPolicies, settings);
+
+            return true;
+        }
+
+        /// <summary>
+        /// CUSTOM: Re-sends an <see cref="Entity"/> this client already knows about (destroy, then create with its current data).
+        /// The protocol has no message for changing an item's affixes, so this is how a server-side ItemSpec change reaches the client.
+        /// </summary>
+        public bool RefreshEntity(Entity entity)
+        {
+            if (entity == null) return Logger.WarnReturn(false, "RefreshEntity(): entity == null");
+
+            if (InterestedInEntity(entity.Id) == false)
+                return false;
+
+            AOINetworkPolicyValues interestPolicies = GetNewInterestPolicies(entity);
+            RemoveEntity(entity);
+
+            if (interestPolicies != AOINetworkPolicyValues.AOIChannelNone)
+                AddEntity(entity, interestPolicies);
 
             return true;
         }
@@ -525,7 +547,8 @@ namespace MHServerEmu.Games.Network
             foreach (var worldEntity in region.IterateEntitiesInVolume(_entitiesVolume, new(_playerConnection.PlayerDbId)))
             {
                 AOINetworkPolicyValues newInterestPolicies = GetNewInterestPolicies(worldEntity);
-                bool wasInterested = _trackedEntities.TryGetValue(worldEntity.Id, out EntityInterestStatus interestStatus);
+                ref EntityInterestStatus interestStatus = ref CollectionsMarshal.GetValueRefOrNullRef(_trackedEntities, worldEntity.Id);
+                bool wasInterested = Unsafe.IsNullRef(ref interestStatus) == false;
                 bool isInterested = newInterestPolicies != AOINetworkPolicyValues.AOIChannelNone;
 
                 if (wasInterested == false && isInterested)
@@ -549,10 +572,10 @@ namespace MHServerEmu.Games.Network
             // Update existing entities
             EntityManager entityManager = _game.EntityManager;
 
-            foreach (var kvp in _trackedEntities)
+            foreach (ulong entityId in _trackedEntities.Keys)
             {
-                ulong entityId = kvp.Key;
-                EntityInterestStatus interestStatus = kvp.Value;
+                // By ref, so the frame update below is written back to the dictionary (updating an existing value is allowed while iterating)
+                ref EntityInterestStatus interestStatus = ref CollectionsMarshal.GetValueRefOrNullRef(_trackedEntities, entityId);
 
                 // Skip entities we have already processed in proximity
                 if (interestStatus.LastUpdateFrame >= _currentFrame) continue;
@@ -726,7 +749,10 @@ namespace MHServerEmu.Games.Network
             ConsiderContainedEntities(entity, InterestTrackOperation.Add);
 
             // Notify the client that we have finished sending everything needed for this avatar
-            if (entity is Avatar && interestPolicies.HasFlag(AOINetworkPolicyValues.AOIChannelProximity))
+            // IncursionMod: non-avatars rendered as avatars included.
+            bool isAvatarLikeForClient = entity is Avatar
+                || (entity is WorldEntity renderWe && renderWe.IsClientRenderedAsAvatar);
+            if (isAvatarLikeForClient && interestPolicies.HasFlag(AOINetworkPolicyValues.AOIChannelProximity))
                 SendMessage(NetMessageFullInWorldHierarchyUpdateEnd.CreateBuilder().SetIdEntity(entity.Id).Build());
         }
 
@@ -736,8 +762,10 @@ namespace MHServerEmu.Games.Network
             AOINetworkPolicyValues currentInterestPolicies = GetCurrentInterestPolicies(entity.Id);
 
             // Notify the client of a hierarchy update for avatars
-            if (entity is Avatar avatar && avatar.IsInWorld)
-                SendMessage(NetMessageFullInWorldHierarchyUpdateBegin.CreateBuilder().SetIdEntity(avatar.Id).Build());
+            // IncursionMod: non-avatars rendered as avatars included.
+            if (entity is WorldEntity hierarchyWe && hierarchyWe.IsInWorld
+                && (entity is Avatar || hierarchyWe.IsClientRenderedAsAvatar))
+                SendMessage(NetMessageFullInWorldHierarchyUpdateBegin.CreateBuilder().SetIdEntity(entity.Id).Build());
 
             // Remove
             SetEntityInterestPolicies(entity, InterestTrackOperation.Remove);
@@ -757,7 +785,8 @@ namespace MHServerEmu.Games.Network
         private bool ModifyEntity(Entity entity, AOINetworkPolicyValues newInterestPolicies, EntitySettings settings = null)
         {
             // No entity to modify
-            if (_trackedEntities.TryGetValue(entity.Id, out EntityInterestStatus interestStatus) == false)
+            ref EntityInterestStatus interestStatus = ref CollectionsMarshal.GetValueRefOrNullRef(_trackedEntities, entity.Id);
+            if (Unsafe.IsNullRef(ref interestStatus))
                 return false;
 
             // Policies are the same, so we don't need to do anything
@@ -1196,9 +1225,9 @@ namespace MHServerEmu.Games.Network
             }
         }
 
-        private class EntityInterestStatus
+        private struct EntityInterestStatus
         {
-            // NOTE: This needs to be a class so that we can modify it during iteration
+            // A struct (no allocation per tracked entity); modify it by ref through CollectionsMarshal
             public ulong LastUpdateFrame;
             public AOINetworkPolicyValues InterestPolicies;
 

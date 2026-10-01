@@ -50,6 +50,17 @@ namespace MHServerEmu.Games.DRAG.Generators.Areas
             return new(min, max);
         }
 
+        // CUSTOM: room / connection removal can be overridden per region by scripts (ScriptHooks.RegionGenerating)
+        protected int GetRoomKillChance(int defaultPct)
+        {
+            return Region?.GenerationOverrides?.GetRoomKillChance(Area, defaultPct) ?? defaultPct;
+        }
+
+        protected int GetConnectionKillChance(int defaultPct)
+        {
+            return Region?.GenerationOverrides?.GetConnectionKillChance(Area, defaultPct) ?? defaultPct;
+        }
+
         private bool GetPrototype(out BaseGridAreaGeneratorPrototype proto)
         {
             proto = Area.Prototype.Generator as BaseGridAreaGeneratorPrototype;

@@ -64,8 +64,10 @@ namespace MHServerEmu.Core.Logging
         {
             while (true)
             {
+                
                 LogMessage logMessage = LogMessages.Take();
                 RouteLogMessage(logMessage);
+
             }
         }
     }

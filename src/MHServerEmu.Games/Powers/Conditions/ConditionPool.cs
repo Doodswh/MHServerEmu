@@ -1,6 +1,7 @@
-﻿using System.Text;
-using MHServerEmu.Core.Logging;
+﻿using MHServerEmu.Core.Logging;
 using MHServerEmu.Core.System.Time;
+using MHServerEmu.Games.GameData;
+using System.Text;
 
 namespace MHServerEmu.Games.Powers.Conditions
 {
@@ -53,7 +54,6 @@ namespace MHServerEmu.Games.Powers.Conditions
 
             if (_conditionStack.Count >= _allocatedCount)
                 return false;
-
             condition.Clear();
             condition.IsInPool = true;
             _conditionStack.Push(condition);

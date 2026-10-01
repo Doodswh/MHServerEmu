@@ -78,6 +78,75 @@ namespace MHServerEmu.Commands.Implementations
 
             return string.Empty;
         }
+        [Command("givesocketed")]
+        [CommandDescription("Gives the specified item with exactly 1 forced empty socket for testing.")]
+        [CommandUsage("item givesocketed [pattern]")]
+        [CommandUserLevel(AccountUserLevel.Dev)]
+        [CommandInvokerType(CommandInvokerType.Client)]
+        [CommandParamCount(1)]
+        public string GiveSocketed(string[] @params, NetClient client)
+        {
+            PlayerConnection playerConnection = (PlayerConnection)client;
+            Player player = playerConnection.Player;
+            LootManager lootManager = player.Game.LootManager;
+
+            string itemPattern = @params[0];
+            PrototypeId itemProtoRef = CommandHelper.FindPrototype(HardcodedBlueprints.Item, itemPattern, client);
+            if (itemProtoRef == PrototypeId.Invalid)
+                return $"Error: Item prototype not found for '{itemPattern}'.";
+
+            ItemPrototype itemProto = itemProtoRef.As<ItemPrototype>();
+            if (itemProto == null)
+                return "Error: Invalid item prototype.";
+
+            int itemLevel = 60;
+            PrototypeId rarityProtoRef = GameDatabase.LootGlobalsPrototype.RarityCosmic;
+            if (rarityProtoRef == PrototypeId.Invalid)
+                rarityProtoRef = GameDatabase.LootGlobalsPrototype.RarityDefault;
+
+            List<AffixSpec> affixSpecs = new List<AffixSpec>();
+
+            List<AffixPrototype> validSockets = new List<AffixPrototype>();
+            foreach (PrototypeId affixId in GameDatabase.DataDirectory.IteratePrototypesInHierarchy<AffixPrototype>(PrototypeIterateFlags.NoAbstractApprovedOnly))
+            {
+                AffixPrototype proto = affixId.As<AffixPrototype>();
+                if (proto == null) continue;
+
+                string affixName = GameDatabase.GetPrototypeName(affixId);
+
+
+                if (proto.Position == AffixPosition.Socket1  &&
+                    !affixName.Contains("DoNotDelete", StringComparison.OrdinalIgnoreCase))
+                {
+                    validSockets.Add(proto);
+                }
+            }
+
+            if (validSockets.Count > 0)
+            {
+                // Grab a valid empty socket and forcefully attach it
+                AffixPrototype socketAffix = validSockets[player.Game.Random.Next(validSockets.Count)];
+                affixSpecs.Add(new AffixSpec(socketAffix, PrototypeId.Invalid, player.Game.Random.Next()));
+                Logger.Info($"[ItemCommands] GiveSocketed: Successfully forced Empty Socket: {GameDatabase.GetPrototypeName(socketAffix.DataRef)}");
+            }
+            else
+            {
+                return "Error: Could not find an empty socket in the database.";
+            }
+
+            ItemSpec finalSpec = new ItemSpec(itemProtoRef, rarityProtoRef, itemLevel, 0, affixSpecs, player.Game.Random.Next());
+
+            using (LootResultSummary lootResultSummary = ObjectPoolManager.Instance.Get<LootResultSummary>())
+            {
+                lootResultSummary.Add(new LootResult(finalSpec));
+                Item createdItem = lootManager.CreateAndGiveItem(finalSpec, player);
+
+                if (createdItem != null)
+                    return $"Successfully spawned: {GameDatabase.GetPrototypeName(itemProtoRef)} with 1 Empty Socket.";
+
+                return "Error: Failed to create or give the item.";
+            }
+        }
         [Command("craft")]
         [CommandDescription("Creates a max-level item with max grade")]
         [CommandUsage("item craft [item_pattern] [runeword=random] [blessing=random] [grade=80]")]
@@ -89,7 +158,6 @@ namespace MHServerEmu.Commands.Implementations
             PlayerConnection playerConnection = (PlayerConnection)client;
             Player player = playerConnection.Player;
             LootManager lootManager = player.Game.LootManager;
-
 
             string itemPattern = @params[0];
             string runewordPattern = @params.Length > 1 ? @params[1] : "random";
@@ -109,7 +177,7 @@ namespace MHServerEmu.Commands.Implementations
             if (itemProto == null)
                 return "Error: Invalid item prototype.";
 
-            int itemLevel = 63;
+            int itemLevel = 100;
             PrototypeId rarityProtoRef = GameDatabase.LootGlobalsPrototype.RarityCosmic;
             if (rarityProtoRef == PrototypeId.Invalid)
             {
@@ -136,10 +204,13 @@ namespace MHServerEmu.Commands.Implementations
                     AffixPrototype ap = affixId.As<AffixPrototype>();
                     if (ap == null) continue;
 
+                    // Pet tech affixes (Entity/Items/Affixes/PetTech/Cosmic/...) also have "Cosmic" in their path but only belong on pets
                     bool isCosmicPosition = (ap.Position != AffixPosition.Prefix &&
                                              ap.Position != AffixPosition.Suffix &&
                                              ap.Position != AffixPosition.Runeword &&
-                                             ap.Position != AffixPosition.Blessing);
+                                             ap.Position != AffixPosition.Blessing &&
+                                             ap.Position != AffixPosition.Visual &&
+                                             ap.IsPetTechAffix == false);
 
                     if (isCosmicPosition &&
                         GameDatabase.GetPrototypeName(affixId).Contains("Cosmic", StringComparison.OrdinalIgnoreCase) &&
@@ -198,16 +269,14 @@ namespace MHServerEmu.Commands.Implementations
                 if (blessingAffix != null) affixSpecs.Add(new AffixSpec(blessingAffix, PrototypeId.Invalid, player.Game.Random.Next()));
             }
 
-
-            int numPrefixes = 17;
-            int numSuffixes = 17;
+            int numPrefixes = 2;
+            int numSuffixes = 2;
 
             List<AffixPrototype> validPrefixes = new List<AffixPrototype>();
             List<AffixPrototype> validSuffixes = new List<AffixPrototype>();
 
             foreach (AffixPrototype affix in GetAllBonusAffixes())
             {
-
                 string affixName = GameDatabase.GetPrototypeName(affix.DataRef);
                 bool isGarbageAffix = (affixName.Contains("Loot", StringComparison.OrdinalIgnoreCase) &&
                                        affixName.Contains("Debug", StringComparison.OrdinalIgnoreCase))
@@ -218,14 +287,12 @@ namespace MHServerEmu.Commands.Implementations
                     continue;
                 }
 
-
                 if (affix.AllowAttachment(filterArgs))
                 {
                     if (affix.Position == AffixPosition.Prefix) validPrefixes.Add(affix);
                     else if (affix.Position == AffixPosition.Suffix) validSuffixes.Add(affix);
                 }
             }
-
 
             var randomForShuffle = new System.Random(player.Game.Random.Next());
             int n = validPrefixes.Count;
@@ -250,6 +317,9 @@ namespace MHServerEmu.Commands.Implementations
 
             ItemSpec finalSpec = new ItemSpec(itemProtoRef, rarityProtoRef, itemLevel, 0, affixSpecs, player.Game.Random.Next());
 
+            // Fix applied here: We declare the string outside the using block.
+            string craftResultMessage;
+
             using (LootResultSummary lootResultSummary = ObjectPoolManager.Instance.Get<LootResultSummary>())
             {
                 lootResultSummary.Add(new LootResult(finalSpec));
@@ -257,29 +327,35 @@ namespace MHServerEmu.Commands.Implementations
                 Item createdItem = lootManager.CreateAndGiveItem(finalSpec, player);
 
                 if (createdItem == null)
-                    return "Error: Failed to create or give the item.";
-
-                if (grade > 0 && createdItem.Prototype is LegendaryPrototype)
                 {
-                    long totalXpNeeded = 0;
-                    for (int i = 0; i < grade; i++)
-                    {
-                        totalXpNeeded += GameDatabase.AdvancementGlobalsPrototype.GetItemAffixLevelUpXPRequirement(i);
-                    }
-                    createdItem.AwardAffixXP(totalXpNeeded);
+                    craftResultMessage = "Error: Failed to create or give the item.";
                 }
+                else
+                {
+                    if (grade > 0 && createdItem.Prototype is LegendaryPrototype)
+                    {
+                        long totalXpNeeded = 0;
+                        for (int i = 0; i < grade; i++)
+                        {
+                            totalXpNeeded += GameDatabase.AdvancementGlobalsPrototype.GetItemAffixLevelUpXPRequirement(i);
+                        }
+                        createdItem.AwardAffixXP(totalXpNeeded);
+                    }
 
-                StringBuilder result = new StringBuilder();
-                result.AppendLine($"Successfully crafted: {GameDatabase.GetPrototypeName(itemProtoRef)}");
-                result.AppendLine($"Level: {itemLevel} | Rarity: Cosmic");
-                result.AppendLine($"Affixes: {affixSpecs.Count} total (Prefixes: {actualPrefixesAdded}, Suffixes: {actualSuffixesAdded})");
-                if (grade > 0 && createdItem.Prototype is LegendaryPrototype)
-                    result.AppendLine($"Grade: {grade}/80 (MAX)");
+                    StringBuilder result = new StringBuilder();
+                    result.AppendLine($"Successfully crafted: {GameDatabase.GetPrototypeName(itemProtoRef)}");
+                    result.AppendLine($"Level: {itemLevel} | Rarity: Cosmic");
+                    result.AppendLine($"Affixes: {affixSpecs.Count} total (Prefixes: {actualPrefixesAdded}, Suffixes: {actualSuffixesAdded})");
+                    if (grade > 0 && createdItem.Prototype is LegendaryPrototype)
+                        result.AppendLine($"Grade: {grade}/80 (MAX)");
 
-                return result.ToString();
+                    craftResultMessage = result.ToString();
+                }
             }
-        }
 
+            // Single return point to satisfy all paths without dead code
+            return craftResultMessage;
+        }
 
         private AffixPrototype FindAffix(string pattern, AffixPosition position, DropFilterArguments filterArgs)
         {
@@ -296,6 +372,7 @@ namespace MHServerEmu.Commands.Implementations
             }
             return null;
         }
+
         private List<AffixPrototype> GetAllBonusAffixes()
         {
             List<AffixPrototype> affixes = new List<AffixPrototype>();
@@ -329,7 +406,7 @@ namespace MHServerEmu.Commands.Implementations
                 return "Error: Item prototype not found.";
             }
 
-            int targetLevel = 69;
+            int targetLevel = 63;
             ItemSpec itemSpec = lootManager.CreateItemSpec(itemProtoRef, LootContext.Drop, player, targetLevel);
 
             if (itemSpec == null || !itemSpec.IsValid)

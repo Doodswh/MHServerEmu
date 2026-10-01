@@ -172,6 +172,47 @@ namespace MHServerEmu.Games.DRAG
             }
         }
 
+        /// <summary>
+        /// CUSTOM: Loads every cell under Resource/Cells/<paramref name="cellSetPath"/> (script-built maps name the set by folder).
+        /// Entry / exit / transition cells are skipped like in game-data cell sets. Returns the number of cells loaded.
+        /// </summary>
+        public int LoadCellSetPath(string cellSetPath, int weight = 100)
+        {
+            string prefix = "Resource/Cells/" + cellSetPath.Trim('/') + "/";
+            int count = 0;
+
+            foreach (PrototypeId cellRef in GameDatabase.DataDirectory.IteratePrototypesInHierarchy<CellPrototype>())
+            {
+                if (IsInCellSet(null, prefix, cellRef) == false)
+                    continue;
+
+                CellPrototype cell = cellRef.As<CellPrototype>();
+                if (cell == null)
+                    continue;
+
+                CellBounds = cell.BoundingBox;
+                AddReference(cellRef, weight, false);
+                count++;
+            }
+
+            return count;
+        }
+
+        /// <summary>
+        /// CUSTOM: Any filler (solid, unwalkable) cell of the set, or <see cref="PrototypeId.Invalid"/> if it has none.
+        /// </summary>
+        public PrototypeId GetAnyFiller(GRandom random)
+        {
+            Picker<CellSetRegistryEntry> picker = new(random);
+            foreach (EntryList entries in _cellsFiller.Values)
+            {
+                foreach (CellSetRegistryEntry entry in entries)
+                    picker.Add(entry, Math.Max(entry.Weight, 1));
+            }
+
+            return picker.Empty() == false && picker.Pick(out CellSetRegistryEntry picked) ? picked.CellRef : PrototypeId.Invalid;
+        }
+
         private void AddReference(PrototypeId cellRef, int weight, bool unique)
         {
             if (cellRef == 0 || weight <= 0) return;

@@ -1,0 +1,32 @@
+[
+  {
+    "Prototype": "",
+    "Setting": "eGTV_EndlessCableRewardXPBonusPerWave",
+    "Value": 0.1
+  },
+  {
+    "Prototype": "",
+    "Setting": "eGTV_EndlessCableEnemyHealthBonusPerWave",
+    "Value": 0.1
+  },
+  {
+    "Prototype": "",
+    "Setting": "eGTV_EndlessCableEnemyDamageBonusPerWave",
+    "Value": 0.1
+  },
+  {
+    "Prototype": "",
+    "Setting": "eGTV_EndlessCableBonusXPOrbsPerWave",
+    "Value": 1.0
+  },
+  {
+    "Prototype": "",
+    "Setting": "eGTV_EndlessCableCompletionCrafterEnabled",
+    "Value": 1.0
+  },
+  {
+    "Prototype": "",
+    "Setting": "eGTV_EndlessCableUniqueUpgradeSuccessChancePct",
+    "Value": 10.0
+  }
+]

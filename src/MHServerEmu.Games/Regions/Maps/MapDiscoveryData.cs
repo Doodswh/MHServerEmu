@@ -93,12 +93,23 @@ namespace MHServerEmu.Games.Regions.Maps
             var manager = player.Game.EntityManager;
             if (manager == null) return Logger.WarnReturn(false, $"Update(): EntityManager == null");
 
+            // Forget entities that no longer exist, otherwise they pile up in saved discovery data forever
             var aoi = player.AOI;
+            List<ulong> staleIds = null;
             foreach (var entityId in _discoveredEntities)
             {
                 var entity = manager.GetEntity<WorldEntity>(entityId);
-                if (entity != null) aoi.ConsiderEntity(entity);
+                if (entity == null || entity.IsInWorld == false)
+                {
+                    (staleIds ??= new()).Add(entityId);
+                    continue;
+                }
+
+                aoi.ConsiderEntity(entity);
             }
+
+            if (staleIds != null)
+                _discoveredEntities.ExceptWith(staleIds);
 
             return LowResMapUpdate(player);
         }

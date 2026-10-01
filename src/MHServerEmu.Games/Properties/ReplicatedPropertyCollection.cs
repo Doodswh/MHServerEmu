@@ -151,7 +151,28 @@ namespace MHServerEmu.Games.Properties
             if (changed) MarkPropertyChanged(id, value, flags);
             return changed;
         }
+        protected override void OnAggregateValueChanged(PropertyCollection childCollection, PropertyId id, PropertyValue newValue, PropertyValue oldValue, SetPropertyFlags flags)
+        {
+            base.OnAggregateValueChanged(childCollection, id, newValue, oldValue, flags);
 
+            // CUSTOM: Push aggregated values to the client only for items (merged / stacked Omega affixes that the client
+            // can't reproduce on its own). This sends the aggregate as if it were a base value and is only called when a
+            // child collection is added, never when one is removed, so it must NOT run for conditions: replicating e.g.
+            // Knockback / Immobilized from a condition leaves the client permanently movement locked after the condition
+            // ends (until the avatar is recreated by a region change).
+            // Only the item's own collection: when an item is equipped, the avatar gets the item as a child too, but the
+            // client already adds equipped items' stats on its own. Pushing the avatar's aggregate on top of that doubled
+            // the gear stats on the client until a region change resent the real values.
+            if (IsItemOwned(this))
+                MarkPropertyChanged(id, newValue, flags);
+        }
+
+        private static bool IsItemOwned(PropertyCollection collection)
+        {
+            // Item property collections are bound to the item; affix child collections are plain (unbound) collections
+            // that only ever get added to an item, so they reach here with this being the item's collection.
+            return collection is ReplicatedPropertyCollection replicated && replicated._messageDispatcher is Entities.Items.Item;
+        }
         private void MarkPropertyChanged(PropertyId id, PropertyValue value, SetPropertyFlags flags)
         {
             if (_messageDispatcher == null || _messageDispatcher.CanSendArchiveMessages == false) return;

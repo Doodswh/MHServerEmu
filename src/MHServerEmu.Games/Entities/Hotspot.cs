@@ -431,7 +431,7 @@ namespace MHServerEmu.Games.Entities
                     var conditionProto = context.Key.ConditionProto;
                     if (EvaluateTargetCondition(target, missionRef, conditionProto))
                     {
-                        _missionConditionEntityCounter[context.Key]++;
+                        _missionConditionEntityCounter.GetValueRefOrAddDefault(context.Key)++;
                         missionEvent = true;
                     }
                 }
@@ -455,7 +455,7 @@ namespace MHServerEmu.Games.Entities
                     var conditionProto = context.Key.ConditionProto;
                     if (EvaluateTargetCondition(target, missionRef, conditionProto))
                     {
-                        _missionConditionEntityCounter[context.Key]--;
+                        _missionConditionEntityCounter.GetValueRefOrAddDefault(context.Key)--;
                         missionEvent = true;
                     }
                 }
@@ -642,21 +642,13 @@ namespace MHServerEmu.Games.Entities
                 int index = Array.IndexOf(hotspotProto.AppliesPowers, powerRef);
                 if (index == -1 || index >= 32) return;
 
-                using var changedHandle = ListPool<(ulong, PowerTargetMap)>.Instance.Get(out List<(ulong, PowerTargetMap)> changed);
-
-                foreach (var kvp in _overlapPowerTargets)
+                // Edit the entries in place instead of copying changed ones to a list and writing them back
+                foreach (ulong key in _overlapPowerTargets.Keys)
                 {
-                    var key = kvp.Key;
-                    var powerTarget = kvp.Value;
+                    ref PowerTargetMap powerTarget = ref _overlapPowerTargets.GetValueRefOrAddDefault(key);
                     if (powerTarget.ActivePowers[index])
-                    {
                         ClearActiveTargetPowers(ref powerTarget, index);
-                        changed.Add((key, powerTarget));
-                    }
                 }
-
-                foreach(var kv in changed)
-                    _overlapPowerTargets[kv.Item1] = kv.Item2;
             }
         }
 
@@ -741,24 +733,31 @@ namespace MHServerEmu.Games.Entities
 
         private void MissionEntityTracker()
         {
-            EntityTrackingContextMap involvementMap = new();
-            if (GameDatabase.InteractionManager.GetEntityContextInvolvement(this, involvementMap) == false) return;
-            foreach (var involment in involvementMap)
+            // Pooled: this runs for every hotspot, and most never have any mission involvement
+            EntityTrackingContextMap involvementMap = EntityTrackingContextMap.Rent();
+            try
             {
-                if (involment.Value.HasFlag(EntityTrackingFlag.Hotspot) == false) continue;
-                var missionRef = involment.Key;
-                var missionProto = GameDatabase.GetPrototype<MissionPrototype>(involment.Key);
-                if (missionProto == null) continue;
-                var conditionList = missionProto.HotspotConditionList;
-                if (conditionList == null) continue;
-                foreach(var conditionProto in conditionList)
-                    if (EvaluateHotspotCondition(missionRef, conditionProto))
-                    {
-                        var key = new MissionConditionContext(missionRef, conditionProto);
-                        _missionConditionEntityCounter[key] = 0;
-                    }
+                if (GameDatabase.InteractionManager.GetEntityContextInvolvement(this, involvementMap) == false) return;
+                foreach (var involment in involvementMap)
+                {
+                    if (involment.Value.HasFlag(EntityTrackingFlag.Hotspot) == false) continue;
+                    var missionRef = involment.Key;
+                    var missionProto = GameDatabase.GetPrototype<MissionPrototype>(involment.Key);
+                    if (missionProto == null) continue;
+                    var conditionList = missionProto.HotspotConditionList;
+                    if (conditionList == null) continue;
+                    foreach(var conditionProto in conditionList)
+                        if (EvaluateHotspotCondition(missionRef, conditionProto))
+                        {
+                            var key = new MissionConditionContext(missionRef, conditionProto);
+                            _missionConditionEntityCounter[key] = 0;
+                        }
+                }
             }
-
+            finally
+            {
+                EntityTrackingContextMap.Return(involvementMap);
+            }
         }
 
         private bool EvaluateHotspotCondition(PrototypeId missionRef, MissionConditionPrototype conditionProto)
@@ -901,20 +900,14 @@ namespace MHServerEmu.Games.Entities
 
             var manager = Game.EntityManager;
 
-            using var changedHandle = ListPool<(ulong, PowerTargetMap)>.Instance.Get(out List<(ulong, PowerTargetMap)> changed);
-
-            foreach (var entry in _overlapPowerTargets)
+            // Edit the entries in place instead of copying changed ones to a list and writing them back
+            foreach (ulong targetId in _overlapPowerTargets.Keys)
             {
-                ulong targetId = entry.Key;
-                var powerTarget = entry.Value;
+                ref PowerTargetMap powerTarget = ref _overlapPowerTargets.GetValueRefOrAddDefault(targetId);
                 var target = manager.GetEntity<WorldEntity>(targetId);
                 if (target == null) continue;
                 ApplyActivePowers(target, ref powerTarget);
-                changed.Add((targetId, powerTarget));
             }
-
-            foreach (var kv in changed)
-                _overlapPowerTargets[kv.Item1] = kv.Item2;
 
             ScheduleActivePowersEvent();
         }
@@ -1135,10 +1128,11 @@ namespace MHServerEmu.Games.Entities
         #endregion
     }
 
-    public class MissionConditionContext
+    // A struct with IEquatable so dictionary keys neither allocate nor box on lookups
+    public readonly struct MissionConditionContext : IEquatable<MissionConditionContext>
     {
-        public PrototypeId MissionRef;
-        public MissionConditionPrototype ConditionProto;
+        public readonly PrototypeId MissionRef;
+        public readonly MissionConditionPrototype ConditionProto;
 
         public MissionConditionContext(PrototypeId missionRef, MissionConditionPrototype conditionProto)
         {
@@ -1146,16 +1140,19 @@ namespace MHServerEmu.Games.Entities
             ConditionProto = conditionProto;
         }
 
+        public bool Equals(MissionConditionContext other)
+        {
+            return MissionRef == other.MissionRef && ConditionProto == other.ConditionProto;
+        }
+
         public override bool Equals(object obj)
         {
-            if (obj == null || GetType() != obj.GetType()) return false;
-            var other = (MissionConditionContext)obj;
-            return MissionRef.Equals(other.MissionRef) && ConditionProto.Equals(other.ConditionProto);
+            return obj is MissionConditionContext other && Equals(other);
         }
 
         public override int GetHashCode()
         {
-            return MissionRef.GetHashCode() ^ ConditionProto.GetHashCode();
+            return HashCode.Combine(MissionRef, ConditionProto);
         }
     }
 

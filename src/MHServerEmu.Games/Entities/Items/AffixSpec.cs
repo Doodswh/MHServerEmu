@@ -11,6 +11,7 @@ using MHServerEmu.Games.GameData.Calligraphy;
 using MHServerEmu.Games.GameData.Prototypes;
 using MHServerEmu.Games.Loot;
 using MHServerEmu.Games.Powers;
+using MHServerEmu.Games.Properties;
 using MHServerEmu.Games.Properties.Evals;
 
 namespace MHServerEmu.Games.Entities.Items

@@ -52,7 +52,7 @@ namespace MHServerEmu.Games.DRAG.Generators.Areas
                     if (Log) Logger.Error("CreateProceduralSuperCells false");
             }
 
-            ProcessDeleteExtraneousCells(random, (int)proto.RoomKillChancePct);
+            ProcessDeleteExtraneousCells(random, GetRoomKillChance((int)proto.RoomKillChancePct));
             ProcessRegionConnectionsAndDepth();
             ProcessAssignUniqueCellIds();
             ProcessCellPositions(proto.CellSize);

@@ -22,7 +22,7 @@ namespace MHServerEmu.Games.Loot
         // Settings for mission-specific drops
         public LootDropEventType EventType { get; set; } = LootDropEventType.None;
         public PrototypeId MissionProtoRef { get; set; } = PrototypeId.Invalid;
-
+        public float SpawnedOrbExperienceBonusPct { get; set; } = 0.0f;
         public bool IsInPool { get; set; }
 
         public void Initialize(LootContext lootContext, Player player, WorldEntity sourceEntity, int level, Vector3? positionOverride = null)
@@ -84,6 +84,8 @@ namespace MHServerEmu.Games.Loot
             Player = default;
             SourceEntity = default;
             PositionOverride = default;
+
+            SpawnedOrbExperienceBonusPct = 0.0f;
 
             LootRollSettings = default;
         }

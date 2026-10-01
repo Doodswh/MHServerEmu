@@ -1,5 +1,4 @@
-﻿using System.Diagnostics;
-using System.Text;
+﻿using System.Text;
 using Gazillion;
 using MHServerEmu.Core.Collisions;
 using MHServerEmu.Core.Extensions;
@@ -33,6 +32,8 @@ using MHServerEmu.Games.Powers.Conditions;
 using MHServerEmu.Games.Properties;
 using MHServerEmu.Games.Properties.Evals;
 using MHServerEmu.Games.Regions;
+using MHServerEmu.Games.Scripting;
+using MHServerEmu.Games.Social.Guilds;
 
 namespace MHServerEmu.Games.Entities
 {
@@ -104,13 +105,15 @@ namespace MHServerEmu.Games.Entities
         private Vector3 _lastMapPosition = Vector3.Zero;
         private float _lastMapOrientation = 0f;
 
+        // Movement speed cache to avoid property lookups for locomotion
+        private float _cachedMovementSpeedRate;
+        private float _cachedMovementSpeedOverride;
+
         private AlliancePrototype _allianceProto;
 
         protected EntityTrackingContextMap _trackingContextMap;
         protected ConditionCollection _conditionCollection;
         protected PowerCollection _powerCollection;
-        private static readonly PrototypeId DangerRoomRewardsVendorPrototypeRef = (PrototypeId)9464237972577394631UL;
-        private static readonly LocaleStringId DoodsVendorDisplayNameLocaleStringId = (LocaleStringId)18000000000000030000UL;
 
         // Clone data is initialized on demand for ClonePerPlayer world entities (primarily DR reward chests).
         private Event<PlayerEnteredRegionGameEvent>.Action _playerEnteredRegionAction;
@@ -162,8 +165,9 @@ namespace MHServerEmu.Games.Entities
         public KeywordsMask KeywordsMask { get => WorldEntityPrototype?.KeywordsMask; }
         public Vector3 Forward { get => GetTransform().Col0; }
         public Vector3 GetUp { get => GetTransform().Col2; }
-        public float MovementSpeedRate { get => Properties[PropertyEnum.MovementSpeedRate]; } // PropertyTemp[PropertyEnum.MovementSpeedRate]
-        public float MovementSpeedOverride { get => Properties[PropertyEnum.MovementSpeedOverride]; } // PropertyTemp[PropertyEnum.MovementSpeedOverride]
+        // Cached (see InitPropertyCache()): locomotion reads these every update, so avoid a property lookup each time
+        public float MovementSpeedRate { get => _cachedMovementSpeedRate; }
+        public float MovementSpeedOverride { get => _cachedMovementSpeedOverride; }
         public float BonusMovementSpeed => Locomotor?.GetBonusMovementSpeed(false) ?? 0.0f;
         public NaviPoint NavigationInfluencePoint { get => NaviInfluence.Point; }
         public bool DefaultRuntimeVisibility { get => WorldEntityPrototype != null && WorldEntityPrototype.VisibleByDefault; }
@@ -201,11 +205,13 @@ namespace MHServerEmu.Games.Entities
         {
             if (base.Initialize(settings) == false) return Logger.WarnReturn(false, "Initialize(): base.Initialize(settings) == false");
 
+            InitPropertyCache();
+
             WorldEntityPrototype worldEntityProto = WorldEntityPrototype;
 
             if (worldEntityProto.IsVacuumable)
                 SetFlag(EntityFlags.IsNeverAffectedByPowers, true);
-            ApplyServerSideDisplayNameOverrides();
+
             if (settings.IgnoreNavi)
                 SetFlag(EntityFlags.IgnoreNavi, true);
 
@@ -236,7 +242,6 @@ namespace MHServerEmu.Games.Entities
 
             // LiveTuning MobHealth
             Properties[PropertyEnum.HealthPctBonus] = LiveTuningManager.GetLiveWorldEntityTuningVar(worldEntityProto, WorldEntityTuningVar.eWETV_MobHealth) - 1.0f;
-            Properties[PropertyEnum.HealthPctBonus] += XDefenseScaling.GetEnemyHealthPctBonus(this, settings);
             Properties[PropertyEnum.VariationSeed] = settings.VariationSeed != 0 ? settings.VariationSeed : Game.Random.Next(1, 10000);
 
             TagPlayers = new(this);
@@ -302,7 +307,37 @@ namespace MHServerEmu.Games.Entities
             TankingContributors ??= new();
             TankingContributors.GetValueRefOrAddDefault(playerUid) += damage;
         }
+        public void ApplyTemporaryInvulnerability(TimeSpan duration)
+        {
+            if (duration <= TimeSpan.Zero || Game == null || IsInWorld == false || IsDead)
+                return;
 
+            TimeSpan endTime = Game.CurrentTime + duration;
+            if (_temporaryInvulnerabilityEndEvent.IsValid && endTime <= _temporaryInvulnerabilityEndTime)
+                return;
+
+            _temporaryInvulnerabilityEndTime = endTime;
+            if (Properties[PropertyEnum.Invulnerable] == false)
+            {
+                Properties[PropertyEnum.Invulnerable] = true;
+                _temporaryInvulnerabilitySetProperty = true;
+            }
+
+            if (_temporaryInvulnerabilityEndEvent.IsValid)
+                Game.GameEventScheduler.RescheduleEvent(_temporaryInvulnerabilityEndEvent, duration);
+            else
+                ScheduleEntityEvent(_temporaryInvulnerabilityEndEvent, duration);
+        }
+
+        private void OnTemporaryInvulnerabilityExpired()
+        {
+            _temporaryInvulnerabilityEndTime = TimeSpan.Zero;
+            if (_temporaryInvulnerabilitySetProperty)
+            {
+                Properties[PropertyEnum.Invulnerable] = false;
+                _temporaryInvulnerabilitySetProperty = false;
+            }
+        }
         public void AddDamageContributor(Player player, long damage)
         {
             if (player == null) return;
@@ -314,6 +349,9 @@ namespace MHServerEmu.Games.Entities
 
         public virtual void OnKilled(WorldEntity killer, KillFlags killFlags, WorldEntity directKiller)
         {
+            if (ScriptHooks.EntityKilled.HasHandlers)
+                ScriptHooks.EntityKilled.Invoke(new(this, killer, directKiller));
+
             var worldEntityProto = WorldEntityPrototype;
             CancelScheduledLifespanExpireEvent();
             SummonedInventory?.DestroyContained();
@@ -2065,6 +2103,15 @@ namespace MHServerEmu.Games.Entities
             if (Properties[PropertyEnum.NoForcedMovement] && powerResults.PowerOwnerId != Id)
                 return false;
 
+            // CUSTOM: Log forced movement that reaches avatars in Omega (knockback immunity should prevent most of it)
+            if (this is Avatar && Region != null && Region.IsOmegaDifficulty &&
+                (powerResults.TestFlag(PowerResultFlags.Teleport) || Segment.IsNearZero(powerResults.Properties[PropertyEnum.KnockbackTimeResult]) == false))
+            {
+                WorldEntity powerOwner = Game.EntityManager.GetEntity<WorldEntity>(powerResults.PowerOwnerId);
+                Logger.Info($"[OmegaDisplacement] Forced movement on [{this}]: type={(powerResults.TestFlag(PowerResultFlags.Teleport) ? "Teleport" : "Knockback")} " +
+                    $"power=[{powerResults.PowerPrototype?.DataRef.GetName()}] owner=[{powerOwner?.PrototypeName ?? powerResults.PowerOwnerId.ToString()}] self={powerResults.PowerOwnerId == Id}");
+            }
+
             // Teleport
             if (powerResults.TestFlag(PowerResultFlags.Teleport))
             {
@@ -2227,7 +2274,7 @@ namespace MHServerEmu.Games.Entities
             // Calculate the new health value
             health += healthDelta;
             health = Math.Clamp(health, Properties[PropertyEnum.HealthMin], Properties[PropertyEnum.HealthMax]);
-
+           
             // Trigger health events
             WorldEntity powerUser = Game.EntityManager.GetEntity<WorldEntity>(powerResults.PowerOwnerId);
 
@@ -2742,8 +2789,11 @@ namespace MHServerEmu.Games.Entities
         {
             StringBuilder sb = new();
             sb.AppendLine($"Powers:");
-            foreach (var kvp in _powerCollection)
-                sb.AppendLine($" {GameDatabase.GetFormattedPrototypeName(kvp.Value.PowerPrototypeRef)}");
+            if (_powerCollection != null)   // Not every world entity has a power collection
+            {
+                foreach (var kvp in _powerCollection)
+                    sb.AppendLine($" {GameDatabase.GetFormattedPrototypeName(kvp.Value.PowerPrototypeRef)}");
+            }
             return sb.ToString();
         }
 
@@ -2751,8 +2801,11 @@ namespace MHServerEmu.Games.Entities
         {
             StringBuilder sb = new();
             sb.AppendLine($"Conditions:");
-            foreach (var condition in _conditionCollection)
-                sb.AppendLine($" {GameDatabase.GetFormattedPrototypeName(condition.CreatorPowerPrototypeRef)}");
+            if (_conditionCollection != null)
+            {
+                foreach (var condition in _conditionCollection)
+                    sb.AppendLine($" {GameDatabase.GetFormattedPrototypeName(condition.CreatorPowerPrototypeRef)}");
+            }
             return sb.ToString();
         }
 
@@ -3113,8 +3166,10 @@ namespace MHServerEmu.Games.Entities
 
                     foreach (PrototypeId powerProtoRef in modProto.PassivePowers)
                     {
-                        // Unassign power if it's already there
-                        UnassignPower(powerProtoRef);
+                        // Unassign power if it's already there. This may be a world entity without a power collection
+                        // that gets a region-wide affix power assigned to it (e.g. spawners in the Trainyard DR scenario).
+                        if (PowerCollection != null && HasPowerInPowerCollection(powerProtoRef))
+                            UnassignPower(powerProtoRef);
 
                         if (AssignPower(powerProtoRef, indexProps) == null)
                             Logger.Warn($"ModChangeModEffects(): Failed to assign passive power {powerProtoRef.GetName()} for mod {modProto}");
@@ -3414,6 +3469,9 @@ namespace MHServerEmu.Games.Entities
 
         public virtual void OnEnteredWorld(EntitySettings settings)
         {
+            // Safety net for entities whose properties were loaded after Initialize() (e.g. saved avatars)
+            InitPropertyCache();
+
             if (CanInfluenceNavigationMesh())
                 EnableNavigationInfluence();
 
@@ -3535,20 +3593,10 @@ namespace MHServerEmu.Games.Entities
         public override void OnPropertyChange(PropertyId id, PropertyValue newValue, PropertyValue oldValue, SetPropertyFlags flags)
         {
             base.OnPropertyChange(id, newValue, oldValue, flags);
-            if (id.Enum == PropertyEnum.Invulnerable
-        && newValue.RawLong == 0
-        && _temporaryInvulnerabilityEndEvent.IsValid
-        && Game != null
-        && Game.CurrentTime < _temporaryInvulnerabilityEndTime)
-            {
-                Properties[PropertyEnum.Invulnerable] = true;
-                _temporaryInvulnerabilitySetProperty = true;
-            }
             if (flags.HasFlag(SetPropertyFlags.Refresh)) return;
 
             switch (id.Enum)
             {
-               
                 case PropertyEnum.AllianceOverride:
                     OnAllianceChanged(newValue);
                     break;
@@ -3766,7 +3814,23 @@ namespace MHServerEmu.Games.Entities
                 case PropertyEnum.ImmuneToPower:
                     SetFlag(EntityFlags.ImmuneToPower, newValue);
                     break;
+
+                case PropertyEnum.MovementSpeedRate:
+                    _cachedMovementSpeedRate = newValue;
+                    break;
+
+                case PropertyEnum.MovementSpeedOverride:
+                    _cachedMovementSpeedOverride = newValue;
+                    break;
             }
+        }
+
+        private void InitPropertyCache()
+        {
+            _cachedMovementSpeedRate = Properties[PropertyEnum.MovementSpeedRate];
+
+            // MovementSpeedOverride is not here in client code, but it probably should be.
+            _cachedMovementSpeedOverride = Properties[PropertyEnum.MovementSpeedOverride];
         }
 
         public virtual void OnCellChanged(ref RegionLocation oldLocation, ref RegionLocation newLocation, ChangePositionFlags flags)
@@ -3969,9 +4033,17 @@ namespace MHServerEmu.Games.Entities
             {
                 Power.ComputeNearbyPlayers(Region, _regionLocation.Position, 0, requireCombatActive, playerList);
 
-                // Add faraway mission participants if needed
                 if (this is Agent agent)
+                {
+                    // Add faraway mission participants if needed
                     Mission.AddContributorsForLootSpawn(agent, playerList);
+
+                    // Bonus Item Find (aka Shield Supply Boost) points. This is limited to agents to exclude all props.
+                    // Also check hostility to filter out non-prop entities that may be abused.
+                    // We can't rely on hostility alone because some legacy props are actually hostile to players.
+                    if (IsHostileToPlayers())
+                        AwardBonusLoot(playerList);
+                }
 
                 // OnKilled loot table is different based on the rank of this entity
                 RankPrototype rankProto = GetRankPrototype();
@@ -3980,9 +4052,6 @@ namespace MHServerEmu.Games.Entities
                     : LootDropEventType.OnKilled;
 
                 AwardLootForDropEvent(lootDropEventType, playerList);
-
-                // Bonus Item Find (aka Shield Supply Boost) points
-                AwardBonusLoot(playerList);
             }
 
             // XP
@@ -4266,20 +4335,54 @@ namespace MHServerEmu.Games.Entities
 
         #endregion
 
+        public PrototypeId ClientPrototypeRefOverride { get; set; } = PrototypeId.Invalid;
+
+        // True when the render override is an AvatarPrototype. Extra replication fields are emitted
+        // so the client builds an avatar actor.
+        public bool IsClientRenderedAsAvatar { get; private set; }
+        public uint SpoofAvatarWorldInstanceId { get; private set; }
+
+        // Bound only when rendering as an avatar.
+        private RepVar_string _spoofAvatarPlayerName;
+        private List<AbilityKeyMapping> _spoofAvatarAbilityKeyMappings;
+
+        /// <summary>
+        /// Clears the replicated overhead name drawn above this entity when it is rendered as an avatar.
+        /// </summary>
+        public void ClearSpoofAvatarPlayerName()
+        {
+            _spoofAvatarPlayerName?.Set(string.Empty);
+        }
+
+        /// <summary>
+        /// The prototype the client should render this entity as. Returns the real
+        /// <see cref="Entity.PrototypeDataRef"/> unless a render override is active.
+        /// </summary>
+        public PrototypeId GetClientPrototypeDataRef()
+        {
+            return ClientPrototypeRefOverride != PrototypeId.Invalid ? ClientPrototypeRefOverride : PrototypeDataRef;
+        }
+
         public virtual AssetId GetEntityWorldAsset()
         {
             // NOTE: Overriden in Agent, Avatar, and Missile
+
+            // If a render override is active, resolve FX and animations against the rendered prototype.
+            if (ClientPrototypeRefOverride != PrototypeId.Invalid)
+            {
+                var renderProto = ClientPrototypeRefOverride.As<WorldEntityPrototype>();
+                if (renderProto != null && renderProto.UnrealClass != AssetId.Invalid)
+                    return renderProto.UnrealClass;
+            }
+
             return GetOriginalWorldAsset();
         }
-
         public AssetId GetOriginalWorldAsset()
         {
             return GetOriginalWorldAsset(WorldEntityPrototype);
         }
-
         public static AssetId GetOriginalWorldAsset(WorldEntityPrototype prototype)
         {
-            if (prototype == null) return Logger.WarnReturn(AssetId.Invalid, $"GetOriginalWorldAsset(): prototype == null");
             return prototype.UnrealClass;
         }
 
@@ -4609,7 +4712,7 @@ namespace MHServerEmu.Games.Entities
             foreach (Condition condition in _conditionCollection)
                 sb.AppendLine($"{nameof(_conditionCollection)}[{condition.Id}]: {condition}");
 
-            if (_powerCollection.PowerCount > 0)
+            if (_powerCollection != null && _powerCollection.PowerCount > 0)
             {
                 sb.AppendLine($"{nameof(_powerCollection)}:");
                 foreach (var kvp in _powerCollection)
@@ -4739,34 +4842,6 @@ namespace MHServerEmu.Games.Entities
 
             return vendorTypeProto.GlobalEvent;
         }
-        public void ApplyTemporaryInvulnerability(TimeSpan duration)
-        {
-            if (duration <= TimeSpan.Zero || Game == null || IsInWorld == false || IsDead)
-                return;
-
-            TimeSpan endTime = Game.CurrentTime + duration;
-            if (_temporaryInvulnerabilityEndEvent.IsValid && endTime <= _temporaryInvulnerabilityEndTime)
-                return;
-
-            _temporaryInvulnerabilityEndTime = endTime;
-            if (Properties[PropertyEnum.Invulnerable] == false)
-                Properties[PropertyEnum.Invulnerable] = true;
-            _temporaryInvulnerabilitySetProperty = true;
-            if (_temporaryInvulnerabilityEndEvent.IsValid)
-                Game.GameEventScheduler.RescheduleEvent(_temporaryInvulnerabilityEndEvent, duration);
-            else
-                ScheduleEntityEvent(_temporaryInvulnerabilityEndEvent, duration);
-        }
-
-        private void OnTemporaryInvulnerabilityExpired()
-        {
-            _temporaryInvulnerabilityEndTime = TimeSpan.Zero;
-            if (_temporaryInvulnerabilitySetProperty)
-            {
-                Properties[PropertyEnum.Invulnerable] = false;
-                _temporaryInvulnerabilitySetProperty = false;
-            }
-        }
 
         #region Scheduled Events
 
@@ -4845,11 +4920,7 @@ namespace MHServerEmu.Games.Entities
             EventPointer<ScheduledWeaponReturnEvent> scheduledWeaponReturn = new();
             ScheduleEntityEvent(scheduledWeaponReturn, delay);
         }
-        private void ApplyServerSideDisplayNameOverrides()
-        {
-            if (PrototypeDataRef == DangerRoomRewardsVendorPrototypeRef)
-                Properties[PropertyEnum.DisplayNameOverride] = (ulong)DoodsVendorDisplayNameLocaleStringId;
-        }
+
         public void CancelExitWorldEvent()
         {
             if (_exitWorldEvent.IsValid)
@@ -4881,10 +4952,7 @@ namespace MHServerEmu.Games.Entities
         {
             protected override CallbackDelegate GetCallback() => (t, p1) => ((WorldEntity)t).TryActivateOnHealthProcs(p1);
         }
-        private class ScheduledTemporaryInvulnerabilityEndEvent : CallMethodEvent<Entity>
-        {
-            protected override CallbackDelegate GetCallback() => (t) => ((WorldEntity)t).OnTemporaryInvulnerabilityExpired();
-        }
+
         private class ScheduledPowerResultsEvent : CallMethodEventParam1<Entity, PowerResults>
         {
             protected override CallbackDelegate GetCallback() => (t, p1) => ((WorldEntity)t).ApplyPowerResults(p1);
@@ -4895,7 +4963,10 @@ namespace MHServerEmu.Games.Entities
                 return true;
             }
         }
-
+        private class ScheduledTemporaryInvulnerabilityEndEvent : CallMethodEvent<Entity>
+        {
+            protected override CallbackDelegate GetCallback() => (t) => ((WorldEntity)t).OnTemporaryInvulnerabilityExpired();
+        }
         private class NegateHotspotsEvent : CallMethodEvent<Entity>
         {
             protected override CallbackDelegate GetCallback() => (t) => ((WorldEntity)t).OnNegateHotspots();

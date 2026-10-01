@@ -15,7 +15,9 @@ namespace MHServerEmu.Games.Entities.Physics
         public WorldEntity Entity { get; private set; } = null;
         public uint RegisteredPhysicsFrameId { get; set; } = 0;
         public int CollisionId { get; private set; } = -1;
-        public SortedDictionary<ulong, OverlapEntityEntry> OverlappedEntities { get; } = new();
+        // A plain Dictionary: updated for every overlapping pair every physics frame, so sorted containers (tree node allocation
+        // per insert) are too slow in crowded areas. Code that iterates it sorts by id to match the client's ordering.
+        public Dictionary<ulong, OverlapEntityEntry> OverlappedEntities { get; } = new();
         public SortedVector<ulong> AttachedEntities { get; private set; }
 
         public EntityPhysics()
@@ -95,6 +97,9 @@ namespace MHServerEmu.Games.Entities.Physics
                 if (kvp.Value.Overlapped)
                     overlappingEntities.Add(kvp.Key);
             }
+
+            // The client uses a sorted collection for OverlappedEntities, so sort here for consistency.
+            overlappingEntities.Sort();
 
             return overlappingEntities.Count > 0;
         }
@@ -201,10 +206,11 @@ namespace MHServerEmu.Games.Entities.Physics
         }
     }
 
-    public readonly struct OverlapEntityEntry
+    public struct OverlapEntityEntry
     {
-        public readonly bool Overlapped;
-        public readonly uint Frame;
+        // Mutable so entries can be updated in place (by ref) instead of re-inserted
+        public bool Overlapped;
+        public uint Frame;
 
         public OverlapEntityEntry(bool overlapped = false, uint frame = 0)
         {

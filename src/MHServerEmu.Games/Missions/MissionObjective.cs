@@ -700,7 +700,8 @@ namespace MHServerEmu.Games.Missions
 
             var objetiveProto = Prototype;
             if (objetiveProto == null) return;
-
+            if (Game?.TryRefreshEndlessScenarioObjectiveWidgetOverride(this) == true)
+                return;
             UpdateMetaGameWidget(objetiveProto.MetaGameWidget, false);
             UpdateMetaGameWidget(objetiveProto.MetaGameWidgetFail, true);
         }
@@ -817,7 +818,8 @@ namespace MHServerEmu.Games.Missions
         public void SendUpdateToPlayer(Player player, MissionObjectiveUpdateFlags objectiveFlags)
         {
             if (objectiveFlags == MissionObjectiveUpdateFlags.None) return;
-
+            if (Game?.TrySendEndlessScenarioObjectiveUpdateOverride(this, player, objectiveFlags) == true)
+                return;
             var message = NetMessageMissionObjectiveUpdate.CreateBuilder();
             message.SetMissionPrototypeId((ulong)Mission.PrototypeDataRef);
             message.SetObjectiveIndex(PrototypeIndex);

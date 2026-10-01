@@ -783,12 +783,12 @@ namespace MHServerEmu.Games.Powers.Conditions
             if (_conditionPrototype == null) return Logger.WarnReturn(false, "IsPartyBoost(): _conditionPrototype == null");
             return _conditionPrototype.IsPartyBoost;
         }
-
-        public bool IsHitReactCondition()
+ public bool IsHitReactCondition()
         {
             if (_conditionPrototype == null) return Logger.WarnReturn(false, "IsHitReactCondition(): _conditionPrototype == null");
             return _conditionPrototype.IsHitReactCondition;
         }
+       
 
         public bool OverridesHitReactConditions()
         {

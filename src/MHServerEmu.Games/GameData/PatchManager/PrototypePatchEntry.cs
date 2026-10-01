@@ -485,7 +485,6 @@ namespace MHServerEmu.Games.GameData.PatchManager
             Span<PropertyParam> paramValues = stackalloc PropertyParam[Property.MaxParamCount];
             propertyInfo.DefaultParamValues.CopyTo(paramValues);
 
-            //  Check for EXTRA parameters ---
             foreach (var prop in jsonElement.EnumerateObject())
             {
                 if (prop.Name.StartsWith("Param") && int.TryParse(prop.Name.AsSpan(5), out int paramIndex))
@@ -497,7 +496,6 @@ namespace MHServerEmu.Games.GameData.PatchManager
                 }
             }
 
-            // --- CORE LOGIC & MISSING PARAM CHECKS ---
             for (int i = 0; i < propertyInfo.ParamCount && i < Property.MaxParamCount; i++)
             {
                 string paramName = $"Param{i}";
@@ -547,7 +545,6 @@ namespace MHServerEmu.Games.GameData.PatchManager
                 }
                 else
                 {
-                    //  Missing parameter warning
                     Logger.Warn($"[PatchManager] ⚠️ Property '{propertyEnum}' expects a '{paramName}' (Type: {expectedType}), but it was not found in the JSON. The engine will fallback to the default value for this parameter.");
                 }
             }
@@ -646,7 +643,6 @@ namespace MHServerEmu.Games.GameData.PatchManager
                         AssetId assetId = AssetId.Invalid;
                         if (paramValue.ValueKind == JsonValueKind.String)
                         {
-                            // Redirect strings through the ConvertValue helper
                             object converted = PrototypePatchManager.ConvertValue(paramValue.GetString(), typeof(AssetId));
                             if (converted is AssetId cId) assetId = cId;
                         }
@@ -729,7 +725,6 @@ namespace MHServerEmu.Games.GameData.PatchManager
                     return Enum.ToObject(targetType, value.GetInt32());
             }
 
-            // For complex objects or arrays, return the JsonElement for later processing
             if (value.ValueKind == JsonValueKind.Object || value.ValueKind == JsonValueKind.Array)
             {
                 return value;

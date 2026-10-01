@@ -13,6 +13,7 @@ using MHServerEmu.Games.Loot.Specs;
 using MHServerEmu.Games.Missions;
 using MHServerEmu.Games.Properties;
 using MHServerEmu.Games.Regions;
+using MHServerEmu.Games.EndlessScenarios;
 
 namespace MHServerEmu.Games.Loot
 {
@@ -464,7 +465,7 @@ namespace MHServerEmu.Games.Loot
             if (LootUtilities.UpdateAffixes(_resolver, filterArgs, AffixCountBehavior.Roll, itemSpec, null).HasFlag(MutationResults.Error))
                 return Logger.WarnReturn<ItemSpec>(null, $"CreateItemSpec(): Failed to update affixes for {itemProto}");
 
-            return itemSpec;
+            return EndlessScenarioLootHooks.ApplyItemPresentation(itemSpec);
         }
 
         private bool RollLootTable(PrototypeId lootTableProtoRef, LootInputSettings inputSettings, LootResultSummary lootResultSummary)

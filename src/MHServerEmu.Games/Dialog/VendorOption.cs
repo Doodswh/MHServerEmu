@@ -42,6 +42,7 @@ namespace MHServerEmu.Games.Dialog
 
             var vendorTypeProto = GameDatabase.GetPrototype<VendorTypePrototype>(vendorTypeProtoRef);
             if (vendorTypeProto == null) return;
+            interactor.GetOwnerOfType<Player>()?.TryPrepareCustomCompletionVendorInteraction(localInteractee);
             PrototypeId? none = null;
             InteractionManager.TrySetIndicatorTypeAndMapOverrideWithPriority(localInteractee, ref outInteractData.IndicatorType, ref none, vendorTypeProto.InteractIndicator);
             if (outInteractData.DialogDataCollection != null)

@@ -9,6 +9,7 @@ using MHServerEmu.Games.GameData;
 using MHServerEmu.Games.MetaGames;
 using MHServerEmu.Games.Network;
 using MHServerEmu.Games.Regions;
+using MHServerEmu.Games.Scripting;
 using MHServerEmu.Games.Social.Communities;
 using MHServerEmu.Games.Social.Parties;
 using System.Text.RegularExpressions;
@@ -37,6 +38,20 @@ namespace MHServerEmu.Games.Social
 
         #region Message Handling
 
+        private static bool TryInvokeScriptCommand(Player player, string body)
+        {
+            if (string.IsNullOrEmpty(body) || body.Length < 2 || body[0] != '!')
+                return false;
+
+            string[] parts = body[1..].Split(' ', StringSplitOptions.RemoveEmptyEntries);
+            if (parts.Length == 0)
+                return false;
+
+            ChatCommandArgs args = new(player, parts[0].ToLowerInvariant(), parts[1..]);
+            ScriptHooks.ChatCommand.Invoke(args);
+            return args.Handled;
+        }
+
         public void HandleChat(Player player, NetMessageChat chat)
         {
             // Censor the message body before processing it
@@ -57,6 +72,10 @@ namespace MHServerEmu.Games.Social
                     .Build();
             }
 
+
+            // Script commands first, so scripts can add their own (see Data/Scripts)
+            if (ScriptHooks.ChatCommand.HasHandlers && TryInvokeScriptCommand(player, chat.TheMessage.Body))
+                return;
 
             // If we have a command parser, see if this is actually a command
             if (ICommandParser.Instance?.TryParse(chat.TheMessage.Body, player.PlayerConnection) == true)

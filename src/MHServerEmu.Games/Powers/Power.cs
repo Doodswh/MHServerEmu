@@ -3139,7 +3139,14 @@ namespace MHServerEmu.Games.Powers
                 {
                     float distance = Vector3.Length(targetPosition - userPosition);
                     if (distance > 0f)
-                        delay += TimeSpan.FromSeconds(distance / projectileSpeed);
+                    {
+                        // Bad data (e.g. infinite distance) would throw in TimeSpan.FromSeconds()
+                        float projectileDelay = distance / projectileSpeed;
+                        if (float.IsFinite(projectileDelay))
+                            delay += TimeSpan.FromSeconds(projectileDelay);
+                        else
+                            Logger.Warn($"GetPayloadDeliveryDelay(): Non-finite projectile delay for power [{this}]");
+                    }
                 }
             }
 
@@ -3448,13 +3455,15 @@ namespace MHServerEmu.Games.Powers
                 return false;
 
             AgentPrototype agentProto = target.AgentPrototype;
-            if (agentProto == null) return Logger.WarnReturn(false, "CanCauseHitReact(): agentProto == null");
+            if (agentProto == null) return false;
 
             if (agentProto.HitReactCondition == PrototypeId.Invalid)
                 return false;
 
             if (target.IsHitReactionOnCooldown())
+            {
                 return false;
+            }
 
             return true;
         }
@@ -4313,7 +4322,21 @@ namespace MHServerEmu.Games.Powers
                     else
                     {
                         Logger.Warn($"GenerateActualTargetPosition(): Movement power failed to sweep. Position: {actualTargetPosition}. Result: {result}");
-                        actualTargetPosition = ownerPosition;
+
+                        // START FIX: Prevent 0-distance Locomotor lockups
+                        if (resultPostion.HasValue && resultPostion.Value != Vector3.Zero && Vector3.DistanceSquared2D(ownerPosition, resultPostion.Value) > 1.0f)
+                        {
+                            // Fall back to the last valid coordinate generated before the sweep failed
+                            actualTargetPosition = RegionLocation.ProjectToFloor(Owner.Region, Owner.Cell, resultPostion.Value);
+                        }
+                        else
+                        {
+                            // If no valid coordinate exists, force a 1-unit micro-step to clear the Locomotor pipeline
+                            Vector3 safeDirection = Vector3.SafeNormalize2D(Owner.Forward);
+                            actualTargetPosition = ownerPosition + (safeDirection * 1.0f);
+                            actualTargetPosition = RegionLocation.ProjectToFloor(Owner.Region, Owner.Cell, actualTargetPosition);
+                        }
+                        // END FIX
                     }
                 }
             }

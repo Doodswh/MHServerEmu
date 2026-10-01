@@ -12,6 +12,7 @@ using MHServerEmu.Games.GameData;
 using MHServerEmu.Games.GameData.Prototypes;
 using MHServerEmu.Games.Populations;
 using MHServerEmu.Games.Properties;
+using MHServerEmu.Games.Scripting;
 
 namespace MHServerEmu.Games.Regions
 {
@@ -111,7 +112,17 @@ namespace MHServerEmu.Games.Regions
 
             if (settings.RegionSettings.GenerateAreas)
             {
-                Generator = DRAGSystem.LinkGenerator(GenerateLog, Prototype.Generator, this);
+                // CUSTOM: a script-built map (RegionGenerating hook, BuildLayout) replaces the area's own generator
+                ScriptedLayout scriptedLayout = Region.GenerationOverrides?.TakeLayoutForArea(this);
+                if (scriptedLayout != null)
+                {
+                    Generator = new ScriptedLayoutGenerator(scriptedLayout) { Log = GenerateLog, LogDebug = GenerateLog };
+                    Generator.Initialize(this);
+                }
+                else
+                {
+                    Generator = DRAGSystem.LinkGenerator(GenerateLog, Prototype.Generator, this);
+                }
                 if (Generator == null)
                 {
                     if (GenerateLog)

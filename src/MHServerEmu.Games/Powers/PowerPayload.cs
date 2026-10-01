@@ -10,6 +10,7 @@ using MHServerEmu.Games.Behavior;
 using MHServerEmu.Games.Common;
 using MHServerEmu.Games.Entities;
 using MHServerEmu.Games.Entities.Avatars;
+using MHServerEmu.Games.Entities.Inventories;
 using MHServerEmu.Games.Entities.Items;
 using MHServerEmu.Games.Events;
 using MHServerEmu.Games.GameData;
@@ -21,6 +22,7 @@ using MHServerEmu.Games.Powers.Conditions;
 using MHServerEmu.Games.Properties;
 using MHServerEmu.Games.Properties.Evals;
 using MHServerEmu.Games.Regions;
+using MHServerEmu.Games.Scripting;
 
 namespace MHServerEmu.Games.Powers
 {
@@ -1093,7 +1095,9 @@ namespace MHServerEmu.Games.Powers
 
             return true;
         }
+      
 
+      
         private bool CalculateResultDamageCriticalModifier(PowerResults results, WorldEntity target)
         {
             // Not critical
@@ -2283,6 +2287,15 @@ namespace MHServerEmu.Games.Powers
             // Calculate conditions properties (these will be shared by all stacks)
             using PropertyCollection conditionProperties = ObjectPoolManager.Instance.Get<PropertyCollection>();
             Condition.GenerateConditionProperties(conditionProperties, conditionProto, Properties, owner ?? ultimateOwner, target, Game);
+
+            // Custom condition rules (e.g. Omega knockback immunity) live in scripts, see Data/Scripts
+            if (ScriptHooks.ConditionApplying.HasHandlers)
+            {
+                ConditionApplyingArgs hookArgs = new(Game, target, PowerOwnerId, PowerPrototype, conditionProto, conditionProperties);
+                ScriptHooks.ConditionApplying.Invoke(hookArgs);
+                if (hookArgs.Cancel)
+                    return false;
+            }
 
             // Calculate duration
             if (CalculateResultConditionDuration(results, target, owner, calculateForTarget, conditionProto, conditionProperties, movementDuration, out TimeSpan conditionDuration) == false)

@@ -183,7 +183,92 @@ namespace MHServerEmu.Commands.Implementations
             playerConnection.WipePlayerData();
             return string.Empty;
         }
+        [Command("broadcast")]
+        [CommandDescription("Broadcasts a dynamic notification globally in chat and via a screen banner.")]
+        [CommandUsage("player broadcast [message]")]
+        [CommandUserLevel(AccountUserLevel.Admin)]
+        [CommandInvokerType(CommandInvokerType.Client)]
+        public string Broadcast(string[] @params, NetClient client)
+        {
+            string notificationText = string.Join(' ', @params);
 
+            // 1. Get the global PlayerManager service
+            object playerManager = ServerManager.Instance.GetGameService(GameServiceType.PlayerManager);
+            if (playerManager == null) return "System Error: Could not find PlayerManager.";
+
+            // 2. Reflect precisely to the known 'ClientManager'[cite: 3]
+            var flags = System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic;
+            object clientManagerObj = null;
+
+            var clientManagerProp = playerManager.GetType().GetProperty("ClientManager", flags);
+            if (clientManagerProp != null)
+            {
+                clientManagerObj = clientManagerProp.GetValue(playerManager);
+            }
+            else
+            {
+                var clientManagerField = playerManager.GetType().GetField("ClientManager", flags);
+                if (clientManagerField != null)
+                {
+                    clientManagerObj = clientManagerField.GetValue(playerManager);
+                }
+            }
+
+            if (clientManagerObj == null) return "System Error: Could not find ClientManager.";
+
+            // 3. Build the MetaGameBanner using the static ID and dynamic string injection[cite: 6]
+            ulong metaGameStringId = 18000000000000020000UL;
+            var bannerMessage = NetMessageMetaGameBanner.CreateBuilder()
+                .SetMessageStringId(metaGameStringId)    // Points to the "SERVER BROADCAST: {0}" string in JSON
+                .SetPlayerName1(notificationText)        // Injects your typed text into {0}
+                .Build();
+
+            // 4. Send the messages to all active PlayerHandles
+            int targetCount = 0;
+
+            // We know _playerDict is a Dictionary<ulong, PlayerHandle>
+            var playerDictField = clientManagerObj.GetType().GetField("_playerDict", flags);
+            if (playerDictField?.GetValue(clientManagerObj) is System.Collections.IDictionary playerDict)
+            {
+                lock (playerDict) // Match the thread-safety pattern in ClientManager[cite: 14]
+                {
+                    foreach (System.Collections.DictionaryEntry entry in playerDict)
+                    {
+                        // The value is definitely a PlayerHandle[cite: 14]
+                        var playerHandle = entry.Value;
+                        if (playerHandle == null) continue;
+
+                        // Grab the ActualRegion or CurrentGame to send the chat message via the custom system
+                        var actualRegionProp = playerHandle.GetType().GetProperty("ActualRegion", flags);
+                        var actualRegion = actualRegionProp?.GetValue(playerHandle);
+
+                        if (actualRegion != null)
+                        {
+                            // To send the chat message, we need the Player entity inside the Game instance.
+                            // The easiest way is to broadcast the banner globally from the PlayerManager side, 
+                            // and use the GroupingManager trick (which is what SendChatFromCustomSystem does anyway) 
+                            // for the chat text.
+
+                            // A. Send the Banner (Global, direct to the connection via PlayerHandle)
+                            var sendMessageMethod = playerHandle.GetType().GetMethod("SendMessage", flags, null, new Type[] { typeof(Google.ProtocolBuffers.IMessage) }, null);
+                            sendMessageMethod?.Invoke(playerHandle, new object[] { bannerMessage });
+
+                            // B. Send the Chat (Global, via GroupingManager like SendChatFromCustomSystem does)
+                            ulong dbId = (ulong)(playerHandle.GetType().GetProperty("PlayerDbId", flags)?.GetValue(playerHandle) ?? 0UL);
+                            if (dbId != 0)
+                            {
+                                ServiceMessage.GroupingManagerMetagameMessage chatMessage = new(dbId, $"[Server Broadcast] {notificationText}", false);
+                                ServerManager.Instance.SendMessageToService(GameServiceType.GroupingManager, chatMessage);
+                            }
+
+                            targetCount++;
+                        }
+                    }
+                }
+            }
+
+            return $"Broadcast successfully sent to {targetCount} online players.";
+        }
         [Command("givecurrency")]
         [CommandDescription("Gives all currencies.")]
         [CommandUsage("player givecurrency [amount]")]

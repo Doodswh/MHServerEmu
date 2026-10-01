@@ -153,6 +153,7 @@ namespace MHServerEmu.Games.Entities
         public bool IsFullscreenObscured { get => IsFullscreenMoviePlaying || IsOnLoadingScreen; }
         public uint FullscreenMovieSyncRequestId { get; set; }
         public PrototypeId AdminDifficultyOverride { get; set; } = PrototypeId.Invalid;
+        public bool DifficultyPreferenceLocked { get; set; } = false;
 
         public bool IsSwitchingAvatar { get; private set; }
         public bool IsVanished { get; set; }
@@ -605,7 +606,7 @@ namespace MHServerEmu.Games.Entities
                 baseName = _playerName.Get();
             }
 
-          
+
             var account = this.PlayerConnection?._dbAccount;
 
             if (account != null)
@@ -856,6 +857,14 @@ namespace MHServerEmu.Games.Entities
             }
 
             return true;
+        }
+
+        /// <summary>
+        /// Retrieves the <see cref="StashTabOptions"/> (custom name, sort order, etc.) for the specified stash tab if it has any.
+        /// </summary>
+        public bool TryGetStashTabOptions(PrototypeId stashRef, out StashTabOptions options)
+        {
+            return _stashTabOptionsDict.TryGetValue(stashRef, out options);
         }
 
         /// <summary>
@@ -1580,6 +1589,8 @@ namespace MHServerEmu.Games.Entities
 
         public InventoryResult ValidatePlayerInventoryMoveConstraints(ref InventoryLocation fromInvLoc, ref InventoryLocation toInvLoc)
         {
+            if (IsCustomCraftingStashToGeneralTransfer(fromInvLoc, toInvLoc))
+                return ValidatePlayerCanMoveDirectlyIntoInventory(toInvLoc);
             InventoryResult result = ValidatePlayerCanMoveDirectlyOutOfInventory(ref fromInvLoc);
             if (result != InventoryResult.Success)
                 return result;
@@ -2429,7 +2440,7 @@ namespace MHServerEmu.Games.Entities
             if (region == null) return Logger.WarnReturn(CanSwitchAvatarResult.NotAllowedUnknown, "CanSwitchAvatars(): region == null");
 
             // Region lock
-            if (region.AvatarSwapEnabled == false && CurrentHUDTutorial?.HighlightAvatars.HasValue() == false)
+            if (region.AvatarSwapEnabled == false && CurrentHUDTutorial?.HighlightAvatars.HasValue() != true)
                 return CanSwitchAvatarResult.NotAllowedInRegion;
 
             RegionPrototype regionProto = region.Prototype;
@@ -3597,7 +3608,7 @@ namespace MHServerEmu.Games.Entities
 
             DialogTargetId = targetId;
             DialogInteractorId = interactorId;
-
+            OnCustomDialogTargetChanged(GetDialogTarget(false));
             return true;
         }
 
@@ -4171,11 +4182,13 @@ namespace MHServerEmu.Games.Entities
             if (Game.GameOptions.TeamUpSystemEnabled && Game.CustomGameOptions.AutoUnlockTeamUps)
             {
                 // HACK: And team-ups as well
-                Inventory teamUpLibrary = GetInventory(InventoryConvenienceLabel.TeamUpLibrary);
-                if (teamUpLibrary.Count == 0)
+                // Unlock every team-up the player does not have yet (this also picks up team-ups added after their first login)
+                foreach (PrototypeId teamUpRef in GameDatabase.DataDirectory.IteratePrototypesInHierarchy<AgentTeamUpPrototype>(PrototypeIterateFlags.NoAbstractApprovedOnly))
                 {
-                    foreach (PrototypeId teamUpRef in GameDatabase.DataDirectory.IteratePrototypesInHierarchy<AgentTeamUpPrototype>(PrototypeIterateFlags.NoAbstractApprovedOnly))
-                        UnlockTeamUpAgent(teamUpRef, false);
+                    if (IsTeamUpAgentUnlocked(teamUpRef))
+                        continue;
+
+                    UnlockTeamUpAgent(teamUpRef, false);
                 }
             }
 

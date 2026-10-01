@@ -1,4 +1,5 @@
 ﻿using Gazillion;
+
 using MHServerEmu.Core.Extensions;
 using MHServerEmu.Core.Logging;
 using MHServerEmu.Core.Memory;
@@ -35,6 +36,7 @@ namespace MHServerEmu.Games.Regions
         public int Level { get; set; }
         public bool Cheat { get; set; }
         public PrototypeId DifficultyTierRef { get; set; }
+        public bool ForceDifficultyTier { get; set; }   // use DifficultyTierRef as is (script events), ignoring party / player preferences
         public int EndlessLevel { get; set; }
         public int Seed { get; set; }
         public ulong ParentRegionId { get; set; }
@@ -62,6 +64,7 @@ namespace MHServerEmu.Games.Regions
             Level = default;
             Cheat = default;
             DifficultyTierRef = default;
+            ForceDifficultyTier = default;
             EndlessLevel = default;
             Seed = default;
             ParentRegionId = default;
@@ -203,30 +206,53 @@ namespace MHServerEmu.Games.Regions
                     EndlessLevel = 1;
             }
 
-            // Keep difficulty consistent for teleports that are expected to be local (e.g. resurrect, Surtur raid teleport).
-            if (DifficultyTierRef == PrototypeId.Invalid)
+            Party party = Player.GetParty();
+            if (ForceDifficultyTier && DifficultyTierRef != PrototypeId.Invalid)
             {
-                switch (Context)
+                // Script events (e.g. Cosmic-only events) pick the difficulty themselves
+            }
+            else if (party != null && party.DifficultyTierProtoRef != PrototypeId.Invalid)
+            {
+                DifficultyTierRef = party.DifficultyTierProtoRef;
+            }
+            else if (Player.AdminDifficultyOverride != PrototypeId.Invalid)
+            {
+                DifficultyTierRef = Player.AdminDifficultyOverride;
+            }
+            else
+            {
+                // Keep difficulty consistent for teleports that are expected to be local (e.g. resurrect, Surtur raid teleport).
+                if (DifficultyTierRef == PrototypeId.Invalid)
                 {
-                    case TeleportContextEnum.TeleportContext_Mission:
-                    case TeleportContextEnum.TeleportContext_Power:
-                    case TeleportContextEnum.TeleportContext_Resurrect:
-                        DifficultyTierRef = region.DifficultyTierRef;
-                        break;
+                    switch (Context)
+                    {
+                        case TeleportContextEnum.TeleportContext_Mission:
+                        case TeleportContextEnum.TeleportContext_Power:
+                        case TeleportContextEnum.TeleportContext_Resurrect:
+                            DifficultyTierRef = region.DifficultyTierRef;
+                            break;
+                    }
+                }
+
+                if (Player.HasBadge(AvailableBadges.SiteCommands) == false || DifficultyTierRef == PrototypeId.Invalid)
+                {
+                    DifficultyTierRef = Player.GetDifficultyTierForRegion(regionProtoRef, DifficultyTierRef);
                 }
             }
-
-            // Clamp target region's difficulty to the available range
-            DifficultyTierRef = Player.GetDifficultyTierForRegion(regionProtoRef, DifficultyTierRef);
-
             if (IsLocalTeleport(region, destinationRegionProto))
             {
                 return TeleportToLocalTarget(areaProtoRef, cellProtoRef, entityProtoRef);
             }
             else
             {
-                if (Player.CanEnterRegion(regionProtoRef, DifficultyTierRef, false) == false)
+
+                bool canEnter = Player.CanEnterRegion(regionProtoRef, DifficultyTierRef, false);
+
+                if (canEnter == false)
+                {
+                    Logger.Warn($"TeleportToRemoteTarget: Player {Player.GetName()} FAILED CanEnterRegion check for {regionProtoRef.GetNameFormatted()} (Difficulty: {DifficultyTierRef.GetNameFormatted()}). Region is likely disabled by AccessChecks.");
                     return false;
+                }
 
                 if (destinationRegionProto.IsQueueRegion)
                     return BeginTeleportToQueueTarget(regionProtoRef);

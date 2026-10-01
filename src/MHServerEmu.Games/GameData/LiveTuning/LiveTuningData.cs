@@ -1,6 +1,7 @@
 ﻿using Gazillion;
 using MHServerEmu.Core.Logging;
 using MHServerEmu.Games.GameData.Prototypes;
+using MHServerEmu.Games.EndlessScenarios;
 
 namespace MHServerEmu.Games.GameData.LiveTuning
 {
@@ -53,7 +54,10 @@ namespace MHServerEmu.Games.GameData.LiveTuning
             InitPerPublicEventTuningVars();
             InitPerMetricsFrequencyTuningVars();
         }
-
+        private void ApplyCustomDefaults()
+        {
+            EndlessScenarioLiveTuningHooks.ApplyDefaults(_globalTuningVars);
+        }
         public void ResetToDefaults()
         {
             _globalTuningVars.Clear();
@@ -202,21 +206,7 @@ namespace MHServerEmu.Games.GameData.LiveTuning
             // but most of them just enable the whole category, so we are going to just do all the relevant checks in here instead to simplify things a little.
 
             // Global
-            for (int i = 0; i < (int)GlobalTuningVar.eGTV_NumGlobalTuningVars; i++)
-            {
-                GlobalTuningVar tuningVar = (GlobalTuningVar)i;
-                if (tuningVar == GlobalTuningVar.eGTV_PatrolBossSpawnInvulnerabilitySeconds)
-                    continue;
-
-                float tuningVarValue = GetLiveGlobalTuningVar(tuningVar);
-                if (tuningVarValue == DefaultTuningVarValue)
-                    continue;
-
-                updateBuilder.AddTuningTypeKeyValueSettings(NetStructLiveTuningSettingProtoEnumValue.CreateBuilder()
-                    .SetTuningVarProtoId((ulong)PrototypeId.Invalid)
-                    .SetTuningVarEnum(i)
-                    .SetTuningVarValue(tuningVarValue));
-            }
+           
             for (int i = 0; i < (int)GlobalTuningVar.eGTV_NumGlobalTuningVars; i++)
             {
                 GlobalTuningVar tuningVar = (GlobalTuningVar)i;
@@ -310,8 +300,8 @@ namespace MHServerEmu.Games.GameData.LiveTuning
 
                 for (int j = 0; j < (int)WorldEntityTuningVar.eWETV_NumWorldEntityTuningVars; j++)
                 {
-                    // Only these two world entity tuning vars are sent to the client
-                    if (j != (int)WorldEntityTuningVar.eWETV_Enabled && j != (int)WorldEntityTuningVar.eWETV_Visible)
+                    // Not all world entity tuning vars are sent to the client
+                    if (ShouldSendTuningVarToClient((WorldEntityTuningVar)j) == false)
                         continue;
 
                     float tuningVarValue = GetLiveWorldEntityTuningVar(i, (WorldEntityTuningVar)j);
@@ -417,6 +407,22 @@ namespace MHServerEmu.Games.GameData.LiveTuning
             if (prototype is MetricsFrequencyPrototype) return ((MetricsFrequencyTuningVar)tuningVarEnum).ToString();
 
             return tuningVarEnum.ToString();
+        }
+
+        private static bool ShouldSendTuningVarToClient(WorldEntityTuningVar tuningVarEnum)
+        {
+            // This is a more straightforward replacement for LiveTuningData::initClientWhitelistBits() and bit arrays from client code.
+
+            switch (tuningVarEnum)
+            {
+                case WorldEntityTuningVar.eWETV_Enabled:
+                case WorldEntityTuningVar.eWETV_EternitySplinterPrice:  // NOTE: EternitySplinterPrice is excluded in client code.
+                case WorldEntityTuningVar.eWETV_Visible:
+                    return true;
+
+                default:
+                    return false;
+            }
         }
 
         #region Tuning Var Accesors
@@ -944,7 +950,14 @@ namespace MHServerEmu.Games.GameData.LiveTuning
                 || tuningVar == GlobalTuningVar.eGTV_XDefenseWaveXPBonusPerWave
                 || tuningVar == GlobalTuningVar.eGTV_XDefenseEnemyHealthBonusPerWave
                 || tuningVar == GlobalTuningVar.eGTV_XDefenseEnemyDamageBonusPerWave
-                || tuningVar == GlobalTuningVar.eGTV_XDefenseStudentHealthMultiplier;
+                || tuningVar == GlobalTuningVar.eGTV_XDefenseStudentHealthMultiplier
+                || tuningVar == GlobalTuningVar.eGTV_EndlessCableRewardXPBonusPerWave
+                || tuningVar == GlobalTuningVar.eGTV_EndlessCableEnemyHealthBonusPerWave
+                || tuningVar == GlobalTuningVar.eGTV_EndlessCableEnemyDamageBonusPerWave
+                || tuningVar == GlobalTuningVar.eGTV_EndlessCableBonusXPOrbsPerWave
+                || tuningVar == GlobalTuningVar.eGTV_EndlessCableCompletionCrafterEnabled
+                || tuningVar == GlobalTuningVar.eGTV_EndlessCableUniqueUpgradeSuccessChancePct;
+                
         }
         private bool UpdateLiveWorldEntityTuningVar(PrototypeId worldEntityProtoRef, WorldEntityTuningVar tuningVarEnum, float tuningVarValue)
         {
@@ -963,7 +976,7 @@ namespace MHServerEmu.Games.GameData.LiveTuning
                 return Logger.WarnReturn(false, $"UpdateLiveWorldEntityTuningVar(): worldEntityEnumVal < 0 || worldEntityEnumVal >= _perWorldEntityTuningVars.Count");
 
             _perWorldEntityTuningVars[worldEntityEnumVal][(int)tuningVarEnum] = tuningVarValue;
-            // No update protobuf invalidation?
+            _updateProtobufOutOfDate |= ShouldSendTuningVarToClient(tuningVarEnum); // NOTE: No invalidation in client code here
 
             return true;
         }

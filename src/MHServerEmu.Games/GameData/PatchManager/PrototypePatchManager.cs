@@ -390,14 +390,12 @@ namespace MHServerEmu.Games.GameData.PatchManager
         {
             foreach (var patchElement in patchesArray.EnumerateArray())
             {
-                // 1. Safely get PrototypeName
                 if (!patchElement.TryGetProperty("PrototypeName", out var protoNameElement))
                     continue;
 
                 string prototypeName = protoNameElement.GetString();
                 PrototypeId prototypeId = GameDatabase.GetPrototypeRefByName(prototypeName);
 
-                // Name resolution fallback
                 if (prototypeId == PrototypeId.Invalid)
                 {
                     prototypeId = TryResolveViaReplacementDirectory(prototypeName, out string replacedName);
@@ -411,7 +409,6 @@ namespace MHServerEmu.Games.GameData.PatchManager
                     continue;
                 }
 
-                //  get Steps
                 if (!patchElement.TryGetProperty("Steps", out var stepsElement) || stepsElement.ValueKind != JsonValueKind.Array)
                     continue;
 
@@ -426,7 +423,6 @@ namespace MHServerEmu.Games.GameData.PatchManager
                 {
                     if (!isFirst) pathBuilder.Append(".");
 
-                    // extract step properties (defaulting to 0 if omitted by JSON serializer)
                     string fieldName = step.TryGetProperty("FieldName", out var fieldNameEl) ? fieldNameEl.GetString() : string.Empty;
                     ulong declaringBp = step.TryGetProperty("DeclaringBlueprintId", out var dbpEl) ? dbpEl.GetUInt64() : 0;
                     byte copyNum = step.TryGetProperty("BlueprintCopyNumber", out var bpcEl) ? bpcEl.GetByte() : (byte)0;
@@ -455,11 +451,9 @@ namespace MHServerEmu.Games.GameData.PatchManager
                 byte structType = lastStep.TryGetProperty("StructureType", out var stEl) ? stEl.GetByte() : (byte)0;
                 ValueType mappedType = MapCalligraphyType(baseType, structType);
 
-                // extract CurrentValue (handle missing/null payloads)
                 JsonElement currentValueElement;
                 if (!patchElement.TryGetProperty("CurrentValue", out currentValueElement))
                 {
-                    // If completely omitted, generate a safe 'null' JsonElement
                     using var doc = JsonDocument.Parse("null");
                     currentValueElement = doc.RootElement.Clone();
                 }
@@ -709,14 +703,11 @@ namespace MHServerEmu.Games.GameData.PatchManager
                         }
                     }
 
-                    // C# FLATTENED MIXIN FALLBACK
-                    // In MHServerEmu, mixins are often flattened into strongly typed C# properties instead of being kept in a list!
-                    // Example: OC has "Components[...].Speed", but the Server has `public LocomotionComponent Locomotion { get; set; }`
+
                     if (foundMixinObj == null && !string.IsNullOrEmpty(targetFieldName))
                     {
                         var type = current.GetType();
 
-                        // Check all custom class properties attached to AvatarPrototype
                         foreach (var prop in type.GetProperties(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance))
                         {
                             if (prop.GetIndexParameters().Length > 0) continue;
@@ -725,13 +716,11 @@ namespace MHServerEmu.Games.GameData.PatchManager
                             var fieldInfo = GameDatabase.PrototypeClassManager.GetFieldByName(prop.PropertyType, targetFieldName);
                             if (fieldInfo.HasValue)
                             {
-                                // We found the C# class that holds the field!
                                 foundMixinObj = prop.GetValue(current);
                                 break;
                             }
                         }
 
-                        // Check all custom class fields
                         if (foundMixinObj == null)
                         {
                             foreach (var field in type.GetFields(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance))
@@ -748,7 +737,6 @@ namespace MHServerEmu.Games.GameData.PatchManager
                         }
                     }
 
-                    // 4. Return to root if completely lost
                     if (foundMixinObj == null)
                     {
                         return current;

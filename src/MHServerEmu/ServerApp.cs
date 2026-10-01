@@ -18,6 +18,7 @@ using MHServerEmu.Gifts;
 using MHServerEmu.Grouping;
 using MHServerEmu.Leaderboards;
 using MHServerEmu.PlayerManagement;
+using MHServerEmu.Scripting;
 using MHServerEmu.WebFrontend;
 using System.Globalization;
 using System.Runtime.InteropServices;
@@ -122,6 +123,7 @@ namespace MHServerEmu
             serverManager.RegisterGameService(new PlayerManagerService(), GameServiceType.PlayerManager);
             serverManager.RegisterGameService(new GroupingManagerService(), GameServiceType.GroupingManager);
             serverManager.RegisterGameService(new GiftItemDistributor(), GameServiceType.GiftItemDistributor);
+            serverManager.RegisterGameService(new ScriptManager(), GameServiceType.Scripting);
             serverManager.RegisterGameService(new FrontendServer(), GameServiceType.Frontend);
             serverManager.RegisterGameService(new WebFrontendService(), GameServiceType.WebFrontend);
 
@@ -137,6 +139,13 @@ namespace MHServerEmu
                 string input = Console.ReadLine();
                 if (_state != State.Running)
                     break;
+
+                // Running the server in a non-interactive container without an stdin can spam the console with null inputs.
+                if (input == null)
+                {
+                    Thread.Sleep(1);
+                    continue;
+                }
 
                 CommandManager.Instance.TryParse(input);
             }

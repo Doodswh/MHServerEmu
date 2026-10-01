@@ -257,6 +257,80 @@ namespace MHServerEmu.Games.UI.Widgets
             if (update) UpdateUI();
         }
 
+        /// <summary>
+        /// CUSTOM: Adds <paramref name="entity"/> to entry <paramref name="entryIndex"/> of this widget whatever the entry's filter says,
+        /// so scripts can show health bars for their own bosses. Health updates come from the entity's own property changes.
+        /// </summary>
+        public bool AddScriptEntity(WorldEntity entity, int entryIndex = 0)
+        {
+            if (entity == null) return false;
+
+            UIWidgetEntityIconsEntryPrototype entryProto = GetEntryPrototypeByIndex(entryIndex);
+            if (entryProto == null) return Logger.WarnReturn(false, $"AddScriptEntity(): widget [{_widgetRef.GetName()}] has no entry {entryIndex}");
+
+            FilterEntry filter = _filterList.Find(filterEntry => filterEntry.Index == entryIndex);
+            if (filter == null)
+            {
+                filter = new() { Index = entryIndex, KnownEntityDict = new() };
+                _filterList.Add(filter);
+            }
+
+            filter.KnownEntityDict ??= new();
+
+            if (filter.KnownEntityDict.TryGetValue(entity.Id, out KnownEntityEntry entityEntry) == false)
+            {
+                entityEntry = new() { EntityId = entity.Id };
+                filter.KnownEntityDict.Add(entity.Id, entityEntry);
+                entityEntry.AttachWatcher(this, entity);
+            }
+
+            entityEntry.State = entity.IsDead ? UIWidgetEntityState.Dead : UIWidgetEntityState.Alive;
+            UpdateKnownEntityTrackedProperties(entity.Id, entityEntry, entryProto, PropertyId.Invalid);
+            UpdateUI();
+            return true;
+        }
+
+        /// <summary>
+        /// CUSTOM: Removes an entity added with <see cref="AddScriptEntity"/> (or any known entity) from every entry of this widget.
+        /// </summary>
+        public bool RemoveScriptEntity(ulong entityId)
+        {
+            bool removed = false;
+            foreach (FilterEntry filter in _filterList)
+            {
+                if (filter.KnownEntityDict == null || filter.KnownEntityDict.Remove(entityId, out KnownEntityEntry entityEntry) == false)
+                    continue;
+
+                entityEntry.Destroy();
+                removed = true;
+            }
+
+            if (removed)
+                UpdateUI();
+
+            return removed;
+        }
+
+        /// <summary>
+        /// CUSTOM: Marks a script-added entity as dead (it is not tracked by the region, so the normal lifecycle callback skips it).
+        /// </summary>
+        public void SetScriptEntityDead(ulong entityId)
+        {
+            bool update = false;
+            foreach (FilterEntry filter in _filterList)
+            {
+                if (filter.KnownEntityDict == null || filter.KnownEntityDict.TryGetValue(entityId, out KnownEntityEntry entityEntry) == false)
+                    continue;
+
+                entityEntry.State = UIWidgetEntityState.Dead;
+                UpdateKnownEntityTrackedProperties(entityId, entityEntry, GetEntryPrototypeByIndex(filter.Index), PropertyId.Invalid);
+                update = true;
+            }
+
+            if (update)
+                UpdateUI();
+        }
+
         private UIWidgetEntityIconsEntryPrototype GetEntryPrototypeByIndex(int index)
         {
             var entries = Prototype.Entities;
@@ -286,7 +360,9 @@ namespace MHServerEmu.Games.UI.Widgets
                         {
                             knownEntityEntry.HealthPercent = healthPercent;
 
-                            if (healthPercentProto.HealthDisplayTable.IsNullOrEmpty()) return false;
+                            // CUSTOM: the health percent changed, so this is an update even without an icon table (was: return false,
+                            // which left health bars like SlagHealth stuck on the client)
+                            if (healthPercentProto.HealthDisplayTable.IsNullOrEmpty()) return true;
 
                             int index = 0;
                             foreach (var healthPercentIcon in healthPercentProto.HealthDisplayTable)

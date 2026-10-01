@@ -1,5 +1,6 @@
 ﻿using System.Text;
 using Gazillion;
+using MHServerEmu.Games.Scripting;
 using MHServerEmu.Core.Collections;
 using MHServerEmu.Core.Extensions;
 using MHServerEmu.Core.Helpers;
@@ -50,6 +51,7 @@ namespace MHServerEmu.Games.Entities.Avatars
         private readonly EventPointer<DelayedPowerActivationEvent> _delayedPowerActivationEvent = new();
         private readonly EventPointer<AvatarEnteredRegionEvent> _avatarEnteredRegionEvent = new();
         private readonly EventPointer<RefreshStatsPowersEvent> _refreshStatsPowerEvent = new();
+        private readonly EventPointer<MovementLockWatchdogEvent> _movementLockWatchdogEvent = new();
         private readonly EventPointer<DismissTeamUpAgentEvent> _dismissTeamUpAgentEvent = new();
         private readonly EventPointer<DespawnControlledEvent> _despawnControlledEvent = new();
         private readonly EventPointer<TransformModeChangeEvent> _transformModeChangeEvent = new();
@@ -327,11 +329,11 @@ namespace MHServerEmu.Games.Entities.Avatars
                 // Apply PvP upgrade bonuses
                 using var pvpUpgradeListHandle = ListPool<(PrototypeId, int)>.Instance.Get(out List<(PrototypeId, int)> pvpUpgradeList);
 
-                foreach (var kvp in Properties.IteratePropertyRange(PropertyEnum.OmegaRank))
+                foreach (var kvp in Properties.IteratePropertyRange(PropertyEnum.PvPUpgrades))
                 {
-                    Property.FromParam(kvp.Key, 0, out PrototypeId omegaBonusProtoRef);
+                    Property.FromParam(kvp.Key, 0, out PrototypeId pvpUpgradeProtoRef);
                     int rank = kvp.Value;
-                    pvpUpgradeList.Add((omegaBonusProtoRef, rank));
+                    pvpUpgradeList.Add((pvpUpgradeProtoRef, rank));
                 }
 
                 foreach (var pvpUpgrade in pvpUpgradeList)
@@ -534,6 +536,15 @@ namespace MHServerEmu.Games.Entities.Avatars
                     {
                         // Find the target for our respawn teleport
                         PrototypeId deathReleaseTarget = FindDeathReleaseTarget(out PrototypeId regionProtoRefOverride);
+
+                        // CUSTOM: script-built maps have no respawn target, respawn in the map's arrival room
+                        if (deathReleaseTarget == PrototypeId.Invalid && Region?.GenerationOverrides?.Layout?.StartPosition != null)
+                        {
+                            using Teleporter layoutTeleporter = ObjectPoolManager.Instance.Get<Teleporter>();
+                            layoutTeleporter.Initialize(GetOwnerOfType<Player>(), TeleportContextEnum.TeleportContext_Resurrect);
+                            return layoutTeleporter.TeleportToTarget(Region.PrototypeDataRef, PrototypeId.Invalid, PrototypeId.Invalid, PrototypeId.Invalid);
+                        }
+
                         if (deathReleaseTarget == PrototypeId.Invalid)
                             return Logger.WarnReturn(false, "DoDeathRelease(): Failed to find a target to move to");
 
@@ -742,6 +753,100 @@ namespace MHServerEmu.Games.Entities.Avatars
 
         #endregion
 
+        #region Movement Lock Watchdog
+
+        // CUSTOM: Conditions with no duration (e.g. hotspot immobilizes) are only removed by the power that tracks them.
+        // If the power stops tracking one before its results are applied (target left the hotspot, hotspot / creator died
+        // in between), the condition lands with nothing left to remove it and locks the avatar in place forever.
+        // While the avatar is movement locked, periodically log what is locking it and remove such orphaned conditions.
+
+        private static readonly TimeSpan MovementLockCheckInterval = TimeSpan.FromSeconds(5);
+
+        private static bool IsMovementLockProperty(PropertyEnum propertyEnum)
+        {
+            return propertyEnum == PropertyEnum.Immobilized
+                || propertyEnum == PropertyEnum.ImmobilizedByHitReact
+                || propertyEnum == PropertyEnum.SystemImmobilized
+                || propertyEnum == PropertyEnum.Knockback
+                || propertyEnum == PropertyEnum.Knockdown
+                || propertyEnum == PropertyEnum.Knockup
+                || propertyEnum == PropertyEnum.Stunned
+                || propertyEnum == PropertyEnum.StunnedByHitReact
+                || propertyEnum == PropertyEnum.Mesmerized;
+        }
+
+        private static bool IsMovementLockCondition(Condition condition)
+        {
+            PropertyCollection properties = condition.Properties;
+            return properties.HasProperty(PropertyEnum.Immobilized)
+                || properties[PropertyEnum.ImmobilizedByHitReact]
+                || properties[PropertyEnum.SystemImmobilized]
+                || properties[PropertyEnum.Knockback]
+                || properties[PropertyEnum.Knockdown]
+                || properties[PropertyEnum.Knockup]
+                || properties[PropertyEnum.Stunned]
+                || properties[PropertyEnum.StunnedByHitReact]
+                || properties[PropertyEnum.Mesmerized];
+        }
+
+        private bool IsMovementLocked { get => HasMovementPreventionStatus || IsSystemImmobilized; }
+
+        private void ScheduleMovementLockWatchdog()
+        {
+            if (IsInWorld == false || IsMovementLocked == false || _movementLockWatchdogEvent.IsValid)
+                return;
+
+            ScheduleEntityEvent(_movementLockWatchdogEvent, MovementLockCheckInterval);
+        }
+
+        private void CheckMovementLock()
+        {
+            if (IsInWorld == false || IsDead || IsMovementLocked == false)
+                return;
+
+            ConditionCollection conditionCollection = ConditionCollection;
+            if (conditionCollection == null)
+                return;
+
+            using var orphanListHandle = ListPool<ulong>.Instance.Get(out List<ulong> orphanList);
+            EntityManager entityManager = Game.EntityManager;
+
+            foreach (Condition condition in conditionCollection)
+            {
+                if (IsMovementLockCondition(condition) == false)
+                    continue;
+
+                WorldEntity creator = entityManager.GetEntity<WorldEntity>(condition.CreatorId);
+                PrototypeId creatorPowerRef = condition.CreatorPowerPrototypeRef;
+                Power creatorPower = creatorPowerRef != PrototypeId.Invalid ? creator?.GetPower(creatorPowerRef) : null;
+
+                // Only conditions with no duration can get stuck, finite ones expire on their own
+                bool orphaned = condition.Duration == TimeSpan.Zero
+                    && (creator == null
+                        || creator.IsInWorld == false
+                        || (creatorPowerRef != PrototypeId.Invalid && (creatorPower == null || creatorPower.IsTrackingCondition(Id, condition) == false)));
+
+                Logger.Warn($"CheckMovementLock(): [{this}] locked by condition id={condition.Id} [{condition.ConditionPrototype?.DataRef.GetName()}] " +
+                    $"power=[{creatorPowerRef.GetName()}] creator=[{creator?.PrototypeName ?? "gone"}] " +
+                    $"duration={(condition.Duration == TimeSpan.Zero ? "none" : $"{condition.TimeRemaining.TotalMilliseconds:0}ms left")} orphaned={orphaned}");
+
+                if (orphaned)
+                    orphanList.Add(condition.Id);
+            }
+
+            foreach (ulong conditionId in orphanList)
+            {
+                Logger.Warn($"CheckMovementLock(): Removing orphaned movement lock condition id={conditionId} from [{this}]");
+                conditionCollection.RemoveCondition(conditionId);
+            }
+
+            // Keep watching while still locked
+            if (IsInWorld && IsMovementLocked)
+                ScheduleEntityEvent(_movementLockWatchdogEvent, MovementLockCheckInterval);
+        }
+
+        #endregion
+
         #region Teleports
 
         public void SetLastTownRegion(PrototypeId regionProtoRef)
@@ -911,9 +1016,6 @@ namespace MHServerEmu.Games.Entities.Avatars
             if (base.OnPowerAssigned(power) == false)
                 return false;
 
-            if (_pendingAction.PowerProtoRef == power.PrototypeDataRef)
-                CancelPendingAction();
-
             // Set charges to max if the assigned power uses charges
             if (Properties.HasProperty(new PropertyId(PropertyEnum.PowerChargesMax, power.PrototypeDataRef)) == false)
             {
@@ -931,6 +1033,22 @@ namespace MHServerEmu.Games.Entities.Avatars
                     Properties[PropertyEnum.PowerChargesMax, power.PrototypeDataRef] = powerChargesMax;
                 }
             }
+
+            return true;
+        }
+
+        public override bool OnPowerUnassigned(Power power)
+        {
+            if (base.OnPowerUnassigned(power) == false)
+                return false;
+
+            // Don't leave a pending action pointing at a power that is no longer assigned
+            if (_pendingAction.PowerProtoRef == power.PrototypeDataRef)
+                CancelPendingAction();
+
+            // Fixes PowerChargesMaxBonusForKwd, including its interaction with mapped powers
+            if (GetPowerChargesMax(power.PrototypeDataRef) > 0)
+                Properties.RemoveProperty(new(PropertyEnum.PowerChargesMaxBonus, power.PrototypeDataRef));
 
             return true;
         }
@@ -2549,7 +2667,7 @@ namespace MHServerEmu.Games.Entities.Avatars
             // Unassign
             UnassignPower(mappedPowerRef);
             Properties.RemoveProperty(new(PropertyEnum.AvatarMappedPower, originalPowerRef));
-            Properties.RemoveProperty(new(PropertyEnum.PowerChargesMaxBonus, mappedPowerRef));
+
             // Refresh the original power
             GetPowerProgressionInfo(originalPowerRef, out PowerProgressionInfo originalPowerInfo);
             UpdatePowerRank(ref originalPowerInfo, false);
@@ -4279,6 +4397,9 @@ namespace MHServerEmu.Games.Entities.Avatars
 
             region.PlayerInteractEvent.Invoke(new(player, interactableObject, missionRef));
 
+            if (ScriptHooks.EntityInteracted.HasHandlers)
+                ScriptHooks.EntityInteracted.Invoke(new(player, this, interactableObject));
+
             if (interactableObject.Properties[PropertyEnum.EntSelActHasInteractOption])
                 interactableObject.TriggerEntityActionEvent(EntitySelectorActionEventType.OnPlayerInteract);
 
@@ -5115,15 +5236,17 @@ namespace MHServerEmu.Games.Entities.Avatars
 
         private void RestoreMissionRewardProperties(Player player)
         {
+            using var rewardPropsHandle = ListPool<PropertyId>.Instance.Get(out List<PropertyId> rewardProps);
+
             foreach (var kvp in Properties.IteratePropertyRange(PropertyEnum.MissionRewardReceived))
-            {
-                Property.FromParam(kvp.Key, 0, out PrototypeId missionProtoRef);
-                RestoreMissionRewardProperties(player, missionProtoRef);
-            }
+                rewardProps.Add(kvp.Key);
 
             foreach (var kvp in player.Properties.IteratePropertyRange(PropertyEnum.MissionRewardReceived))
+                rewardProps.Add(kvp.Key);
+
+            foreach (PropertyId propId in rewardProps)
             {
-                Property.FromParam(kvp.Key, 0, out PrototypeId missionProtoRef);
+                Property.FromParam(propId, 0, out PrototypeId missionProtoRef);
                 RestoreMissionRewardProperties(player, missionProtoRef);
             }
         }
@@ -6617,11 +6740,30 @@ namespace MHServerEmu.Games.Entities.Avatars
 
             int rank = 0;
             int ranksMax = modProto.GetRanksMax();
+
+            // --- INFINITY SYSTEM UNCAPP OVERRIDE ---
+            // If this is an Infinity bonus, remove the prototype rank ceiling.
+            // You can filter this further by specific PrototypeIds if you ONLY want main stats uncapped.
+            if (modProto is InfinityGemBonusPrototype)
+            {
+                ranksMax = int.MaxValue;
+            }
+            // ---------------------------------------
+
             remainder = points;
 
             while (remainder > 0 && rank < ranksMax)
             {
                 int nextRankCost = curve.GetIntAt(rank + 1);
+
+               
+                if (nextRankCost <= 0)
+                {
+                    nextRankCost = curve.GetIntAt(rank);
+
+                    if (nextRankCost <= 0) nextRankCost = 25;
+                }
+
                 if (nextRankCost > remainder)
                     break;
 
@@ -6640,6 +6782,9 @@ namespace MHServerEmu.Games.Entities.Avatars
         {
             base.OnPropertyChange(id, newValue, oldValue, flags);
             if (flags.HasFlag(SetPropertyFlags.Refresh)) return;
+
+            if (IsMovementLockProperty(id.Enum))
+                ScheduleMovementLockWatchdog();
 
             int manaTypeValue;
             ManaType manaType;
@@ -6708,7 +6853,7 @@ namespace MHServerEmu.Games.Entities.Avatars
 
                         SetContinuousPower(PrototypeId.Invalid, _continuousPowerData.TargetId, Vector3.Zero, 0, true);
                     }
-                        
+
                     break;
 
                 case PropertyEnum.AllianceOverride:
@@ -7128,7 +7273,7 @@ namespace MHServerEmu.Games.Entities.Avatars
             CurrentTeamUpAgent?.SetTeamUpsAtMaxLevel(player);   // Needed to calculate team-up synergies
 
             ApplyLiveTuneServerConditions();
-          
+
             RestoreSelfAppliedPowerConditions();     // This needs to happen after we assign powers
             UpdateBoostConditionPauseState(region.PausesBoostConditions());
 
@@ -7148,8 +7293,6 @@ namespace MHServerEmu.Games.Entities.Avatars
             }
 
             UpdateTalentPowers();
-   
-            RestoreSelfAppliedPowerConditions();
 
             var missionManager = player.MissionManager;
             if (missionManager != null)
@@ -7525,6 +7668,10 @@ namespace MHServerEmu.Games.Entities.Avatars
             protected override CallbackDelegate GetCallback() => (t) => ((Avatar)t).RefreshStatsPower();
         }
 
+        private class MovementLockWatchdogEvent : CallMethodEvent<Entity>
+        {
+            protected override CallbackDelegate GetCallback() => (t) => ((Avatar)t).CheckMovementLock();
+        }
         private class RecheckContinuousPowerEvent : CallMethodEvent<Entity>
         {
             protected override CallbackDelegate GetCallback() => (t) => ((Avatar)t).CheckContinuousPower();

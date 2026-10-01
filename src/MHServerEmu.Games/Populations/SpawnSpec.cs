@@ -46,6 +46,14 @@ namespace MHServerEmu.Games.Populations
         public TimeSpan SpawnedTime { get; private set; } = TimeSpan.Zero;
         public TimeSpan PostContactDelayMS { get; set; } = TimeSpan.Zero;
         public Cell CellSlot { get; private set; }
+        // Prototype the client renders the spawned entity as.
+        public PrototypeId ClientRenderPrototypeRef { get; set; } = PrototypeId.Invalid;
+
+        // Custom name drawn above the entity when rendered as an avatar.
+        public string ClientRenderPlayerName { get; set; }
+
+        // Visual bounds scale override (1.0 = default size).
+        public float BoundsScaleOverride { get; set; } = 1f;
         public float LeashDistance
         {
             get
@@ -71,18 +79,29 @@ namespace MHServerEmu.Games.Populations
 
         public bool Spawn()
         {
-            if (Group == null || CheckEncounterPhase() == false) return false;
+            if (Group == null || CheckEncounterPhase() == false)
+            {
+               
+                return false;
+            }
+
             Transform3 transform = Group.Transform * Transform;
             Vector3 position = transform.Translation;
             Orientation orientation = transform.Orientation;
 
             Region region = Group.PopulationManager.Region;
-            if (region == null) return false;
+            if (region == null)
+            {
+               
+                return false;
+            }
+
             var manager = Game.EntityManager;
             if (manager == null) return false;
 
             Cell cell = region.GetCellAtPosition(position);
-            if (cell == null) return Logger.WarnReturn(false, "Spawn(): cell == null");
+            if (cell == null) return false;
+          
 
             Area area = cell.Area;
 
@@ -106,7 +125,9 @@ namespace MHServerEmu.Games.Populations
             settings.Properties = settingsProperties;
             settingsProperties.FlattenCopyFrom(Properties, false);
             settingsProperties.RemovePropertyRange(PropertyEnum.EnemyBoost);
-
+            // Pass through an explicit VariationSeed so the entity uses it instead of Game.Random.
+            if (Properties.HasProperty(PropertyEnum.VariationSeed))
+                settings.VariationSeed = Properties[PropertyEnum.VariationSeed];
             int level = area.GetCharacterLevel(entityProto);
             settingsProperties[PropertyEnum.CharacterLevel] = level;
             settingsProperties[PropertyEnum.CombatLevel] = level;
@@ -146,7 +167,11 @@ namespace MHServerEmu.Games.Populations
 
             ActiveEntity = manager.CreateEntity(settings) as WorldEntity;
             if (ActiveEntity == null)
-                return Logger.WarnReturn(false, $"Spawn(): Failed to create entity {EntityRef.GetName()}");
+            {
+                
+                return false;
+            }
+           
 
             PatrolBossSpawnProtection.TryApply(ActiveEntity, region);
 
@@ -387,9 +412,11 @@ namespace MHServerEmu.Games.Populations
             return false;
         }
 
-        public bool GetEntities(out List<WorldEntity> entities, SpawnGroupEntityQueryFilterFlags filterFlag, AlliancePrototype allianceProto = null)
+        /// <summary>
+        /// Adds the group's entities that pass <paramref name="filterFlag"/> to <paramref name="entities"/> (pass a pooled list).
+        /// </summary>
+        public bool GetEntities(List<WorldEntity> entities, SpawnGroupEntityQueryFilterFlags filterFlag, AlliancePrototype allianceProto = null)
         {
-            entities = new();
             foreach (SpawnSpec spec in Specs)
             {
                 WorldEntity entity = spec.ActiveEntity;
@@ -406,11 +433,11 @@ namespace MHServerEmu.Games.Populations
             return entities.Count > 0;
         }
 
-        public static List<WorldEntity> GetEntities(WorldEntity owner, SpawnGroupEntityQueryFilterFlags filterFlag = SpawnGroupEntityQueryFilterFlags.All)
+        public static bool GetEntities(List<WorldEntity> entities, WorldEntity owner, SpawnGroupEntityQueryFilterFlags filterFlag = SpawnGroupEntityQueryFilterFlags.All)
         {
-            List<WorldEntity> entities = new();
-            owner?.SpawnGroup?.GetEntities(out entities, filterFlag, owner.Alliance);
-            return entities;
+            entities.Clear();
+            owner?.SpawnGroup?.GetEntities(entities, filterFlag, owner.Alliance);
+            return entities.Count > 0;
         }
 
         public static bool EntityQueryAllianceCheck(SpawnGroupEntityQueryFilterFlags filterFlag, WorldEntity entity, AlliancePrototype allianceProto)

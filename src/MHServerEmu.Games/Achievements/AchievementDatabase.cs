@@ -31,6 +31,13 @@ namespace MHServerEmu.Games.Achievements
 
         private readonly Dictionary<string, NetMessageAchievementDatabaseDump> _cachedDumps = new();
 
+        // CUSTOM: Strings registered at runtime (e.g. by scripts) on top of the AchievementStringMap*.json files.
+        // The client only learns custom strings from the dump sent when it connects, so changes rebuild the dump lazily.
+        private readonly object _dumpLock = new();
+        private readonly Dictionary<LocaleStringId, string> _customStrings = new();
+        private StringMap _fileStringMap = new();
+        private bool _customStringsDirty;
+
         public static AchievementDatabase Instance { get; } = new();
         public Dictionary<uint, AchievementInfo>.ValueCollection AchievementInfoMap { get => _achievementInfoMap.Values; }
         public TimeSpan AchievementNewThresholdUS { get; private set; }     // Unix timestamp in seconds
@@ -84,6 +91,7 @@ namespace MHServerEmu.Games.Achievements
             }
 
             // Build string buffer
+            LoadStringMapFiles();
             BuildStringBuffers();
 
             // Load new achievement threshold
@@ -184,17 +192,51 @@ namespace MHServerEmu.Games.Achievements
         /// </summary>
         public NetMessageAchievementDatabaseDump GetDump(string locale = DefaultLocale)
         {
-            if (_cachedDumps.TryGetValue(locale, out NetMessageAchievementDatabaseDump dump) == false)
+            lock (_dumpLock)
             {
-                // Fall back to the default locale (en_us) if we are being requested a locale we don't have.
-                if (DefaultLocale.Equals(locale) || _cachedDumps.TryGetValue(DefaultLocale, out dump) == false)
+                // Rebuild if custom strings changed since the dumps were cached
+                if (_customStringsDirty)
                 {
-                    Logger.Warn("GetDump(): Failed to fall back to the default locale");
-                    return NetMessageAchievementDatabaseDump.DefaultInstance;
+                    BuildStringBuffers();
+                    CacheDumps();
+                    _customStringsDirty = false;
                 }
-            }
 
-            return dump;
+                if (_cachedDumps.TryGetValue(locale, out NetMessageAchievementDatabaseDump dump) == false)
+                {
+                    // Fall back to the default locale (en_us) if we are being requested a locale we don't have.
+                    if (DefaultLocale.Equals(locale) || _cachedDumps.TryGetValue(DefaultLocale, out dump) == false)
+                    {
+                        Logger.Warn("GetDump(): Failed to fall back to the default locale");
+                        return NetMessageAchievementDatabaseDump.DefaultInstance;
+                    }
+                }
+
+                return dump;
+            }
+        }
+
+        /// <summary>
+        /// CUSTOM: Adds or replaces a custom localized string (used for all locales). Clients receive it the next time they connect.
+        /// </summary>
+        public void SetCustomString(LocaleStringId localeStringId, string text)
+        {
+            lock (_dumpLock)
+            {
+                if (_customStrings.TryGetValue(localeStringId, out string existing) && existing == text)
+                    return;
+
+                _customStrings[localeStringId] = text;
+                _customStringsDirty = true;
+            }
+        }
+
+        /// <summary>
+        /// CUSTOM: Returns the number of custom strings registered at runtime.
+        /// </summary>
+        public int CustomStringCount
+        {
+            get { lock (_dumpLock) return _customStrings.Count; }
         }
 
         /// <summary>
@@ -230,12 +272,9 @@ namespace MHServerEmu.Games.Achievements
             }
         }
 
-        private void BuildStringBuffers()
+        private void LoadStringMapFiles()
         {
-            _stringBuffers.Clear();
-
             StringMap combinedStringMap = new();
-            Dictionary<string, LocaleSerializer> localeSerializers = new();
 
             // Load and combine JSON data
             List<string> achievementStringMapFiles = [.. FileHelper.GetFilesWithPrefix(AchievementsDirectory, "AchievementStringMap", "json")];
@@ -262,19 +301,37 @@ namespace MHServerEmu.Games.Achievements
                 {
                     // Allow overriding of existing locale string ids
                     combinedStringMap[kvp.Key] = kvp.Value;
-
-                    // Prepare serializers for newly encountered locales
-                    foreach (string locale in kvp.Value.Keys)
-                    {
-                        if (localeSerializers.ContainsKey(locale) == false)
-                            localeSerializers.Add(locale, new());
-                    }
                 }
 
-                // NOTE: If we override all instances of a locale appearing, it will still have its own serializer,
-                // but all values will have to fall back to default. This is an unlikely scenario, but mentioning it just in case.
-
                 Logger.Trace($"Loaded {stringMap.Count} achievement strings from {Path.GetFileName(filePath)}");
+            }
+
+            _fileStringMap = combinedStringMap;
+        }
+
+        private void BuildStringBuffers()
+        {
+            _stringBuffers.Clear();
+
+            // CUSTOM: Start from the file strings and layer runtime custom strings on top (custom strings apply to every locale)
+            StringMap combinedStringMap = new();
+            foreach (var kvp in _fileStringMap)
+                combinedStringMap[kvp.Key] = kvp.Value;
+
+            foreach (var kvp in _customStrings)
+                combinedStringMap[kvp.Key] = new() { { DefaultLocale, kvp.Value } };
+
+            // Prepare serializers for every locale encountered
+            // NOTE: If we override all instances of a locale appearing, it will still have its own serializer,
+            // but all values will have to fall back to default. This is an unlikely scenario, but mentioning it just in case.
+            Dictionary<string, LocaleSerializer> localeSerializers = new();
+            foreach (var kvp in combinedStringMap)
+            {
+                foreach (string locale in kvp.Value.Keys)
+                {
+                    if (localeSerializers.ContainsKey(locale) == false)
+                        localeSerializers.Add(locale, new());
+                }
             }
 
             // Add combined data to serializers

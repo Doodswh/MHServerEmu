@@ -82,6 +82,14 @@ namespace MHServerEmu.Games.Network
             if (FindStartLocationFromTarget(region, ref position, ref orientation))
                 return true;
 
+            // CUSTOM: script-built maps have no start target in their cells, players arrive in the map's S room
+            if (region.TryGetBuiltMapStartPosition(out Vector3 layoutStart))
+            {
+                position = layoutStart;
+                Avatar.AdjustStartPositionIfNeeded(region, ref position, true);
+                return true;
+            }
+
             // Fall back to the start target for the region
             if (FindStartLocationFromRegionStartTarget(region, ref position, ref orientation))
                 return true;

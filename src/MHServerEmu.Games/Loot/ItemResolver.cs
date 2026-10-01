@@ -12,6 +12,7 @@ using MHServerEmu.Games.Loot.Specs;
 using MHServerEmu.Games.Missions;
 using MHServerEmu.Games.Properties;
 using MHServerEmu.Games.Regions;
+using MHServerEmu.Games.EndlessScenarios;
 
 namespace MHServerEmu.Games.Loot
 {
@@ -52,7 +53,7 @@ namespace MHServerEmu.Games.Loot
             // For reference, this is 1-75 in 1.52, but it was 1-100 in 1.10
             PropertyInfoPrototype propertyInfoProto = GameDatabase.PropertyInfoTable.LookupPropertyInfo(PropertyEnum.ItemLevel).Prototype;
             _itemLevelMin = (int)propertyInfoProto.Min;
-            _itemLevelMax = (int)propertyInfoProto.Max;
+            _itemLevelMax = 100;
         }
 
         public void Initialize(GRandom random)
@@ -140,6 +141,7 @@ namespace MHServerEmu.Games.Loot
                 0, Array.Empty<AffixSpec>(), Random.Next(), PrototypeId.Invalid);
 
             itemSpec.StackCount = stackCount;
+            itemSpec = EndlessScenarioLootHooks.ApplyItemPresentation(itemSpec);
 
             LootResult lootResult = new(itemSpec);
             PendingItem pendingItem = new(lootResult, filterArgs.RollFor, mutations, false);
@@ -153,7 +155,7 @@ namespace MHServerEmu.Games.Loot
             if (CheckItem(lootCloneRecord, lootCloneRecord.RestrictionFlags) == false)
                 return LootRollResult.Failure;
 
-            LootResult lootResult = new(lootCloneRecord.ToItemSpec());
+            LootResult lootResult = new(EndlessScenarioLootHooks.ApplyItemPresentation(lootCloneRecord.ToItemSpec()));
             PendingItem pendingItem = new(lootResult, PrototypeId.Invalid, null, true);
             _pendingItemList.Add(pendingItem);
 

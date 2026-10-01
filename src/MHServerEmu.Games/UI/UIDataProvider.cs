@@ -93,6 +93,14 @@ namespace MHServerEmu.Games.UI
             return widget as T;
         }
 
+        /// <summary>
+        /// CUSTOM: Returns an existing widget without creating it (null if it does not exist or is another type).
+        /// </summary>
+        public T FindWidget<T>(PrototypeId widgetRef, PrototypeId contextRef = PrototypeId.Invalid) where T : UISyncData
+        {
+            return _dataDict.TryGetValue((widgetRef, contextRef), out UISyncData widget) ? widget as T : null;
+        }
+
         public void DeleteWidget(PrototypeId widgetRef, PrototypeId contextRef = PrototypeId.Invalid)
         {
             if (_dataDict.Remove((widgetRef, contextRef), out UISyncData widget))

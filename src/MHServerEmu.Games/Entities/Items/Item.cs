@@ -55,6 +55,11 @@ namespace MHServerEmu.Games.Entities.Items
         private ItemSpec _itemSpec = new();
         private List<AffixPropertiesCopyEntry> _affixProperties = new();
 
+        /// <summary>
+        /// CUSTOM: this item's affixes with their rolled properties (read-only, for diagnostics such as !gearcheck).
+        /// </summary>
+        public IReadOnlyList<AffixPropertiesCopyEntry> AffixPropertiesEntries { get => _affixProperties; }
+
         private ulong _tickerId;
 
         public ItemPrototype ItemPrototype { get => Prototype as ItemPrototype; }
@@ -66,7 +71,7 @@ namespace MHServerEmu.Games.Entities.Items
 
         public bool IsEquipped { get => InventoryLocation.InventoryPrototype?.IsEquipmentInventory == true; }
         public bool IsInBuybackInventory { get => InventoryLocation.InventoryRef == GameDatabase.GlobalsPrototype.VendorBuybackInventory; }
-        
+
         public bool BindsToAccountOnPickup { get => Properties[PropertyEnum.ItemBindsToAccountOnPickup]; }
         public bool BindsToCharacterOnEquip { get => Properties[PropertyEnum.ItemBindsToCharacterOnEquip]; }
         public bool IsBoundToAccount { get => _itemSpec.GetBindingState(); }
@@ -77,15 +82,39 @@ namespace MHServerEmu.Games.Entities.Items
         public bool StacksCanBeSplit { get => ItemPrototype?.StackSettings?.StacksCanBeSplit == true; }
 
         public bool IsPetItem { get => ItemPrototype?.IsPetItem == true; }
-        private bool _bagLootRolled = false;
         public bool IsCraftingRecipe { get => Prototype is CraftingRecipePrototype; }
         public bool IsRelic { get => Prototype is RelicPrototype; }
         public bool IsTeamUpGear { get => Prototype is TeamUpGearPrototype; }
+
+        /// <summary>
+        /// CUSTOM: <see langword="true"/> for Omega-rarity items (see LootUtilities.OmegaRarityName).
+        /// </summary>
+        public bool IsOmegaItem { get => LootUtilities.IsOmegaRarity(_itemSpec.RarityProtoRef); }
+
+        /// <summary>
+        /// Returns <see langword="true"/> if the affix applies to the hero that owns this team-up gear instead of the team-up wearing it.
+        /// </summary>
+        /// <remarks>
+        /// Originally only team-up affixes flagged IsAppliedToOwnerAvatar do. CUSTOM: on Omega team-up gear, the extra regular
+        /// affixes the Omega rules add (prefixes, suffixes, cosmic, unique...) apply to the hero too, since they are hero stats.
+        /// Team-up affixes keep their original target, and visual affixes stay on the item. The client still shows these as
+        /// team-up stats (it doesn't know about this rule); the server applies them to the hero.
+        /// </remarks>
+        public bool AppliesAffixToOwnerAvatar(AffixPrototype affixProto)
+        {
+            if (affixProto == null)
+                return false;
+
+            if (affixProto is AffixTeamUpPrototype teamUpAffixProto)
+                return teamUpAffixProto.IsAppliedToOwnerAvatar;
+
+            return IsTeamUpGear && affixProto.Position != AffixPosition.Visual && IsOmegaItem;
+        }
         public bool IsGem { get => ItemPrototype?.IsGem == true; }
-        public bool IsClonedWhenPurchasedFromVendor { get => ItemPrototype?.ClonedWhenPurchasedFromVendor == true; }
+        public bool IsClonedWhenPurchasedFromVendor { get => ItemPrototype?.ClonedWhenPurchasedFromVendor == true || IsCustomClonedWhenPurchasedFromVendor; }
         public bool IsGuildUnlockItem { get => HasItemActionType(ItemActionType.GuildUnlock); }
 
-        public Item(Game game) : base(game) 
+        public Item(Game game) : base(game)
         {
             SetFlag(EntityFlags.IsNeverAffectedByPowers, true);
         }
@@ -122,9 +151,6 @@ namespace MHServerEmu.Games.Entities.Items
 
                 // Restore affix level from XP for legendary items
                 TryLevelUpAffix(true);
-
-                _bagLootRolled = true;
-                // ---------------------
             }
 
             return true;
@@ -233,38 +259,6 @@ namespace MHServerEmu.Games.Entities.Items
             }
 
             base.OnSelfAddedToOtherInventory();
-
-            // --- NEW: BagItem Initialization Logic ---
-            if (ItemPrototype is BagItemPrototype && !_bagLootRolled)
-            {
-                // Mark it so we never roll loot for this specific bag again
-                _bagLootRolled = true;
-
-                // Get the player to use as the context for the loot roll (level, boosts, etc.)
-                Player player = GetOwnerOfType<Player>();
-                if (player != null)
-                {
-                    var entityProto = this.PrototypeDataRef.As<EntityPrototype>();
-
-                    // Because EntityPrototype.cs defines Inventories as an array, we can safely loop it
-                    if (entityProto != null && entityProto.Inventories.HasValue())
-                    {
-                        foreach (EntityInventoryAssignmentPrototype assignment in entityProto.Inventories)
-                        {
-                            if (assignment == null || assignment.LootTable == PrototypeId.Invalid || assignment.Inventory == PrototypeId.Invalid)
-                                continue;
-
-                            // Entity.cs already instantiated this inventory for us during InitInventories(). We just fetch it!
-                            Inventory nestedInv = this.GetInventoryByRef(assignment.Inventory);
-                            if (nestedInv != null)
-                            {
-                                PopulateBagWithLoot(assignment.LootTable, nestedInv, player);
-                            }
-                        }
-                    }
-                }
-            }
-            // -----------------------------------------
         }
 
         public override void OnSelfRemovedFromOtherInventory(ref InventoryLocation prevInvLoc)
@@ -303,7 +297,7 @@ namespace MHServerEmu.Games.Entities.Items
         public bool ApplyTeamUpAffixesToAvatar(Avatar avatar)
         {
             if (GetOwnerOfType<Player>() != avatar.GetOwnerOfType<Player>()) return Logger.WarnReturn(false, "ApplyTeamUpAffixesToAvatar(): GetOwnerOfType<Player>() != avatar.GetOwnerOfType<Player>()");
-            
+
             foreach (AffixPropertiesCopyEntry copyEntry in _affixProperties)
             {
                 if (copyEntry.Properties == null || copyEntry.AffixProto == null)
@@ -312,10 +306,8 @@ namespace MHServerEmu.Games.Entities.Items
                     continue;
                 }
 
-                if (copyEntry.AffixProto is not AffixTeamUpPrototype affixProto)
-                    continue;
-
-                if (affixProto.IsAppliedToOwnerAvatar == false)
+                AffixPrototype affixProto = copyEntry.AffixProto;
+                if (AppliesAffixToOwnerAvatar(affixProto) == false)
                     continue;
 
                 bool didAssignAllPowers = avatar.UpdateProcEffectPowers(copyEntry.Properties, true);
@@ -324,7 +316,7 @@ namespace MHServerEmu.Games.Entities.Items
 
                 if (avatar.Properties.HasChildCollection(copyEntry.Properties))
                     continue;
-                
+
                 avatar.Properties.AddChildCollection(copyEntry.Properties);
             }
 
@@ -341,10 +333,7 @@ namespace MHServerEmu.Games.Entities.Items
                     continue;
                 }
 
-                if (copyEntry.AffixProto is not AffixTeamUpPrototype affixProto)
-                    continue;
-
-                if (affixProto.IsAppliedToOwnerAvatar == false)
+                if (AppliesAffixToOwnerAvatar(copyEntry.AffixProto) == false)
                     continue;
 
                 if (avatar.Properties.HasChildCollection(copyEntry.Properties) == false)
@@ -376,7 +365,7 @@ namespace MHServerEmu.Games.Entities.Items
         {
             base.OnPropertyChange(id, newValue, oldValue, flags);
             if (flags.HasFlag(SetPropertyFlags.Refresh)) return;
-            
+
             switch (id.Enum)
             {
                 case PropertyEnum.InventoryStackCount:
@@ -959,16 +948,16 @@ namespace MHServerEmu.Games.Entities.Items
 
             // Move the created item to the destination, ignoring binding checks
             newItem.SetStatus(EntityStatus.SkipItemBindingCheck, true);
-            
+
             ulong? stackEntityId = 0;
             InventoryResult moveResult = newItem.ChangeInventoryLocation(toInventory, toInvLoc.Slot, ref stackEntityId, true);
-            
+
             newItem.SetStatus(EntityStatus.SkipItemBindingCheck, false);
 
             if (stackEntityId == Id)
                 return Logger.WarnReturn(InventoryResult.UnknownFailure, $"DoStackSplit(): Splitting stack [{this}] resulted in the item being stacked with itself");
 
-            return moveResult; 
+            return moveResult;
         }
 
         public void SetRecentlyAdded(bool value)
@@ -983,7 +972,7 @@ namespace MHServerEmu.Games.Entities.Items
             properties.CopyPropertyRange(Properties, PropertyEnum.RegionAffix);
             properties.CopyProperty(Properties, PropertyEnum.RegionAffixDifficulty);
 
-            PrototypeId itemRarityRef = Properties[PropertyEnum.ItemRarity];
+            PrototypeId itemRarityRef = GetCustomScenarioRarityForRegion();
             var itemRarityProto = itemRarityRef.As<RarityPrototype>();
             if (itemRarityProto != null)
                 properties[PropertyEnum.ItemRarity] = itemRarityRef;
@@ -1015,12 +1004,16 @@ namespace MHServerEmu.Games.Entities.Items
 
             GRandom random = new(_itemSpec.Seed);
 
-            // Apply built-in properties
+            // Apply built-in properties.
+            // Team-up gear always uses max rolls so every stat lands at its ceiling value.
+            bool forceMaxRolls = IsTeamUpGear;
+
             if (itemProto.PropertiesBuiltIn.HasValue())
             {
                 foreach (PropertyEntryPrototype propertyEntryProto in itemProto.PropertiesBuiltIn)
                 {
                     float randomMult = random.NextFloat();
+                    if (forceMaxRolls) randomMult = 1.0f;
 
                     if (propertyEntryProto is PropertyPickInRangeEntryPrototype pickInRangeProto)
                         OnBuiltInPropertyRoll(randomMult, pickInRangeProto);
@@ -1049,7 +1042,7 @@ namespace MHServerEmu.Games.Entities.Items
                     }
 
                     random.Seed(builtInAffixDetails.Seed);
-                    OnAffixAdded(random, affixProto, builtInAffixDetails.ScopeProtoRef, builtInAffixDetails.AvatarProtoRef, builtInAffixDetails.LevelRequirement);
+                    OnAffixAdded(random, affixProto, builtInAffixDetails.ScopeProtoRef, builtInAffixDetails.AvatarProtoRef, builtInAffixDetails.LevelRequirement, forceMaxRolls);
                 }
             }
 
@@ -1061,10 +1054,10 @@ namespace MHServerEmu.Games.Entities.Items
 
                 if (affixSpec.Seed == 0) return Logger.WarnReturn(false, "ApplyItemSpec(): affixSpec.Seed == 0");
                 random.Seed(affixSpec.Seed);
-                
+
                 if (affixSpec.AffixProto == null) return Logger.WarnReturn(false, "ApplyItemSpec(): affixSpec.AffixProto == null");
 
-                OnAffixAdded(random, affixSpec.AffixProto, affixSpec.ScopeProtoRef, _itemSpec.EquippableBy, 0);
+                OnAffixAdded(random, affixSpec.AffixProto, affixSpec.ScopeProtoRef, _itemSpec.EquippableBy, 0, forceMaxRolls);
             }
 
             // Pick triggered power
@@ -1113,6 +1106,11 @@ namespace MHServerEmu.Games.Entities.Items
             Properties[PropertyEnum.ItemLevel] = Math.Max(1, _itemSpec.ItemLevel);
             Properties[PropertyEnum.Requirement, PropertyEnum.CharacterLevel] = (float)GetEquippableAtLevelForItemLevel(itemLevel);
 
+            // CUSTOM: team-up gear can be equipped at any level. Omega team-up gear is item level 60 for its affix values
+            // (Data/Scripts/omega/omega_items.csx), but the level requirement normally follows the item level.
+            if (itemProto is TeamUpGearPrototype)
+                Properties[PropertyEnum.Requirement, PropertyEnum.CharacterLevel] = 1f;
+
             // Apply binding settings
             if (itemProto.BindingSettings != null)
             {
@@ -1145,8 +1143,11 @@ namespace MHServerEmu.Games.Entities.Items
             if (stackSettings != null)
             {
                 Properties[PropertyEnum.InventoryStackSizeMax] = stackSettings.MaxStacks;
-                Properties[PropertyEnum.ItemLevel] = stackSettings.ItemLevelOverride;
-                Properties[PropertyEnum.Requirement, PropertyEnum.CharacterLevel] = (float)stackSettings.RequiredCharLevelOverride;
+                if (stackSettings.MaxStacks > 1)
+                {
+                    Properties[PropertyEnum.ItemLevel] = stackSettings.ItemLevelOverride;
+                    Properties[PropertyEnum.Requirement, PropertyEnum.CharacterLevel] = (float)stackSettings.RequiredCharLevelOverride;
+                }
             }
 
             // Apply rarity bonus to item level
@@ -1534,6 +1535,9 @@ namespace MHServerEmu.Games.Entities.Items
             GRandom random = new(gemAffixSpec.Seed);
             OnAffixAdded(random, gemAffixSpec.AffixProto, gemAffixSpec.ScopeProtoRef, ItemSpec.EquippableBy, 0);
 
+            // CUSTOM: StarkTech cubes carry a visual effect affix (see LootUtilities gem rolls), and it goes onto the item too
+            bool visualChanged = TransferGemVisualAffix(gem);
+
             // Notify the clients
             NetMessageSocketGem message = NetMessageSocketGem.CreateBuilder()
                 .SetGemId(gem.Id)
@@ -1544,8 +1548,83 @@ namespace MHServerEmu.Games.Entities.Items
 
             // Destroy the gem
             gem.Destroy();
-            
+
+            // CUSTOM: the client's own socketing only moves the gem affix, so re-send the item to show the new visual right away
+            if (visualChanged)
+                RefreshOnInterestedClients();
+
             return true;
+        }
+
+        /// <summary>
+        /// CUSTOM: Replaces this item's visual effect affix with the one on <paramref name="gem"/>, if it has one.
+        /// Returns <see langword="true"/> if the item changed.
+        /// </summary>
+        private bool TransferGemVisualAffix(Item gem)
+        {
+            AffixSpec gemVisualSpec = null;
+            foreach (AffixSpec affixSpec in gem.ItemSpec.AffixSpecs)
+            {
+                if (affixSpec.AffixProto?.Position == AffixPosition.Visual)
+                {
+                    gemVisualSpec = affixSpec;
+                    break;
+                }
+            }
+
+            if (gemVisualSpec == null)
+                return false;
+
+            // Remove the visual affixes this item already has (including the "no visuals" one), then add the gem's
+            RemoveAffixesAtPosition(AffixPosition.Visual);
+
+            AffixSpec visualSpec = new(gemVisualSpec);
+            ItemSpec.AddAffixSpec(visualSpec);
+
+            // Most visual affixes are only the effect (no stats); OnAffixAdded() warns about those, so only stat ones go through it
+            if (visualSpec.AffixProto.HasBonusPropertiesToApply)
+                OnAffixAdded(new GRandom(visualSpec.Seed), visualSpec.AffixProto, visualSpec.ScopeProtoRef, ItemSpec.EquippableBy, 0);
+
+            return true;
+        }
+
+        /// <summary>
+        /// CUSTOM: Removes every affix at <paramref name="position"/> from this item, along with the stats it applied.
+        /// </summary>
+        private void RemoveAffixesAtPosition(AffixPosition position)
+        {
+            // Break ItemSpec's incapsulation the same way RemoveSocketAffix() does
+            IList<AffixSpec> affixes = (IList<AffixSpec>)ItemSpec.AffixSpecs;
+            for (int i = affixes.Count - 1; i >= 0; i--)
+            {
+                if (affixes[i].AffixProto?.Position == position)
+                    affixes.RemoveAt(i);
+            }
+
+            for (int i = _affixProperties.Count - 1; i >= 0; i--)
+            {
+                AffixPropertiesCopyEntry entry = _affixProperties[i];
+                if (entry.AffixProto?.Position != position)
+                    continue;
+
+                if (entry.Properties != null && Properties.HasChildCollection(entry.Properties))
+                    entry.Properties.RemoveFromParent(Properties);
+
+                _affixProperties.RemoveAt(i);
+            }
+        }
+
+        /// <summary>
+        /// CUSTOM: Re-sends this item to every client that can see it, so affix changes made on the server show up.
+        /// </summary>
+        private void RefreshOnInterestedClients()
+        {
+            List<PlayerConnection> interestedClients = new();
+            if (GetInterestedClients(interestedClients, AOINetworkPolicyValues.AllChannels) == false)
+                return;
+
+            foreach (PlayerConnection client in interestedClients)
+                client.AOI.RefreshEntity(this);
         }
 
         private bool RemoveSocketAffix(AffixPrototype affixProto)
@@ -1739,7 +1818,7 @@ namespace MHServerEmu.Games.Entities.Items
             }
 
             if (Prototype is LegendaryPrototype && Properties[PropertyEnum.ItemAffixLevel] == GetAffixLevelCap()) // TODO check GetAffixLevelCap
-            { 
+            {
                 var player = GetOwnerOfType<Player>();
                 player?.OnScoringEvent(new(ScoringEventType.FullyUpgradedLegendaries));
             }
@@ -1750,7 +1829,7 @@ namespace MHServerEmu.Games.Entities.Items
 
         private bool OnBuiltInPropertyRoll(float randomMult, PropertyPickInRangeEntryPrototype pickInRangeProto)
         {
-            PropertyInfo propertyInfo = GameDatabase.PropertyInfoTable.LookupPropertyInfo(pickInRangeProto.Prop.Enum);            
+            PropertyInfo propertyInfo = GameDatabase.PropertyInfoTable.LookupPropertyInfo(pickInRangeProto.Prop.Enum);
             PropertyDataType propDataType = propertyInfo.DataType;
 
             if (propDataType != PropertyDataType.Boolean && propDataType != PropertyDataType.Real && propDataType != PropertyDataType.Integer)
@@ -1822,7 +1901,7 @@ namespace MHServerEmu.Games.Entities.Items
             return true;
         }
 
-        private bool OnAffixAdded(GRandom random, AffixPrototype affixProto, PrototypeId scopeProtoRef, PrototypeId avatarProtoRef, int levelRequirement)
+        private bool OnAffixAdded(GRandom random, AffixPrototype affixProto, PrototypeId scopeProtoRef, PrototypeId avatarProtoRef, int levelRequirement, bool forceMaxRolls = false)
         {
             if (affixProto.Position == AffixPosition.Metadata)
                 return true;
@@ -1889,7 +1968,7 @@ namespace MHServerEmu.Games.Entities.Items
                             _itemSpec.ItemProtoRef.GetName()));
                     }
 
-                                                            //
+                    //
                     evalLevelVar = powerProgEntry.Level;    // <------- THIS IS IMPORTANT: we set an actual value here, and not just validating
                                                             //
                 }
@@ -1936,7 +2015,8 @@ namespace MHServerEmu.Games.Entities.Items
                     else
                         affixEntry.PowerModifierPropertyId = new(PropertyEnum.PowerBoost, scopeProtoRef);
 
-                    affixEntry.Properties[affixEntry.PowerModifierPropertyId] = GenerateIntWithinRange(random.NextFloat(), powerBoostMin, powerBoostMax);
+                    float boostRoll = forceMaxRolls ? 1.0f : random.NextFloat();
+                    affixEntry.Properties[affixEntry.PowerModifierPropertyId] = GenerateIntWithinRange(boostRoll, powerBoostMin, powerBoostMax);
                 }
 
                 int powerGrantMaxRank = Eval.RunInt(affixPowerModifierProto.PowerGrantRankMax, evalContext);
@@ -1951,7 +2031,8 @@ namespace MHServerEmu.Games.Entities.Items
                     else
                         affixEntry.PowerModifierPropertyId = new(PropertyEnum.PowerGrantRank, scopeProtoRef);
 
-                    affixEntry.Properties[affixEntry.PowerModifierPropertyId] = GenerateIntWithinRange(random.NextFloat(), powerGrantMinRank, powerBoostMax);
+                    float grantRoll = forceMaxRolls ? 1.0f : random.NextFloat();
+                    affixEntry.Properties[affixEntry.PowerModifierPropertyId] = GenerateIntWithinRange(grantRoll, powerGrantMinRank, powerBoostMax);
                 }
             }
             else if (affixProto is AffixRegionModifierPrototype affixRegionModifierProto)
@@ -1977,7 +2058,10 @@ namespace MHServerEmu.Games.Entities.Items
                 {
                     // NOTE: Property entries are rolled in parallel on the client and the server,
                     // so the order needs to be exact, or we are going to get a desync.
+                    // We still call random.NextFloat() even when forceMaxRolls is true so that
+                    // the RNG sequence stays in sync with the client; we just don't use the result.
                     float randomMult = random.NextFloat();
+                    if (forceMaxRolls) randomMult = 1.0f;
 
                     PropertyInfo propertyInfo = GameDatabase.PropertyInfoTable.LookupPropertyInfo(propertyEntry.Prop.Enum);
                     PropertyDataType propDataType = propertyInfo.DataType;
@@ -2011,7 +2095,6 @@ namespace MHServerEmu.Games.Entities.Items
                             }
 
                             affixEntry.Properties[propertyEntry.Prop] = GenerateIntWithinRange(randomMult, valueMin, valueMax);
-
                             break;
 
                         case PropertyDataType.Real:
@@ -2049,25 +2132,124 @@ namespace MHServerEmu.Games.Entities.Items
                 }
             }
 
+            bool attached = false;
+
             if (IsPetItem)
             {
                 if (ItemPrototype.IsPetTechAffixUnlocked(this, affixProto.Position))
                 {
-                    if (Properties.AddChildCollection(affixEntry.Properties) == false)
-                        return Logger.WarnReturn(false, "OnAffixAdded(): Properties.AddChildCollection(affixEntry.Properties) == false");
+                    if (AttachOrMergeAffixEntry(affixEntry) == false)
+                        return Logger.WarnReturn(false, "OnAffixAdded(): AttachOrMergeAffixEntry() == false");
+                    attached = true;
                 }
             }
             else if (affixEntry.LevelRequirement <= Properties[PropertyEnum.ItemAffixLevel])
             {
-                if (affixProto is not AffixTeamUpPrototype teamUpAffixProto || teamUpAffixProto.IsAppliedToOwnerAvatar == false)
+                // Affixes for the owner hero are not attached to the item (ApplyTeamUpAffixesToAvatar puts them on the hero)
+                if (AppliesAffixToOwnerAvatar(affixProto) == false)
                 {
-                    if (Properties.AddChildCollection(affixEntry.Properties) == false)
-                        return Logger.WarnReturn(false, "OnAffixAdded(): Properties.AddChildCollection(affixEntry.Properties) == false");
+                    if (AttachOrMergeAffixEntry(affixEntry) == false)
+                        return Logger.WarnReturn(false, "OnAffixAdded(): AttachOrMergeAffixEntry() == false");
+                    attached = true;
                 }
             }
 
-            _affixProperties.Add(affixEntry);
+            if (attached == false)
+                _affixProperties.Add(affixEntry);   // matches original: track even when gated off, for later re-evaluation
+
             return true;
+        }
+        /// <summary>
+        /// Attaches an affix's property collection to this item.
+        /// <para>
+        /// Every copy of an affix gets its own child collection (same as upstream), so any property that aggregates
+        /// by Sum/Mul stacks naturally, regardless of whether it came from PropertyEntries, static Properties,
+        /// PowerBoost / PowerGrantRank, int or float.
+        /// </para>
+        /// <para>
+        /// Properties that aggregate by Max would hide a duplicate (max(a, a) == a), so for those the duplicate's
+        /// value is summed into the first attached copy of the same affix and removed from the new copy.
+        /// </para>
+        /// </summary>
+        private bool AttachOrMergeAffixEntry(AffixPropertiesCopyEntry newEntry)
+        {
+            // Find the first copy of this affix that is actually attached.
+            // Entries held back by the level requirement / pet tech gate are skipped so we never attach them here.
+            PropertyCollection targetProperties = null;
+            for (int i = 0; i < _affixProperties.Count; i++)
+            {
+                AffixPropertiesCopyEntry existing = _affixProperties[i];
+                if (existing.AffixProto != newEntry.AffixProto || existing.Properties == null)
+                    continue;
+
+                if (Properties.HasChildCollection(existing.Properties) == false)
+                    continue;
+
+                targetProperties = existing.Properties;
+                break;
+            }
+
+            if (targetProperties != null)
+            {
+                // Collect first, the collection can't be modified while it is being iterated.
+                List<KeyValuePair<PropertyId, PropertyValue>> mergeList = null;
+                foreach (var kvp in newEntry.Properties)
+                {
+                    if (ShouldMergeDuplicateAffixProperty(kvp.Key) == false)
+                        continue;
+
+                    // Only merge into the same PropertyId (includes params such as power scope);
+                    // different keys don't compete under Max, so they can stay on their own child.
+                    if (targetProperties.HasProperty(kvp.Key) == false)
+                        continue;
+
+                    mergeList ??= new();
+                    mergeList.Add(kvp);
+                }
+
+                if (mergeList != null)
+                {
+                    foreach (var kvp in mergeList)
+                    {
+                        PropertyInfo mergeInfo = GameDatabase.PropertyInfoTable.LookupPropertyInfo(kvp.Key.Enum);
+                        if (mergeInfo.DataType == PropertyDataType.Real)
+                            targetProperties[kvp.Key] = (float)targetProperties[kvp.Key] + (float)kvp.Value;
+                        else
+                            targetProperties[kvp.Key] = (long)targetProperties[kvp.Key] + (long)kvp.Value;
+
+                        // The value now lives on the first copy, don't count it twice
+                        newEntry.Properties.RemoveProperty(kvp.Key);
+                    }
+                }
+            }
+
+            // Changes to an attached child's values propagate to this item's aggregate values through
+            // UpdateAggregateValue, so the new copy is attached as its own child like upstream.
+            if (Properties.AddChildCollection(newEntry.Properties) == false)
+                return false;
+
+            _affixProperties.Add(newEntry);
+            return true;
+        }
+
+        /// <summary>
+        /// Returns <see langword="true"/> if a duplicate affix value for the specified property has to be summed
+        /// manually because its aggregation method would otherwise ignore the duplicate.
+        /// </summary>
+        private static bool ShouldMergeDuplicateAffixProperty(PropertyId propertyId)
+        {
+            switch (propertyId.Enum)
+            {
+                case PropertyEnum.ItemLevel:
+                case PropertyEnum.RegionAffixDifficulty:
+                    return false;
+            }
+
+            PropertyInfo info = GameDatabase.PropertyInfoTable.LookupPropertyInfo(propertyId.Enum);
+            if (info.DataType != PropertyDataType.Real && info.DataType != PropertyDataType.Integer)
+                return false;
+
+            return info.Prototype.AggMethod == AggregationMethod.Max;
         }
 
         private void OnItemEventRoll(int index)
@@ -2321,7 +2503,7 @@ namespace MHServerEmu.Games.Entities.Items
 
             return false;
         }
-       
+
         private static bool HasItemAction(ItemActionBasePrototype[] actions, ItemActionType actionType)
         {
             foreach (ItemActionBasePrototype actionBaseProto in actions)
@@ -2396,14 +2578,14 @@ namespace MHServerEmu.Games.Entities.Items
                 if (itemProto.AbilitySettings?.OnlySlottableWhileEquipped == true && IsEquipped == false)
                     return InteractionValidateResult.ItemNotEquipped;
             }
-            
+
             //
             // Level validation
             //
 
             int characterLevel = avatar.CharacterLevel;
             int characterLevelRequirement = (int)(float)Properties[PropertyEnum.Requirement, PropertyEnum.CharacterLevel];
-            
+
             // Character level requirement for use is always equal at least to the item's level
             if (characterLevelRequirement <= 0)
                 characterLevelRequirement = Properties[PropertyEnum.ItemLevel];
@@ -2434,7 +2616,7 @@ namespace MHServerEmu.Games.Entities.Items
             //
             // Subtype-specific validation
             //
-            
+
             switch (itemProto)
             {
                 case CharacterTokenPrototype characterTokenProto:
@@ -2503,50 +2685,7 @@ namespace MHServerEmu.Games.Entities.Items
 
             return InteractionValidateResult.UnknownFailure;
         }
-        private void PopulateBagWithLoot(PrototypeId lootTableRef, Inventory destinationInv, Player player)
-        {
-            var lootTableProto = lootTableRef.As<LootTablePrototype>();
-            if (lootTableProto == null) return;
 
-            using LootInputSettings inputSettings = ObjectPoolManager.Instance.Get<LootInputSettings>();
-            inputSettings.Initialize(LootContext.Drop, player, null, this.Properties[PropertyEnum.ItemLevel]);
-
-            using ItemResolver resolver = ObjectPoolManager.Instance.Get<ItemResolver>();
-            resolver.Initialize(Game.Random);
-            resolver.SetContext(LootContext.Drop, player);
-
-            LootRollResult result = lootTableProto.RollLootTable(inputSettings.LootRollSettings, resolver);
-            if (result == LootRollResult.Success)
-            {
-                using LootResultSummary lootResultSummary = ObjectPoolManager.Instance.Get<LootResultSummary>();
-                resolver.FillLootResultSummary(lootResultSummary);
-
-                foreach (ItemSpec itemSpec in lootResultSummary.ItemSpecs)
-                {
-                    // Create the generated loot item
-                    using EntitySettings settings = ObjectPoolManager.Instance.Get<EntitySettings>();
-                    settings.EntityRef = itemSpec.ItemProtoRef;
-                    settings.ItemSpec = itemSpec;
-
-                    Item lootItem = Game.EntityManager.CreateEntity(settings) as Item;
-                    if (lootItem == null) continue;
-
-                    lootItem.Properties[PropertyEnum.InventoryStackCount] = itemSpec.StackCount;
-
-                    // Use the native inventory system to pack the item into the Bag
-                    ulong? stackEntityId = null;
-                    InventoryLocation prevInvLoc = InventoryLocation.Invalid;
-                    Inventory.ChangeEntityInventoryLocationOnCreate(
-                        lootItem,
-                        destinationInv,
-                        Inventory.InvalidSlot,
-                        false,
-                        true,
-                        ref prevInvLoc
-                    );
-                }
-            }
-        }
         private InteractionValidateResult PlayerCanUseInventoryStashToken(Player player, InventoryStashTokenPrototype inventoryStashTokenProto)
         {
             PrototypeId invStashProtoRef = inventoryStashTokenProto.Inventory;

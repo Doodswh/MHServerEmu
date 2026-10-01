@@ -101,6 +101,8 @@ namespace MHServerEmu.Games.MetaGames
                     if (stateRef != PrototypeId.Invalid)
                         ApplyMetaState(stateRef);
                 }
+                Logger.Info($"[MetaInit] region={GameDatabase.GetFormattedPrototypeName(region.PrototypeDataRef)} " +
+            $"applyOnInit=[{string.Join(",", region.Properties.IteratePropertyRange(PropertyEnum.MetaStateApplyOnInit).Select(kvp => { Property.FromParam(kvp.Key, 0, out PrototypeId s); return GameDatabase.GetFormattedPrototypeName(s); }))}]");
             }
             else
             {

@@ -262,9 +262,17 @@ namespace MHServerEmu.Games.Entities.Items
 
             return player.UnlockPermaBuff(permaBuffProtoRef);
         }
-        
+
         private bool DoItemActionUsePower(PrototypeId powerProtoRef, Avatar avatar)
         {
+            Player player = avatar.GetOwnerOfType<Player>();
+            if (player != null)
+            {
+                bool customItemUseSuccess = TryHandleCustomItemActionUse(player, out bool interceptedCustomItemUse);
+                if (interceptedCustomItemUse)
+                    return customItemUseSuccess;
+            }
+
             Power power = avatar.GetPower(powerProtoRef);
             if (power == null) return Logger.WarnReturn(false, "DoItemActionUsePower(): power == null");
 

@@ -15,6 +15,7 @@ namespace MHServerEmu.Core.Network
         GroupingManager,
         GiftItemDistributor,
         Billing,
+        Scripting,      // Before Frontend so scripts are loaded before players can connect
         Frontend,
         WebFrontend,
         NumServiceTypes

@@ -1389,7 +1389,14 @@ namespace MHServerEmu.Games.Powers
             if (agentProto == null) return Logger.WarnReturn(false, "DoPowerEventActionStealPower(): agentProto == null");
 
             // Check if there is a power to steal
-            StealablePowerInfoPrototype stealablePowerInfoProto = agentProto.StealablePower.As<StealablePowerInfoPrototype>();
+            // Incursion Mod: Steal Powers from their spoofed Avatars , not their "combat body" base  
+            StealablePowerInfoPrototype stealablePowerInfoProto;
+          
+            {
+                // Check if there is a power to steal
+                stealablePowerInfoProto = agentProto.StealablePower.As<StealablePowerInfoPrototype>();
+            }
+
             if (stealablePowerInfoProto == null)
                 return true;
 

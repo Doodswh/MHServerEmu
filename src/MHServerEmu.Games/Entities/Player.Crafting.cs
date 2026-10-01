@@ -58,6 +58,10 @@ namespace MHServerEmu.Games.Entities
             Avatar avatar = CurrentAvatar;
             if (avatar == null) return Logger.WarnReturn(CraftingResult.CraftingFailed, "Craft(): avatar == null");
 
+            // CUSTOM: Endless Danger Room crafting (add socket, unique upgrade), see EndlessCableScenarioManager
+            if (TryHandleCustomCraftRecipe(recipeProto, recipeItem, ingredientIds, vendor, resultsInv, isRecraft, out CraftingResult customCraftingResult))
+                return customCraftingResult;
+
             // Validate craftability
             CraftingResult canCraftRecipeResult = recipeItem.CanCraftRecipe(this, ingredientIds, vendor, isRecraft);
             if (canCraftRecipeResult != CraftingResult.Success)
@@ -176,6 +180,10 @@ namespace MHServerEmu.Games.Entities
 
             Avatar avatar = GetActiveAvatarByIndex(avatarIndex);
             if (avatar == null) return Logger.WarnReturn(CraftingResult.CraftingFailed, "CanCraftRecipeWithVendor(): avatar == null");
+
+            // CUSTOM: Endless Danger Room completion crafter recipes
+            if (CanCraftCustomRecipeWithVendor(recipeProto, vendor))
+                return CraftingResult.Success;
 
             int vendorLevel = Properties[PropertyEnum.VendorLevel, vendorTypeProtoRef];
             if (recipeProto.UnlockAtCrafterRank > vendorLevel)

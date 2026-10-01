@@ -25,6 +25,7 @@ using MHServerEmu.Games.Powers;
 using MHServerEmu.Games.Powers.Conditions;
 using MHServerEmu.Games.Properties;
 using MHServerEmu.Games.Regions;
+using MHServerEmu.Games.Scripting;
 
 namespace MHServerEmu.Games.Entities
 {
@@ -1880,6 +1881,9 @@ namespace MHServerEmu.Games.Entities
             }
 
             base.OnOtherEntityAddedToMyInventory(entity, ref invLoc, unpackedArchivedEntity);
+
+            if (inventoryPrototype.IsEquipmentInventory && ScriptHooks.EquipmentChanged.HasHandlers && entity is Item equippedItem)
+                ScriptHooks.EquipmentChanged.Invoke(new(this, equippedItem, true));
         }
 
         public override void OnOtherEntityRemovedFromMyInventory(Entity entity, ref InventoryLocation invLoc)
@@ -1900,6 +1904,9 @@ namespace MHServerEmu.Games.Entities
             }
 
             base.OnOtherEntityRemovedFromMyInventory(entity, ref invLoc);
+
+            if (inventoryPrototype.IsEquipmentInventory && ScriptHooks.EquipmentChanged.HasHandlers && entity is Item unequippedItem)
+                ScriptHooks.EquipmentChanged.Invoke(new(this, unequippedItem, false));
         }
 
         protected override bool InitInventories(bool populateInventories)
@@ -2501,10 +2508,7 @@ namespace MHServerEmu.Games.Entities
 
         public override bool OnNegativeStatusEffectApplied(ulong conditionId)
         {
-            // Check the base method's return value. 
-            // If the base class rejects or fails to process the condition, we abort and pass 'false' up the chain.
-            if (!base.OnNegativeStatusEffectApplied(conditionId))
-                return false;
+            base.OnNegativeStatusEffectApplied(conditionId);
 
             // Apply CCReactCondition (if this agent has one)
             PrototypeId ccReactConditionProtoRef = AgentPrototype.CCReactCondition;
@@ -2512,9 +2516,12 @@ namespace MHServerEmu.Games.Entities
                 return true;
 
             Condition negativeStatusCondition = ConditionCollection.GetCondition(conditionId);
-            if (negativeStatusCondition == null)
-                return Logger.WarnReturn(false, "OnNegativeStatusEffectApplied(): condition == null");
-
+            if (negativeStatusCondition == null) return Logger.WarnReturn(false, "OnNegativeStatusEffectApplied(): condition == null");
+            if (negativeStatusCondition.IsHitReactCondition() || negativeStatusCondition.OverridesHitReactConditions())
+            {
+                StartHitReactionCooldown();
+                return true; // Exit early so hit reacts don't trigger boss CC behaviors
+            }
             // Skip hit react conditions
             if (negativeStatusCondition.IsHitReactCondition())
                 return true;
@@ -2524,38 +2531,31 @@ namespace MHServerEmu.Games.Entities
                 return true;
 
             ConditionPrototype ccReactConditionProto = ccReactConditionProtoRef.As<ConditionPrototype>();
-            if (ccReactConditionProto == null)
-                return Logger.WarnReturn(false, "OnNegativeStatusEffectApplied(): ccReactConditionProto == null");
+            if (ccReactConditionProto == null) return Logger.WarnReturn(false, "OnNegativeStatusEffectApplied(): ccReactConditionProto == null");
 
             using var negativeStatusListHandle = ListPool<PrototypeId>.Instance.Get(out List<PrototypeId> negativeStatusList);
-
-            // Explicitly clear the pooled list. 
-            // This guarantees no leftover data from previous events ruins your count logic.
-            negativeStatusList.Clear();
-
-            if (negativeStatusCondition.IsANegativeStatusEffect(negativeStatusList))
+            if (negativeStatusCondition.IsANegativeStatusEffect(negativeStatusList) == false)
             {
-                // Apply only when this negative status condition has movement / cast speed decreases and no other statuses
-                bool hasMovementSpeedDecrease = negativeStatusCondition.Properties.HasProperty(PropertyEnum.MovementSpeedDecrPct);
-                bool hasCastSpeedDecrease = negativeStatusCondition.Properties.HasProperty(PropertyEnum.CastSpeedDecrPct);
-
-                if (((hasMovementSpeedDecrease || hasCastSpeedDecrease) && negativeStatusList.Count == 1) ||
-                    ((hasMovementSpeedDecrease && hasCastSpeedDecrease) && negativeStatusList.Count == 2))
-                {
-                    TimeSpan duration = ccReactConditionProto.GetDuration(null, this);
-
-                    Condition ccReactCondition = ConditionCollection.AllocateCondition();
-                    ccReactCondition.InitializeFromConditionPrototype(ConditionCollection.NextConditionId, Game, Id, Id, Id, ccReactConditionProto, duration);
-                    ConditionCollection.AddCondition(ccReactCondition);
-                }
-            }
-            else
-            {
-                //We log the warning, but we intentionally fall through to return 'true' at the end.
-                // Even if this specific CC reaction failed, the base status effect was still applied, 
-                // so we don't want to accidentally cancel it by returning 'false'.
                 Logger.Warn("OnNegativeStatusEffectApplied(): condition.IsANegativeStatusEffect(negativeStatusList) == false");
+                return true;
             }
+
+            // Skip negative status conditions that only have movement / cast speed decreases and no other statuses
+            bool hasMovementSpeedDecrease = negativeStatusCondition.Properties.HasProperty(PropertyEnum.MovementSpeedDecrPct);
+            bool hasCastSpeedDecrease = negativeStatusCondition.Properties.HasProperty(PropertyEnum.CastSpeedDecrPct);
+
+            if (negativeStatusList.Count == 1 && (hasMovementSpeedDecrease || hasCastSpeedDecrease))
+                return true;
+
+            if (negativeStatusList.Count == 2 && hasMovementSpeedDecrease && hasCastSpeedDecrease)
+                return true;
+
+            // Apply
+            TimeSpan duration = ccReactConditionProto.GetDuration(null, this);
+
+            Condition ccReactCondition = ConditionCollection.AllocateCondition();
+            ccReactCondition.InitializeFromConditionPrototype(ConditionCollection.NextConditionId, Game, Id, Id, Id, ccReactConditionProto, duration);
+            ConditionCollection.AddCondition(ccReactCondition);
 
             return true;
         }

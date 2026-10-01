@@ -700,6 +700,12 @@ namespace MHServerEmu.Games.Entities
             if (vendorTypeProto == null) return Logger.WarnReturn(false, "RollVendorInventory(): vendorTypeProto == null");
             PrototypeId vendorTypeProtoRef = vendorTypeProto.DataRef;
 
+            // CUSTOM: Endless Danger Room completion crafter (see EndlessCableScenarioManager)
+            bool isCompletionVendorType = IsCustomCompletionVendorType(vendorTypeProtoRef);
+
+            if (TryBlockCustomCompletionVendorReroll(vendorTypeProtoRef, isInitializing))
+                return true;
+
             if (isInitializing && _initializedVendorTypeProtoRefs.Add(vendorTypeProtoRef) == false)
                 return true;
 
@@ -827,6 +833,9 @@ namespace MHServerEmu.Games.Entities
                         ItemSpec itemSpec = lootResultSummary.ItemSpecs[i];
                         uint slot = (uint)i;
 
+                        if (ShouldSkipCustomRecipeInVendorRoll(isCompletionVendorType, itemSpec.ItemProtoRef))
+                            continue;
+
                         if (inventory.IsSlotFree(slot) == false)
                         {
                             Logger.Warn("RollVendorInventory(): inventory.IsSlotFree(slot) == false");
@@ -893,6 +902,9 @@ namespace MHServerEmu.Games.Entities
                                 Logger.Warn("RollVendorInventory(): recipeProto == null");
                                 continue;
                             }
+
+                            if (ShouldSkipCustomRecipeInVendorRoll(isCompletionVendorType, recipe.PrototypeDataRef))
+                                continue;
 
                             if (vendorTypeProto.ContainsCraftingRecipeCategory(recipeProto.RecipeCategory) == false)
                                 continue;

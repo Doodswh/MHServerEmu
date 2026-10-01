@@ -40,6 +40,9 @@
     <None Update="Data\Game\Achievements\AchievementStringMap_00_MainPatch.json">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
+    <None Update="Data\Game\Achievements\AchievementStringMap_EndlessCableScenario.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
     <None Update="Data\Game\Achievements\Off\AchievementInfoMap_01_DisableBroken.json">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
@@ -140,6 +143,9 @@
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
     <None Update="Data\Game\LiveTuning\LiveTuningData.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Update="Data\Game\LiveTuning\LiveTuningDataEndlessCableScenario.json">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
     <None Update="Data\Game\LiveTuning\LiveTuningDataPvP.json">

@@ -1,5 +1,6 @@
 ﻿using System.Collections;
 using System.Diagnostics;
+using System.Linq; // Added for ToArray()
 
 namespace MHServerEmu.Core.Logging
 {
@@ -9,7 +10,12 @@ namespace MHServerEmu.Core.Logging
     public static class LogManager
     {
         private static readonly Dictionary<string, Logger> _loggerDict = new();
-        private static readonly HashSet<LogTarget> _targets = new();
+
+        // --- THREAD SAFETY FIX ---
+        private static readonly object _targetsLock = new();
+        private static readonly HashSet<LogTarget> _targetsSet = new();
+        private static volatile LogTarget[] _targetsArray = Array.Empty<LogTarget>();
+        // -------------------------
 
         private static readonly DateTime _logTimeBase;
         private static readonly Stopwatch _logTimeStopwatch;
@@ -59,7 +65,18 @@ namespace MHServerEmu.Core.Logging
         /// </summary>
         public static bool AttachTarget(LogTarget target)
         {
-            return _targets.Add(target);
+            // --- THREAD SAFETY FIX ---
+            lock (_targetsLock)
+            {
+                if (_targetsSet.Add(target))
+                {
+                    // Create a safe, immutable snapshot array whenever a target is added
+                    _targetsArray = _targetsSet.ToArray();
+                    return true;
+                }
+                return false;
+            }
+            // -------------------------
         }
 
         /// <summary>
@@ -91,7 +108,10 @@ namespace MHServerEmu.Core.Logging
                 private readonly LoggingLevel _loggingLevel;
                 private readonly LogChannels _channels;
 
-                private HashSet<LogTarget>.Enumerator _targetEnumerator;
+                // --- THREAD SAFETY FIX ---
+                private readonly LogTarget[] _targetSnapshot;
+                private int _index;
+                // -------------------------
 
                 public LogTarget Current { get; private set; }
                 object IEnumerator.Current { get => Current; }
@@ -101,14 +121,19 @@ namespace MHServerEmu.Core.Logging
                     _loggingLevel = loggingLevel;
                     _channels = channels;
 
-                    _targetEnumerator = _targets.GetEnumerator();
+                    // Grab a reference to the active array snapshot. Even if another thread 
+                    // adds a new logger, this array instance will never change underneath us.
+                    _targetSnapshot = _targetsArray;
+                    _index = 0;
+                    Current = null;
                 }
 
                 public bool MoveNext()
                 {
-                    while (_targetEnumerator.MoveNext())
+                    // --- THREAD SAFETY FIX ---
+                    while (_index < _targetSnapshot.Length)
                     {
-                        LogTarget target = _targetEnumerator.Current;
+                        LogTarget target = _targetSnapshot[_index++];
 
                         if (_loggingLevel < target.MinimumLevel || _loggingLevel > target.MaximumLevel)
                             continue;
@@ -119,18 +144,19 @@ namespace MHServerEmu.Core.Logging
                         Current = target;
                         return true;
                     }
+                    // -------------------------
 
                     return false;
                 }
 
                 public void Reset()
                 {
-                    _targetEnumerator = _targets.GetEnumerator();
+                    _index = 0;
                 }
 
                 public void Dispose()
                 {
-                    _targetEnumerator.Dispose();
+                    // Array iteration doesn't require disposal
                 }
             }
         }

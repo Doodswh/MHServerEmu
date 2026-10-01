@@ -176,30 +176,56 @@ namespace MHServerEmu.Games.Populations
             Area = area;
         }
 
+
         public void PopulationRegisty(PopulationPrototype populationProto)
         {
             int objCount = 0;
             int markerCount = 0;
             var manager = PopulationManager;
             float spawnableNavArea = Area.SpawnableNavArea;
-            if (spawnableNavArea <= 0.0f || populationProto.UseSpawnMap) return; // SpawnMap
+
+            string popName = GameDatabase.GetFormattedPrototypeName(populationProto.DataRef);
+
+            // CRITICAL: Restored the early aborts you accidentally deleted. 
+            // Without these, the server will crash in empty hallways.
+            if (spawnableNavArea <= 0.0f || populationProto.UseSpawnMap) return;
             if (populationProto.Themes == null || populationProto.Themes.List.IsNullOrEmpty()) return;
 
             var spawnLocation = new SpawnLocation(Region, Area);
 
-            float density = spawnableNavArea / PopulationPrototype.PopulationClusterSq * (populationProto.ClusterDensityPct / 100.0f);
+            float clusterSq = PopulationPrototype.PopulationClusterSq;
+            float clusterDensityPct = populationProto.ClusterDensityPct;
+
+            float density = spawnableNavArea / clusterSq * (clusterDensityPct / 100.0f);
+
             var themeProto = GameDatabase.GetPrototype<PopulationThemePrototype>(populationProto.Themes.List[0].Object);
-            var picker = PopulationObject.PopulatePicker(manager.Random, themeProto.Enemies.List);
-            while (density > 0.0f && picker.Pick(out var objectProto))
+
+            // CRITICAL: The fix for the Avengers Tower crash. Safely skips trash mobs if the zone has none.
+            if (themeProto != null && themeProto.Enemies != null && !themeProto.Enemies.List.IsNullOrEmpty())
             {
-                density -= objectProto.GetAverageSize();
-                AddPopulationObject(PrototypeId.Invalid, objectProto, false, spawnLocation, PrototypeId.Invalid, true);
-                objCount++;
+                var picker = PopulationObject.PopulatePicker(manager.Random, themeProto.Enemies.List);
+
+                while (density > 0.0f && picker.Pick(out var objectProto))
+                {
+                    float avgSize = objectProto.GetAverageSize();
+                    density -= avgSize;
+                    AddPopulationObject(PrototypeId.Invalid, objectProto, false, spawnLocation, PrototypeId.Invalid, true);
+                    objCount++;
+                }
             }
 
             List<PopulationObjectInstancePrototype> encounters = new();
-            if (populationProto.GlobalEncounters != null) PopulationObject.GetContainedEncounters(populationProto.GlobalEncounters.List, encounters);
-            if (themeProto.Encounters != null) PopulationObject.GetContainedEncounters(themeProto.Encounters.List, encounters);
+
+            if (populationProto.GlobalEncounters != null)
+            {
+                PopulationObject.GetContainedEncounters(populationProto.GlobalEncounters.List, encounters);
+            }
+
+            // Ensures we don't throw a NullReferenceException here either
+            if (themeProto != null && themeProto.Encounters != null)
+            {
+                PopulationObject.GetContainedEncounters(themeProto.Encounters.List, encounters);
+            }
 
             var registry = Region.SpawnMarkerRegistry;
             var random = Game.Random;
@@ -210,18 +236,25 @@ namespace MHServerEmu.Games.Populations
                 var objectProto = GameDatabase.GetPrototype<PopulationObjectPrototype>(encounter.Object);
                 var markerRef = objectProto.UsePopulationMarker;
                 SpawnPicker spawnPicker;
+
                 if (markerPicker.TryGetValue(markerRef, out var found))
+                {
                     spawnPicker = found;
+                }
                 else
                 {
                     int slots = registry.CalcMarkerReservations(markerRef, Area.PrototypeDataRef);
 
                     if (slots == 0)
+                    {
                         spawnPicker = new(null, 0);
+                    }
                     else
                     {
-                        density = populationProto.GetEncounterDensity(markerRef) / 100.0f;
-                        int count = Math.Max(1, (int)(slots * density));
+                        float encounterDensity = populationProto.GetEncounterDensity(markerRef);
+                        float markerDensityCalc = encounterDensity / 100.0f;
+                        int count = Math.Max(1, (int)(slots * markerDensityCalc));
+
                         spawnPicker = new(new(random), count);
                     }
 
@@ -229,7 +262,9 @@ namespace MHServerEmu.Games.Populations
                 }
 
                 if (spawnPicker.Count > 0)
+                {
                     spawnPicker.Picker.Add(objectProto, encounter.Weight);
+                }
             }
 
             foreach (var kvp in markerPicker)
@@ -237,12 +272,15 @@ namespace MHServerEmu.Games.Populations
                 var markerRef = kvp.Key;
                 var spawnPicker = kvp.Value;
                 if (spawnPicker.Picker == null) continue;
+
                 var objectProto = spawnPicker.Picker.Pick();
+
                 for (int i = 0; i < spawnPicker.Count; i++)
+                {
                     AddPopulationObject(markerRef, objectProto, false, spawnLocation, PrototypeId.Invalid, true);
+                }
                 markerCount++;
             }
-            // Logger.Debug($"Population [{populationProto.SpawnMapDensityMin}][{GameDatabase.GetFormattedPrototypeName(populationProto.DataRef)}][{objCount}][{markerCount}]");
         }
 
         public PopulationObject AddHeatObject(Vector3 position, PopulationObjectPrototype population, SpawnHeat spawnHeat)

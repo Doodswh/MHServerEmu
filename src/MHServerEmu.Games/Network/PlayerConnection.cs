@@ -31,6 +31,7 @@ using MHServerEmu.Games.Navi;
 using MHServerEmu.Games.Powers;
 using MHServerEmu.Games.Properties;
 using MHServerEmu.Games.Regions;
+using MHServerEmu.Games.Scripting;
 using MHServerEmu.Games.Social.Communities;
 using MHServerEmu.Games.Social.Parties;
 
@@ -184,8 +185,8 @@ namespace MHServerEmu.Games.Network
             // Restore migrated player data
             MigrationUtility.Restore(migrationData, Player);
 
-            // Add all badges to admin accounts
-            if (_dbAccount.UserLevel == AccountUserLevel.Admin)
+            // Add all badges to admin accounts (and levels above Admin, e.g. Dev)
+            if (_dbAccount.UserLevel >= AccountUserLevel.Admin)
             {
                 for (var badge = AvailableBadges.CanGrantBadges; badge < AvailableBadges.NumberOfBadges; badge++)
                     Player.AddBadge(badge);
@@ -470,10 +471,16 @@ namespace MHServerEmu.Games.Network
 
             AOI.SetRegion(region.Id, false, startPosition, startOrientation);
             region.PlayerEnteredRegionEvent.Invoke(new(Player, region.PrototypeDataRef));
-            Game.PartyManager.OnPlayerEnteredRegion(Player);
+
+            if (ScriptHooks.PlayerEnteredRegion.HasHandlers)
+                ScriptHooks.PlayerEnteredRegion.Invoke(new(Player, region));
 
             // Load discovered map and entities
             Player.GetMapDiscoveryData(region.Id)?.LoadPlayerDiscovered(Player);
+
+            // PartyManager.OnPlayerEnteredRegion() exchanges discovery data with party members,
+            // so it needs to run after LoadPlayerDiscovered() has cleaned up the loaded data.
+            Game.PartyManager.OnPlayerEnteredRegion(Player);
 
             Player.SendFullscreenMovieSync();
 
@@ -869,7 +876,13 @@ namespace MHServerEmu.Games.Network
             if (avatar.IsInWorld == false) return true;
 
             PrototypeId powerProtoRef = (PrototypeId)tryActivatePower.PowerPrototypeId;
-
+            if (Game.TryInterceptEndlessScenarioPowerActivation(
+             Player,
+             avatar,
+              powerProtoRef,
+             tryActivatePower.HasItemSourceId,
+             tryActivatePower.HasItemSourceId ? tryActivatePower.ItemSourceId : Entity.InvalidId))
+                return true;
             // Build settings from the protobuf
             PowerActivationSettings settings = new(avatar.RegionLocation.Position);
             settings.ApplyProtobuf(tryActivatePower);
@@ -1235,7 +1248,10 @@ namespace MHServerEmu.Games.Network
 
             Item recipeItem = entityManager.GetEntity<Item>(recipeItemId);
             if (recipeItem == null) return Logger.WarnReturn(false, "OnTryCraft(): recipeItem == null");
+            WorldEntity vendor = entityManager.GetEntity<WorldEntity>(tryCraft.IdVendor);
 
+            // Add suppression check
+            bool suppressCraftingSuccessMessage = Player.ShouldSuppressCustomCraftingSuccessMessage(recipeItem, vendor, tryCraft);
             if (Player.Owns(recipeItem) == false)
                 return Logger.WarnReturn(false, $"OnTryCraft(): Player [{Player}] is attempting to use recipe item [{recipeItem}] that does not belong to them");
 
@@ -1293,7 +1309,12 @@ namespace MHServerEmu.Games.Network
 
             PrototypeId waypointProtoRef = (PrototypeId)useWaypoint.WaypointDataRef;
             PrototypeId regionProtoRefOverride = (PrototypeId)useWaypoint.RegionProtoId;
-            PrototypeId difficultyProtoRef = (PrototypeId)useWaypoint.DifficultyProtoId;
+
+            // Don't trust the client's inline difficulty pick here -- it goes stale whenever a command
+            // or party sync changes our stored preference without the client's UI knowing. Passing
+            // Invalid lets GetDifficultyTierForRegion resolve it from server-authoritative state
+            // (party diff, then the player's own DifficultyTierPreference) instead.
+            PrototypeId difficultyProtoRef = PrototypeId.Invalid;
 
             using Teleporter teleporter = ObjectPoolManager.Instance.Get<Teleporter>();
             teleporter.Initialize(Player, TeleportContextEnum.TeleportContext_Waypoint);
@@ -1325,10 +1346,19 @@ namespace MHServerEmu.Games.Network
             if (Player.CanChangeDifficulty(difficultyTierProtoRef) == false)
                 return Logger.WarnReturn(false, $"{this} is trying to change difficulty to {difficultyTierProtoRef}, which is not allowed");
 
-           
+
             if (Player.AdminDifficultyOverride != PrototypeId.Invalid)
             {
                 Logger.Trace($"OnChangeDifficulty(): Ignored UI change for {Player.GetName()} because AdminDifficultyOverride is active.");
+                return true;
+            }
+
+            // The lock flag is not saved, so it is lost when the player moves to another game (e.g. back to the tower). An Omega
+            // preference can only come from the difficulty command (the client's menu has no Omega tiers), so it counts as locked
+            // too; otherwise the client's menu resets it to Cosmic after a region change.
+            if (Player.DifficultyPreferenceLocked || IsOmegaDifficulty(Player.CurrentAvatar?.Properties[PropertyEnum.DifficultyTierPreference] ?? PrototypeId.Invalid))
+            {
+                Logger.Trace($"OnChangeDifficulty(): Ignored UI change for {Player.GetName()} because their difficulty preference is locked (use /reset_diff to unlock).");
                 return true;
             }
 
@@ -1336,6 +1366,15 @@ namespace MHServerEmu.Games.Network
             Player.CurrentAvatar.Properties[PropertyEnum.DifficultyTierPreference] = difficultyTierProtoRef;
 
             return true;
+        }
+
+        private static bool IsOmegaDifficulty(PrototypeId difficultyTierProtoRef)
+        {
+            if (difficultyTierProtoRef == PrototypeId.Invalid)
+                return false;
+
+            string name = GameDatabase.GetPrototypeName(difficultyTierProtoRef);
+            return name != null && name.Contains("Omega", StringComparison.OrdinalIgnoreCase);
         }
 
         private bool OnRefreshAbilityKeyMapping(in MailboxMessage message)

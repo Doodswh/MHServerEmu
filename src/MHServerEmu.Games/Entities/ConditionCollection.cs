@@ -1280,7 +1280,6 @@ namespace MHServerEmu.Games.Entities
 
                 EventPointer<RemoveConditionEvent> removeEvent = new();
                 condition.RemoveEvent = removeEvent;
-
                 _owner.Game.GameEventScheduler.ScheduleEvent(removeEvent, timeRemaining, _pendingEvents);
                 removeEvent.Get().Initialize(this, condition.Id);
             }

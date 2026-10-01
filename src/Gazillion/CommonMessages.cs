@@ -781,13 +781,20 @@ namespace Gazillion {
     eGTV_HighVolumeMetricsEnabled = 27,
     eGTV_MediumVolumeMetricsEnabled = 28,
     eGTV_LowVolumeMetricsEnabled = 29,
-        eGTV_PatrolBossSpawnInvulnerabilitySeconds = 30,
-        eGTV_XDefenseInfiniteScalingEnabled = 31,
-        eGTV_XDefenseWaveXPBonusPerWave = 32,
-        eGTV_XDefenseEnemyHealthBonusPerWave = 33,
-        eGTV_XDefenseEnemyDamageBonusPerWave = 34,
-        eGTV_XDefenseStudentHealthMultiplier = 35,
-        eGTV_NumGlobalTuningVars = 36,
+    eGTV_PatrolBossSpawnInvulnerabilitySeconds = 30,
+    eGTV_XDefenseInfiniteScalingEnabled = 31,
+    eGTV_XDefenseWaveXPBonusPerWave = 32,
+    eGTV_XDefenseEnemyHealthBonusPerWave = 33,
+    eGTV_XDefenseEnemyDamageBonusPerWave = 34,
+    eGTV_XDefenseStudentHealthMultiplier = 35,
+    eGTV_CosmicDiff = 36, // If you actually need this one
+    eGTV_EndlessCableRewardXPBonusPerWave = 37,
+    eGTV_EndlessCableEnemyHealthBonusPerWave = 38,
+    eGTV_EndlessCableEnemyDamageBonusPerWave = 39,
+    eGTV_EndlessCableBonusXPOrbsPerWave = 40,
+    eGTV_EndlessCableCompletionCrafterEnabled = 41,
+    eGTV_EndlessCableUniqueUpgradeSuccessChancePct = 42,
+    eGTV_NumGlobalTuningVars = 43,
     }
   
   public enum AreaTuningVar {

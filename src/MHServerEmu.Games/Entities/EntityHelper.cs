@@ -80,7 +80,6 @@ namespace MHServerEmu.Games.Entities
 
             return agent;
         }
-
         public static Agent CreateAgentInRegion(AgentPrototype agentProto, Region region,
     Vector3 spawnPosition, Orientation orientation, int characterLevel, int combatLevel)
         {

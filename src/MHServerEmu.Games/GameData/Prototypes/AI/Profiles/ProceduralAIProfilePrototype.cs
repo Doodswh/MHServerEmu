@@ -542,7 +542,8 @@ namespace MHServerEmu.Games.GameData.Prototypes
                     if (spawnGroup != null && alliance != null)
                     {
                         var filterFlag = SpawnGroupEntityQueryFilterFlags.Allies | SpawnGroupEntityQueryFilterFlags.NotDeadDestroyedControlled;
-                        if (spawnGroup.GetEntities(out List <WorldEntity> allies, filterFlag, agent.Alliance))                        
+                        using var alliesHandle = ListPool<WorldEntity>.Instance.Get(out List<WorldEntity> allies);
+                        if (spawnGroup.GetEntities(allies, filterFlag, agent.Alliance))
                             foreach (var ally in allies)
                                 if (ally != agent)
                                     ally.TriggerEntityActionEventAlly(EntitySelectorActionEventType.OnAllyDetectedPlayer);                        

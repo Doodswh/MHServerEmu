@@ -174,6 +174,7 @@ namespace MHServerEmu.Games.Entities.Avatars
 
                     int index = ConvertSlotToArrayIndex(abilitySlot);
                     _actionKeys[index] = abilityProtoRef;
+                    ShouldPersist = true;
                     break;
             }
 

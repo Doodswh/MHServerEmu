@@ -944,11 +944,17 @@ namespace MHServerEmu.Games.Properties
         protected virtual bool SetPropertyValue(PropertyId id, PropertyValue value, SetPropertyFlags flags = SetPropertyFlags.None)
         {
             PropertyInfo info = GameDatabase.PropertyInfoTable.LookupPropertyInfo(id.Enum);
-
             if (info.TruncatePropertyValueToInt && info.DataType == PropertyDataType.Real)
                 value = MathF.Floor(value.RawFloat);
 
-            ClampPropertyValue(info.Prototype, ref value);
+            if (id.Enum == PropertyEnum.ItemLevel)
+            {
+                value = Math.Clamp(value.RawLong, (long)info.Prototype.Min, 100);
+            }
+            else
+            {
+                ClampPropertyValue(info, ref value);
+            }
 
             bool hasChanged;
 
@@ -1077,8 +1083,10 @@ namespace MHServerEmu.Games.Properties
         /// <summary>
         /// Clamps a <see cref="PropertyValue"/> if needed.
         /// </summary>
-        private static void ClampPropertyValue(PropertyInfoPrototype propertyInfoPrototype, ref PropertyValue propertyValue)
+        private static void ClampPropertyValue(PropertyInfo info, ref PropertyValue propertyValue)
         {
+            PropertyInfoPrototype propertyInfoPrototype = info.Prototype;
+
             switch (propertyInfoPrototype.Type)
             {
                 case PropertyDataType.Boolean:
@@ -1091,7 +1099,17 @@ namespace MHServerEmu.Games.Properties
                     break;
                 case PropertyDataType.Integer:
                     if (propertyInfoPrototype.ShouldClampValue)
-                        propertyValue = Math.Clamp(propertyValue.RawLong, (long)propertyInfoPrototype.Min, (long)propertyInfoPrototype.Max);
+                    {
+                        long max = (long)propertyInfoPrototype.Max;
+
+                        // --- GLOBAL ITEM LEVEL OVERRIDE ---
+                        // Bypasses the 1.52 database limit (75) for all evaluations and aggregations
+                        if (info.Id.Enum == PropertyEnum.ItemLevel)
+                            max = 100;
+                        // ----------------------------------
+
+                        propertyValue = Math.Clamp(propertyValue.RawLong, (long)propertyInfoPrototype.Min, max);
+                    }
                     break;
             }
         }
@@ -1165,14 +1183,14 @@ namespace MHServerEmu.Games.Properties
                     previousEnum = propertyEnum;
                 }
 
-                AggregatePropertyFromChildCollectionAdd(propertyId, info, kvp.Value);
+                AggregatePropertyFromChildCollectionAdd(propertyId, info, kvp.Value, childCollection);
             }
         }
 
         /// <summary>
         /// Aggregates the specified property from a child <see cref="PropertyCollection"/>.
         /// </summary>
-        private bool AggregatePropertyFromChildCollectionAdd(PropertyId id, PropertyInfo info, PropertyValue propertyValue)
+        private bool AggregatePropertyFromChildCollectionAdd(PropertyId id, PropertyInfo info, PropertyValue propertyValue, PropertyCollection childCollection)
         {
             bool valueHasChanged;
 
@@ -1188,16 +1206,23 @@ namespace MHServerEmu.Games.Properties
             {
                 if (_parentCollections != null)
                 {
-                    // Update parent aggregate values, protect to prevent new parent collections from being added during iteration
                     using ProtectionScope protectionScope = new(this, ProtectionType.Parent);
                     foreach (PropertyCollection parent in _parentCollections)
                         parent.UpdateAggregateValue(id, info, SetPropertyFlags.None);
                 }
 
                 OnPropertyChange(id, aggregateValue, oldValue, SetPropertyFlags.None);
+                OnAggregateValueChanged(childCollection, id, aggregateValue, oldValue, SetPropertyFlags.None);   // CUSTOM
             }
 
             return valueHasChanged;
+        }
+
+        /// <summary>
+        /// CUSTOM: Called when this collection's aggregate value changes as a direct result of <paramref name="childCollection"/> being added.
+        /// </summary>
+        protected virtual void OnAggregateValueChanged(PropertyCollection childCollection, PropertyId id, PropertyValue newValue, PropertyValue oldValue, SetPropertyFlags flags)
+        {
         }
 
         /// <summary>
@@ -1378,7 +1403,7 @@ namespace MHServerEmu.Games.Properties
                     break;
             }
 
-            ClampPropertyValue(info.Prototype, ref output);
+            ClampPropertyValue(info, ref output);
             return true;
         }
 
@@ -1420,7 +1445,7 @@ namespace MHServerEmu.Games.Properties
                     return Logger.WarnReturn(new PropertyValue(), $"EvalPropertyValue(): Unsupported eval property data type {info.DataType}");
             }
 
-            ClampPropertyValue(info.Prototype, ref value);
+            ClampPropertyValue(info, ref value);
             return value;
         }
 
