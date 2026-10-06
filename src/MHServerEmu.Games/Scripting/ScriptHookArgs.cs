@@ -189,6 +189,74 @@ namespace MHServerEmu.Games.Scripting
     }
 
     /// <summary>
+    /// Args for <see cref="ScriptHooks.AvatarEnteredWorld"/>.
+    /// </summary>
+    public sealed class AvatarEnteredWorldArgs
+    {
+        public Avatar Avatar { get; }
+        public Player Player { get; }
+
+        public AvatarEnteredWorldArgs(Avatar avatar, Player player)
+        {
+            Avatar = avatar;
+            Player = player;
+        }
+    }
+
+    /// <summary>
+    /// Args for <see cref="ScriptHooks.ItemPickedUp"/>.
+    /// </summary>
+    public sealed class ItemPickedUpArgs
+    {
+        public Player Player { get; }
+        public PrototypeId ItemRef { get; }
+
+        /// <summary>
+        /// How many were picked up (the stack size of the item on the ground).
+        /// </summary>
+        public int Count { get; }
+
+        /// <summary>
+        /// Full prototype path of the item (Entity/Items/...).
+        /// </summary>
+        public string ItemPath { get => GameDatabase.GetPrototypeName(ItemRef); }
+
+        /// <summary>
+        /// <see langword="true"/> if the item was on the ground because a player dropped it there (not a fresh drop from an
+        /// enemy or a reward): counting such pickups would let players count the same item again and again.
+        /// </summary>
+        public bool WasDroppedByPlayer { get; }
+
+        public ItemPickedUpArgs(Player player, PrototypeId itemRef, int count, bool wasDroppedByPlayer = false)
+        {
+            Player = player;
+            ItemRef = itemRef;
+            Count = count;
+            WasDroppedByPlayer = wasDroppedByPlayer;
+        }
+    }
+
+    /// <summary>
+    /// Args for <see cref="ScriptHooks.GlobalEventRequested"/>.
+    /// </summary>
+    public sealed class GlobalEventRequestedArgs
+    {
+        public Player Player { get; }
+        public PrototypeId EventRef { get; }
+
+        /// <summary>
+        /// Full prototype path of the global event (Events/GlobalEvents/Events/...).
+        /// </summary>
+        public string EventPath { get => GameDatabase.GetPrototypeName(EventRef); }
+
+        public GlobalEventRequestedArgs(Player player, PrototypeId eventRef)
+        {
+            Player = player;
+            EventRef = eventRef;
+        }
+    }
+
+    /// <summary>
     /// Args for <see cref="ScriptHooks.PlayerEnteredRegion"/>.
     /// </summary>
     public sealed class PlayerEnteredRegionArgs

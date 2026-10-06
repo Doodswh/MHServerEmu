@@ -1,4 +1,4 @@
-﻿using System.Text;
+using System.Text;
 using Gazillion;
 using MHServerEmu.Core.Collisions;
 using MHServerEmu.Core.Extensions;
@@ -205,6 +205,9 @@ namespace MHServerEmu.Games.Entities
         {
             if (base.Initialize(settings) == false) return Logger.WarnReturn(false, "Initialize(): base.Initialize(settings) == false");
 
+            if (settings.ClientAvatarPrototypeRef != PrototypeId.Invalid)
+                InitClientRenderAsAvatar(settings.ClientAvatarPrototypeRef, settings.ClientAvatarName);
+
             InitPropertyCache();
 
             WorldEntityPrototype worldEntityProto = WorldEntityPrototype;
@@ -288,6 +291,26 @@ namespace MHServerEmu.Games.Entities
             {
                 int unknown = 0;
                 success &= Serializer.Transfer(archive, ref unknown);
+            }
+
+            // Rendered as an avatar: the client reads this entity with its avatar class, which expects the avatar's
+            // fields after the world entity's (same order as Avatar.Serialize()).
+            if (IsClientRenderedAsAvatar && archive.IsReplication && this is not Avatar)
+            {
+                success &= Serializer.Transfer(archive, ref _spoofAvatarPlayerName);
+
+                ulong ownerPlayerDbId = 0;
+                success &= Serializer.Transfer(archive, ref ownerPlayerDbId);
+
+                string emptyString = string.Empty;
+                success &= Serializer.Transfer(archive, ref emptyString);
+
+                ulong guildId = GuildManager.InvalidGuildId;
+                string guildName = string.Empty;
+                GuildMembership guildMembership = GuildMembership.eGMNone;
+                success &= GuildMember.SerializeReplicationRuntimeInfo(archive, ref guildId, ref guildName, ref guildMembership);
+
+                success &= Serializer.Transfer(archive, ref _spoofAvatarAbilityKeyMappings);
             }
 
             return success;
@@ -2289,6 +2312,10 @@ namespace MHServerEmu.Games.Entities
                 region.AdjustHealthEvent.Invoke(new(this, ultimateOwner, player, adjustHealth, isDodged));
             }
 
+            // CUSTOM: a hero hit something: script mirror images that appear on hit (ScriptMirrorImages.EnableAutoSpawn)
+            if (adjustHealth < 0 && avatar != null)
+                Scripting.ScriptMirrorImages.OnAvatarHitEnemy(avatar, this);
+
             if (powerResults.IsAvoided)
                 return false;
 
@@ -3492,7 +3519,9 @@ namespace MHServerEmu.Games.Entities
 
             region.EntityEnteredWorldEvent.Invoke(new(this));
 
-            if (WorldEntityPrototype.DiscoverInRegion)
+            // Some prototypes ask for region discovery (a map icon) without being replicated on the discovery channel,
+            // e.g. the Halloween Mystery Bag: discovering those does nothing and only logs a warning per player.
+            if (WorldEntityPrototype.DiscoverInRegion && IsDiscoverable)
                 region.DiscoverEntity(this, false);
 
             if (IsCloneParent)
@@ -3534,7 +3563,7 @@ namespace MHServerEmu.Games.Entities
                 }
 
                 // Undiscover from region
-                if (WorldEntityPrototype.DiscoverInRegion)
+                if (WorldEntityPrototype.DiscoverInRegion && IsDiscoverable)
                     region.UndiscoverEntity(this, true);
 
                 // Stop cloning
@@ -4345,6 +4374,35 @@ namespace MHServerEmu.Games.Entities
         // Bound only when rendering as an avatar.
         private RepVar_string _spoofAvatarPlayerName;
         private List<AbilityKeyMapping> _spoofAvatarAbilityKeyMappings;
+
+        // Makes clients draw this entity as the avatar prototype avatarProtoRef (a hero). Must happen while the entity is
+        // being created, before any client is told about it (see EntitySettings.ClientAvatarPrototypeRef).
+        private void InitClientRenderAsAvatar(PrototypeId avatarProtoRef, string playerName)
+        {
+            if (this is Avatar || avatarProtoRef.As<AvatarPrototype>() == null)
+            {
+                Logger.Warn($"InitClientRenderAsAvatar(): [{avatarProtoRef.GetName()}] is not an avatar prototype, or [{this}] is an avatar already");
+                return;
+            }
+
+            ClientPrototypeRefOverride = avatarProtoRef;
+            IsClientRenderedAsAvatar = true;
+            SpoofAvatarWorldInstanceId = 1;   // what a real avatar has the first time it enters the world
+
+            _spoofAvatarPlayerName = new();
+            _spoofAvatarPlayerName.Bind(this, AOINetworkPolicyValues.AOIChannelProximity | AOINetworkPolicyValues.AOIChannelParty | AOINetworkPolicyValues.AOIChannelOwner);
+            _spoofAvatarPlayerName.Set(playerName ?? string.Empty);
+
+            // One empty mapping, like a hero with nothing on its action bar
+            _spoofAvatarAbilityKeyMappings = new() { new AbilityKeyMapping() };
+        }
+
+        protected override void UnbindReplicatedFields()
+        {
+            base.UnbindReplicatedFields();
+
+            _spoofAvatarPlayerName?.Unbind();
+        }
 
         /// <summary>
         /// Clears the replicated overhead name drawn above this entity when it is rendered as an avatar.

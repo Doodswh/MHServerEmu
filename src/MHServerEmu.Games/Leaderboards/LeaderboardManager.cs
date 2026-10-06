@@ -11,6 +11,7 @@ using MHServerEmu.Games.Events.Templates;
 using MHServerEmu.Games.GameData;
 using MHServerEmu.Games.GameData.Prototypes;
 using MHServerEmu.Games.Loot;
+using MHServerEmu.Games.Scripting;
 
 namespace MHServerEmu.Games.Leaderboards
 {
@@ -152,8 +153,8 @@ namespace MHServerEmu.Games.Leaderboards
             using var activeLeaderboardsHandle = ListPool<LeaderboardPrototype>.Instance.Get(out List<LeaderboardPrototype> activeLeaderboards);
             LeaderboardInfoCache.Instance.GetActiveLeaderboardPrototypes(activeLeaderboards);
             foreach (var leaderboard in activeLeaderboards)
-                if (leaderboard.ScoringRules.HasValue())
-                    foreach (var ruleProto in leaderboard.ScoringRules)                    
+                if (leaderboard.ScoringRules.HasValue() && ScriptLeaderboards.IsScriptOwned(leaderboard) == false)   // CUSTOM: script-only boards
+                    foreach (var ruleProto in leaderboard.ScoringRules)
                     {
                         var eventProto = ruleProto?.Event;
                         if (eventProto == null) continue;
@@ -188,7 +189,7 @@ namespace MHServerEmu.Games.Leaderboards
             using var activeLeaderboardsHandle = ListPool<LeaderboardPrototype>.Instance.Get(out List<LeaderboardPrototype> activeLeaderboards);
             LeaderboardInfoCache.Instance.GetActiveLeaderboardPrototypes(activeLeaderboards);
             foreach (var leaderboard in activeLeaderboards)
-                if (leaderboard.ScoringRules.HasValue())
+                if (leaderboard.ScoringRules.HasValue() && ScriptLeaderboards.IsScriptOwned(leaderboard) == false)   // CUSTOM: script-only boards
                     foreach (var ruleProto in leaderboard.ScoringRules)
                     {
                         var eventProto = ruleProto?.Event;

@@ -1,5 +1,5 @@
-// Dark Dimension Incursion: Doctor Strange in Avengers Tower sends a party into a hand-built map of Limbo (drawn in Map below,
-// built from the Limbo tile set by the RegionGenerating hook) where Kaecilius is tearing the Dark Dimension open.
+// Dark Dimension Incursion: Doctor Strange in Avengers Tower sends a party into a hand-built outdoor map (drawn in Map below, built
+// from an outdoor tile set in CellSets by the RegionGenerating hook) where Kaecilius is tearing the Dark Dimension open.
 //
 //  0. Click Doctor Strange in the hub and accept. You and your party members standing in the hub enter a private copy of the map.
 //     Clea waits where you arrive: click her for the current objective and (once) her protective ward.
@@ -14,6 +14,8 @@
 //   !incursion            status, time left and the distance to the current objective
 //   !incursion open       (admin) open an incursion without the NPC
 //   !incursion npc here   (admin) move the hub Doctor Strange to you and print the position to paste into NpcPosition
+//   !incursion tiles [n]  (admin) list the outdoor tile sets / pick the one the next incursion is built from
+//   !incursion skip       (admin) finish the current phase at once (testing)
 //
 // NOTE: on-screen text registered here reaches players the next time they connect (client limitation).
 
@@ -28,24 +30,32 @@ using MHServerEmu.Games.Powers;
 
 const string HubRegion     = "Regions/HUBRevamp/NPEAvengersTowerHUBRegion.prototype";   // the current Avengers Tower
 const string HostRegion    = "Regions/ZZZDevelopment/WhiteRoom/BlackRoomRegion.prototype";   // empty region the map is built in
-const string CellSet       = "EndGame/Limbo/Limbo_A";
+
+// Outdoor tile sets with all 15 exit combinations and a filler tile (any layout works). The first one is used;
+// "!incursion tiles <n>" (admin) switches the set for the next runs until restart, to try the others.
+var CellSets = new[]
+{
+    "Fort_Stryker/Training_Forest_A",                // open woodland, most tile variety (the default)
+    "Savagelands/Outpost_A",                         // jungle outpost with ruins (2048-unit tiles)
+    "Madripoor/Bamboo_Forest_A",                     // misty bamboo forest with shrines
+    "Asgard/SiegePCZ/SiegeCity/LowerLowerAsgard",    // burning Asgardian canal streets
+};
+int cellSetIndex = 0;
 const string EventDifficulty = "Difficulty/Tiers/Tier3Superheroic.prototype";   // Cosmic
 const int    MapLevel      = 60;
 
 Vector3? NpcPosition       = null;   // null = next to where players arrive in the hub; use "!incursion npc here" to pick a spot
 float NpcYawDegrees        = 0f;
 
-// The map: one character per Limbo tile (2304 units). # = solid, S = arrival, P = rift portal, N = power node, K = Kaecilius.
-// Keep it open (every room has 2+ neighbors, no dead ends or single straight corridors): Limbo has no tiles for those.
+// The map: one character per tile of the chosen set. # = solid, S = arrival, P = rift portal, N = power node, K = Kaecilius.
+// The CellSets all have every exit combination, so dead ends and corridors are fine; keep S in an open spot.
 var Map = new[]
 {
-    "P...N...P",
-    ".........",
-    "..#...#..",
-    ".N..K..N.",
-    "....#....",
-    ".........",
-    "P...S...P",
+    "P..N..P",
+    ".......",
+    "N..K..N",
+    ".......",
+    "P..S..P",
 };
 
 const float TimeLimit          = 1200f;   // seconds
@@ -66,6 +76,11 @@ const float PulseSeconds       = 14f;     // each open rift spits out demons thi
 const int   PulseCount         = 3;
 const int   MaxAddsPerRift     = 9;
 
+// The whole map: a pack of one of the four rift demon types in every room (except arrival and the Kaecilius arena)
+const int   MobsPerRoom        = 7;       // about 33 rooms on the default map, so ~230 demons; 0 = off
+const int   RoomsPerBatch      = 3;       // rooms populated at a time
+const float PopulateBatchDelay = 0.5f;    // seconds between batches
+
 // Phase 2: power nodes
 const float AttuneSeconds      = 20f;
 const float NodeRadius         = 700f;    // someone must stay this close for the channel to continue
@@ -78,7 +93,9 @@ const float WardResist         = 0.10f;   // Clea's ward: 10% damage reduction f
 
 // Phase 3: Kaecilius
 const int   KaeciliusAffixes   = 3;
+const float KaeciliusFinishAt  = 0.17f;   // he is defeated at this health fraction (his own AI kneels and stalls at 0.15)
 const int   MirrorImages       = 3;
+const float MirrorRadius       = 450f;    // how far from Kaecilius his images appear
 var ShieldAt                   = new[] { 0.66f, 0.33f };   // health fractions where he hides behind new images
 
 const int   TitanAffixes       = 3;
@@ -95,7 +112,10 @@ const string NodePath      = Props + "Missions/MysticPowerNode.prototype";
 const string SealedPath    = Props + "Missions/DarkDimensionPortalCrystalized.prototype";
 const string KaeciliusPath = Bosses + "KaeciliusDarkDimensionCosmic.prototype";
 const string MirrorPath    = Bosses + "KaeciliusMirrorImage.prototype";
-const string TitanPath     = Bosses + "DDBossMindlessTitanTerminalCosmic.prototype";
+// The Dark Dimension Titans (DDBossMindlessTitan*) use a client model that climbs out of the Midtown portal and are invisible
+// anywhere else; this one uses the standard Titan model (map icon + red edge pointer once revealed)
+const string TitanPath     = "Entity/Characters/Bosses/PatrolHightown/HightownEventIncursionMindlessTitan.prototype";
+const string BeaconPath    = Props + "Missions/DangerRoom/DRInvisibleInteractEntity.prototype";   // invisible: map icon, edge pointer, floor ring
 
 var Rifts = new List<Rift>
 {
@@ -163,7 +183,7 @@ var CompletionRewards = new Reward[]   // claimed from Doctor Strange at the end
 
 ScriptText.Register("ddi_prompt", "Kaecilius has torn a hole into the Dark Dimension, and Limbo is bleeding through.\n" +
     "Enter with your party: seal the rifts, attune the power nodes and stop Kaecilius before Dormammu's realm swallows us all.");
-ScriptText.Register("ddi_enter", "Enter Limbo");
+ScriptText.Register("ddi_enter", "Step Through");
 ScriptText.Register("ddi_cancel", "Not yet");
 ScriptText.Register("ddi_start", "Dark Dimension Incursion");
 ScriptText.Register("ddi_intro", "The rifts are feeding the Dark Dimension. Seal all four before you face Kaecilius.");
@@ -184,7 +204,7 @@ ScriptText.Register("ddi_shielded", "Kaecilius hides behind his Mirror Images!")
 ScriptText.Register("ddi_exposed", "Kaecilius is exposed! Strike now!");
 ScriptText.Register("ddi_titan", "A Mindless Titan Breaks Through!");
 ScriptText.Register("ddi_complete", "Incursion Repelled!");
-ScriptText.Register("ddi_failed", "Limbo Has Fallen");
+ScriptText.Register("ddi_failed", "The Dark Dimension Prevails");
 ScriptText.Register("ddi_overhead", "Top Damage!");
 ScriptText.RegisterRange("ddi_attune_pct", "Attuning {0}%", 0, 100);
 
@@ -215,6 +235,7 @@ const string CleaTag     = "ddi_clea";
 const string NodeTagBase = "ddi_node_";
 const string StrangeTag  = "ddi_strange_end";
 const string SealedTag   = "ddi_sealed";
+const string BeaconTag   = "ddi_beacon";
 const string WardKey     = "ddi_ward";
 const string EyeKey      = "ddi_eye";
 
@@ -227,6 +248,7 @@ PrototypeId sealedRef     = Resolve(SealedPath);
 PrototypeId kaeciliusRef  = Resolve(KaeciliusPath);
 PrototypeId mirrorRef     = Resolve(MirrorPath);
 PrototypeId titanRef      = Resolve(TitanPath);
+PrototypeId beaconRef     = Resolve(BeaconPath);
 
 foreach (Rift rift in Rifts)
 {
@@ -298,8 +320,12 @@ void EnsureHubNpc(Region hub, Vector3? positionOverride = null, float? yawOverri
     if (positionOverride == null && hubNpcs.TryGetValue(hub, out ulong existingId) && ScriptSpawner.IsAlive(hub.Game, existingId))
         return;
 
-    if (hubNpcs.TryRemove(hub, out ulong oldId))
-        ScriptSpawner.Despawn(hub.Game, oldId);
+    hubNpcs.TryRemove(hub, out _);
+
+    // Remove every copy of the NPC in this hub, not just the one this script instance spawned: after a script reload
+    // the old instance's NPC is still standing there
+    foreach (WorldEntity old in hub.Entities.OfType<WorldEntity>().Where(entity => ScriptSpawner.GetTag(entity) == HubTag).ToList())
+        ScriptSpawner.Despawn(hub.Game, old.Id);
 
     Vector3 position;
     float yaw;
@@ -356,7 +382,7 @@ void OpenIncursion(Player opener)
         if (ScriptTeleport.ToBuiltMap(member, HostRegion, EventDifficulty, run.Seed))
         {
             sent++;
-            ScriptHooks.SendChatMessage(member, $"[Incursion] {opener.GetName()} is taking you into Limbo!", false);
+            ScriptHooks.SendChatMessage(member, $"[Incursion] {opener.GetName()} is taking you through the portal!", false);
         }
     }
 
@@ -469,6 +495,7 @@ void StartRun(Run run)
         Log.Warn("Could not show the incursion timer widget");
 
     StartRifts(run);
+    PopulateMap(run);
 
     run.NextHintAt = HintInterval;
     After(region.Game, TickSeconds, () => Tick(run));
@@ -494,6 +521,7 @@ void StartRifts(Run run)
         run.Targets[portal.Id] = new Target { Kind = Kind.Rift, Name = rift.Name, Position = portal.RegionLocation.Position, RiftIndex = i };
         run.RiftAdds[portal.Id] = new List<ulong>();
         ScriptPresentation.WidgetTrackHealth(region, HealthWidget, portal);
+        MarkObjective(run, portal);
     }
 
     run.RiftTotal = run.Targets.Count;
@@ -524,19 +552,152 @@ void PulseRifts(Run run, float elapsed)
         adds.RemoveAll(id => ScriptSpawner.IsAlive(region.Game, id) == false);
 
         Rift rift = Rifts[pair.Value.RiftIndex];
-        for (int i = 0; i < PulseCount && adds.Count < MaxAddsPerRift && rift.AddRefs.Length > 0; i++)
+        int wanted = Math.Min(PulseCount, MaxAddsPerRift - adds.Count);
+        int spawned = 0;
+
+        for (int i = 0; i < wanted; i++)
         {
-            PrototypeId addRef = rift.AddRefs[Random.Shared.Next(rift.AddRefs.Length)];
-            Agent add = ScriptSpawner.SpawnHostile(region, addRef, pair.Value.Position, 150f, 450f, target, true, true, aggroed: false);
-            if (add != null) adds.Add(add.Id);
+            // Its own demons first; if this rift's types won't spawn, another rift's demons come through instead
+            PrototypeId addRef = PickAdd(rift, preferOwn: run.RiftFallback.Contains(pair.Key) == false);
+            if (addRef == PrototypeId.Invalid)
+                continue;
+
+            Agent add = ScriptSpawner.SpawnHostile(region, addRef, pair.Value.Position, 150f, 450f, target, true, true,
+                aggroed: false, ignoreCrowds: true);
+            if (add == null)
+                continue;
+
+            adds.Add(add.Id);
+            spawned++;
+        }
+
+        if (wanted > 0 && spawned == 0 && run.RiftFallback.Add(pair.Key))
+            Log.Warn($"{rift.Name} at {pair.Value.Position}: none of its demons could spawn, using other rifts' demons from now on");
+    }
+}
+
+PrototypeId PickAdd(Rift rift, bool preferOwn)
+{
+    if (preferOwn && rift.AddRefs.Length > 0)
+        return rift.AddRefs[Random.Shared.Next(rift.AddRefs.Length)];
+
+    var pool = Rifts.Where(other => other != rift).SelectMany(other => other.AddRefs).ToArray();
+    return pool.Length > 0 ? pool[Random.Shared.Next(pool.Length)] : PrototypeId.Invalid;
+}
+
+//------------------------------------------------------------------------------
+// Map beacons (objectives have no map icon of their own, so an invisible marker with one stands next to them) and demon packs
+//------------------------------------------------------------------------------
+
+// Makes an entity show for everyone in the run, from anywhere on the map (map icon / edge pointer, if its prototype has one)
+void Reveal(Run run, WorldEntity entity)
+{
+    if (entity == null || entity.IsDiscoverable == false)
+        return;
+
+    foreach (Player player in PlayersIn(run.Region))
+        player.DiscoverEntity(entity, true);
+}
+
+// Reveals the entity if it has its own map icon, otherwise puts a beacon (map icon + edge pointer + floor ring) next to it
+void MarkObjective(Run run, WorldEntity objective)
+{
+    if (objective == null)
+        return;
+
+    if (objective.IsDiscoverable && objective.WorldEntityPrototype?.ObjectiveInfo?.MapEnabled == true)
+    {
+        Reveal(run, objective);
+        run.Revealed.Add(objective.Id);
+        return;
+    }
+
+    if (beaconRef == PrototypeId.Invalid)
+        return;
+
+    // Beside the objective, not on it, so the invisible marker never gets in the way of clicking it
+    Vector3 at = objective.RegionLocation.Position;
+    if (ScriptSpawner.TryFindSpotNear(run.Region, at, 120f, 220f, out Vector3 beside))
+        at = beside;
+
+    WorldEntity beacon = ScriptSpawner.SpawnInteractable(run.Region, beaconRef, at, 0f, BeaconTag);
+    if (beacon == null)
+        return;
+
+    beacon.Properties[PropertyEnum.EntSelActHasInteractOption] = false;
+    beacon.Properties[PropertyEnum.Interactable] = 0;   // tri-state integer: 0 = not interactable
+    run.Beacons[objective.Id] = beacon.Id;
+    run.Helpers.Add(beacon.Id);
+    Reveal(run, beacon);
+}
+
+void UnmarkObjective(Run run, ulong objectiveId)
+{
+    run.Revealed.Remove(objectiveId);
+    if (run.Beacons.Remove(objectiveId, out ulong beaconId))
+        ScriptSpawner.Despawn(run.Region.Game, beaconId);
+}
+
+// Late joiners: everything currently marked
+void RevealAll(Run run, Player player)
+{
+    EntityManager entityManager = run.Region.Game.EntityManager;
+    foreach (ulong id in run.Beacons.Values.Concat(run.Revealed))
+    {
+        WorldEntity entity = entityManager.GetEntity<WorldEntity>(id);
+        if (entity != null && entity.IsDiscoverable)
+            player.DiscoverEntity(entity, true);
+    }
+}
+
+// Packs of one demon type in every room (except arrival and the Kaecilius arena), a few rooms at a time so the server never hitches
+void PopulateMap(Run run)
+{
+    if (MobsPerRoom <= 0)
+        return;
+
+    var rooms = run.Map.Rows.SelectMany(row => row).Distinct()
+        .Where(c => c != '#' && c != ' ' && c != ScriptedLayout.StartChar && c != 'K')
+        .SelectMany(c => run.Map.GetMarkers(c))
+        .OrderBy(_ => Random.Shared.Next())
+        .ToList();
+
+    Log.Info($"Populating the incursion map: {rooms.Count} rooms x {MobsPerRoom} demons");
+    PopulateBatch(run, rooms, 0);
+}
+
+void PopulateBatch(Run run, List<Vector3> rooms, int next)
+{
+    if (run.Ended || run.Phase == Phase.Claim)
+        return;
+
+    for (int i = next; i < Math.Min(next + RoomsPerBatch, rooms.Count); i++)
+    {
+        Rift roster = Rifts[Random.Shared.Next(Rifts.Count)];
+        if (roster.AddRefs.Length == 0)
+            continue;
+
+        Vector3 packSpot = ReachableSpot(run, rooms[i], 1000f);
+        for (int m = 0; m < MobsPerRoom; m++)
+        {
+            Agent mob = ScriptSpawner.SpawnHostile(run.Region, roster.AddRefs[Random.Shared.Next(roster.AddRefs.Length)], packSpot, 0f, 350f,
+                null, true, true, aggroed: false, ignoreCrowds: true);
+            if (mob != null)
+                run.Extras.Add(mob.Id);
         }
     }
+
+    if (next + RoomsPerBatch < rooms.Count)
+        After(run.Region.Game, PopulateBatchDelay, () => PopulateBatch(run, rooms, next + RoomsPerBatch));
+    else
+        Log.Info($"Incursion map populated ({run.Extras.Count} demons)");
 }
 
 void RiftDown(Run run, ulong entityId, Target target, bool killed)
 {
     Region region = run.Region;
     run.RiftsSealed++;
+    UnmarkObjective(run, entityId);
 
     if (killed)
     {
@@ -599,6 +760,7 @@ void StartNodes(Run run)
 
         run.Nodes.Add(new Node { Index = i, EntityId = node.Id, Position = node.RegionLocation.Position });
         run.Helpers.Add(node.Id);
+        MarkObjective(run, node);
     }
 
     if (run.Nodes.Count == 0)
@@ -706,6 +868,7 @@ void NodeAttuned(Run run, Node node)
     node.Attuning = false;
     node.Attuned = true;
     run.NodesAttuned++;
+    UnmarkObjective(run, node.EntityId);
 
     ScriptText.ShowBannerToRegion(region, "ddi_node_done", 0, "reward", 3000);
     ScriptText.SetObjectiveCounter(region, run.NodesAttuned, run.Nodes.Count);
@@ -781,6 +944,7 @@ void StartKaecilius(Run run)
 
     ScriptSpawner.AddRandomAffixes(kaecilius, KaeciliusAffixes, AffixExclude);
     run.KaeciliusId = kaecilius.Id;
+    MarkObjective(run, kaecilius);
     run.ShieldsUsed.Clear();
     run.Targets[kaecilius.Id] = new Target { Kind = Kind.Kaecilius, Name = "Kaecilius", Position = kaecilius.RegionLocation.Position };
     ScriptPresentation.WidgetTrackHealth(region, HealthWidget, kaecilius);
@@ -789,7 +953,7 @@ void StartKaecilius(Run run)
     ScriptPresentation.StoryNotificationToRegion(region, "ddi_kae_arrive", KaeciliusPath, 7000);
     ScriptText.SetObjectiveTitle(region, "ddi_obj_kaecilius");
     ScriptText.SetObjectiveCounter(region, 0, 1);
-    Announce(region, "Kaecilius waits at the heart of Limbo. Break his Mirror Images, then strike him down!");
+    Announce(region, "Kaecilius waits at the heart of the incursion. Break his Mirror Images, then strike him down!");
 
     Shield(run, kaecilius, "ddi_kae_shield");
 }
@@ -802,11 +966,19 @@ void Shield(Run run, Agent kaecilius, string tauntKey)
     run.KaeciliusShielded = true;
 
     Avatar target = PlayersIn(region).Select(p => p.CurrentAvatar).FirstOrDefault(a => a.IsDead == false);
+    Vector3 center = kaecilius.RegionLocation.Position;
+    float firstAngle = Random.Shared.NextSingle() * MathF.PI * 2f;
     for (int i = 0; i < MirrorImages && mirrorRef != PrototypeId.Invalid; i++)
     {
-        // Images must be reachable: a stranded one would leave Kaecilius invulnerable for good
-        Agent image = ScriptSpawner.SpawnHostile(region, mirrorRef, ReachableSpot(run, kaecilius.RegionLocation.Position, 700f), 0f, 100f,
-            target, false, true);
+        // Spread evenly around him, each on its own patch of ground. Images must be reachable (a stranded one would leave
+        // Kaecilius invulnerable for good), and are placed even if players or other images crowd the spot: a crowded spot
+        // used to push the last image out to wherever was free.
+        float angle = firstAngle + i * MathF.PI * 2f / MirrorImages;
+        Vector3 wanted = new(center.X + MathF.Cos(angle) * MirrorRadius, center.Y + MathF.Sin(angle) * MirrorRadius, center.Z);
+        if (ScriptSpawner.TryFindReachableSpotNear(region, wanted, 250f, run.Entrance, out Vector3 spot) == false)
+            spot = ReachableSpot(run, center, 700f);
+
+        Agent image = ScriptSpawner.SpawnHostile(region, mirrorRef, spot, 0f, 60f, target, false, true, ignoreCrowds: true);
         if (image == null)
             continue;
 
@@ -849,6 +1021,18 @@ void UpdateKaecilius(Run run)
     long healthMax = Math.Max((long)kaecilius.Properties[PropertyEnum.HealthMaxOther], 1);
     float fraction = (float)health / healthMax;
 
+    // His own AI plays a "false death" at 15% health: he kneels, goes dormant and waits for the cauldron of the original
+    // Times Square fight to bring him back in a final form. There is no cauldron here, so he would kneel forever and the
+    // run would never reach the Titan. Finish him just before that point instead.
+    if (fraction <= KaeciliusFinishAt)
+    {
+        Avatar finisher = PlayersIn(region).Select(p => p.CurrentAvatar).FirstOrDefault(a => a != null && a.IsDead == false);
+        kaecilius.Properties[PropertyEnum.Invulnerable] = false;
+        kaecilius.SetDormant(false);
+        kaecilius.Kill(finisher);
+        return;
+    }
+
     foreach (float at in ShieldAt)
     {
         if (fraction <= at && run.ShieldsUsed.Add(at))
@@ -881,6 +1065,7 @@ void StartTitan(Run run, Vector3 at)
 
     ScriptSpawner.AddRandomAffixes(titan, TitanAffixes, AffixExclude);
     run.Targets[titan.Id] = new Target { Kind = Kind.Titan, Name = "the Mindless Titan", Position = titan.RegionLocation.Position };
+    MarkObjective(run, titan);
     ScriptPresentation.WidgetTrackHealth(region, HealthWidget, titan);
 
     ScriptText.ShowBannerToRegion(region, "ddi_titan", 0, "large", 4000);
@@ -919,7 +1104,7 @@ void Finish(Run run, Vector3 at)
     ScriptText.SetObjectiveCounter(region, 0, 1);
 
     float seconds = (float)(run.FinishedAt - run.StartTime).TotalSeconds;
-    Announce(region, $"Limbo is safe! Cleared in {FormatTime(seconds)}. Speak with Doctor Strange within {FormatTime(ClaimWindow)} to claim your reward.");
+    Announce(region, $"The incursion is sealed! Cleared in {FormatTime(seconds)}. Speak with Doctor Strange within {FormatTime(ClaimWindow)} to claim your reward.");
     AnnounceTopDamage(run);
 }
 
@@ -1194,7 +1379,7 @@ void TickBody(Run run)
     run.EmptySeconds = PlayersIn(region).Any() ? 0f : run.EmptySeconds + TickSeconds;
     if (run.EmptySeconds >= EmptyRegionTimeout)
     {
-        EndRun(run, false, "Everyone left Limbo.", false);
+        EndRun(run, false, "Everyone left the incursion.", false);
         return;
     }
 
@@ -1204,7 +1389,7 @@ void TickBody(Run run)
     {
         if ((region.Game.CurrentTime - run.FinishedAt).TotalSeconds >= ClaimWindow)
         {
-            EndRun(run, true, "Doctor Strange closes the way out of Limbo.", true);
+            EndRun(run, true, "Doctor Strange closes the portal.", true);
             return;
         }
     }
@@ -1213,14 +1398,14 @@ void TickBody(Run run)
         float left = TimeLimit - elapsed;
         if (left <= 0f)
         {
-            EndRun(run, false, "Time ran out. Limbo has fallen to the Dark Dimension.", true);
+            EndRun(run, false, "Time ran out. The Dark Dimension swallows this place.", true);
             return;
         }
 
         foreach (float warning in new[] { 300f, 60f })
         {
             if (left <= warning && run.WarningsGiven.Add(warning))
-                Announce(region, $"{FormatTime(warning)} until Limbo falls!");
+                Announce(region, $"{FormatTime(warning)} until the Dark Dimension breaks through!");
         }
 
         switch (run.Phase)
@@ -1236,6 +1421,46 @@ void TickBody(Run run)
             foreach (Player player in PlayersIn(region))
                 ScriptHooks.SendChatMessage(player, "[Incursion] " + ObjectiveHint(run, player.CurrentAvatar), false);
         }
+    }
+}
+
+// Admin testing: finish the current phase as if the players had (targets count as killed, nodes as attuned)
+void SkipPhase(Run run)
+{
+    Region region = run.Region;
+
+    void KillTargets(Kind kind)
+    {
+        foreach (ulong id in run.Targets.Where(pair => pair.Value.Kind == kind).Select(pair => pair.Key).ToList())
+        {
+            TargetDown(run, id, true);
+            ScriptSpawner.Despawn(region.Game, id);
+        }
+    }
+
+    switch (run.Phase)
+    {
+        case Phase.Rifts:
+            KillTargets(Kind.Rift);
+            break;
+
+        case Phase.Nodes:
+            foreach (Node node in run.Nodes.Where(n => n.Attuned == false).ToList())
+                NodeAttuned(run, node);
+            break;
+
+        case Phase.Kaecilius:
+            foreach (ulong id in run.Targets.Where(pair => pair.Value.Kind == Kind.Mirror).Select(pair => pair.Key).ToList())
+            {
+                run.Targets.Remove(id);
+                ScriptSpawner.Despawn(region.Game, id);
+            }
+            KillTargets(Kind.Kaecilius);
+            break;
+
+        case Phase.Titan:
+            KillTargets(Kind.Titan);
+            break;
     }
 }
 
@@ -1280,9 +1505,10 @@ Hooks.On(ScriptHooks.RegionGenerating, e =>
     if (e.RegionPrototype.DataRef != hostRef || pendingBySeed.ContainsKey(e.Seed) == false)
         return;
 
-    e.BuildLayout(CellSet, Map);
+    string cellSet = CellSets[Math.Clamp(cellSetIndex, 0, CellSets.Length - 1)];
+    e.BuildLayout(cellSet, Map);
     e.SetLevel(MapLevel);
-    Log.Info($"Building the incursion map ({Map.Length}x{Map.Max(row => row.Length)}, seed {e.Seed})");
+    Log.Info($"Building the incursion map ({Map.Length}x{Map.Max(row => row.Length)} from [{cellSet}], seed {e.Seed})");
 });
 
 Hooks.On(ScriptHooks.EntityInteracted, e =>
@@ -1350,9 +1576,10 @@ Hooks.On(ScriptHooks.PlayerEnteredRegion, e =>
 
     if (runs.TryGetValue(region, out Run running))
     {
-        // Late joiners get the blessings earned so far
+        // Late joiners get the blessings earned so far, and see the current objectives on their map
         if (running.NodesAttuned > 0)
             After(region.Game, 3f, () => ApplyEye(running, e.Player));
+        After(region.Game, 3f, () => { if (running.Ended == false) RevealAll(running, e.Player); });
         return;
     }
 
@@ -1391,6 +1618,34 @@ Hooks.On(ScriptHooks.ChatCommand, e =>
         return;
     }
 
+    if (sub == "tiles")
+    {
+        if (ScriptHooks.IsAdmin(e.Player) == false) { e.Reply("Admin only."); return; }
+
+        if (int.TryParse(e.GetArg(1), out int index) && index >= 1 && index <= CellSets.Length)
+            cellSetIndex = index - 1;
+
+        for (int i = 0; i < CellSets.Length; i++)
+            e.Reply($"{(i == cellSetIndex ? ">" : " ")} {i + 1}. {CellSets[i]}");
+        e.Reply("The next incursion uses the marked set (until restart). Change it with !incursion tiles <number>.");
+        return;
+    }
+
+    if (sub == "skip")
+    {
+        if (ScriptHooks.IsAdmin(e.Player) == false) { e.Reply("Admin only."); return; }
+
+        if (runs.TryGetValue(region, out Run skipRun) == false || skipRun.Ended || skipRun.StartTime == TimeSpan.Zero)
+        {
+            e.Reply("No running incursion here.");
+            return;
+        }
+
+        e.Reply($"Skipping the {skipRun.Phase} phase.");
+        SkipPhase(skipRun);
+        return;
+    }
+
     if (sub == "npc")
     {
         if (ScriptHooks.IsAdmin(e.Player) == false) { e.Reply("Admin only."); return; }
@@ -1418,7 +1673,7 @@ Hooks.On(ScriptHooks.ChatCommand, e =>
     }
     else
     {
-        e.Reply("No incursion here. Talk to Doctor Strange in Avengers Tower to enter Limbo.");
+        e.Reply("No incursion here. Talk to Doctor Strange in Avengers Tower to stop the incursion.");
     }
 });
 
@@ -1524,6 +1779,9 @@ class Run
     public List<Node> Nodes = new();
     public List<ulong> Extras = new();                                // other spawned enemies (cleaned up at the end)
     public List<ulong> Helpers = new();                               // NPCs and objects (cleaned up at the end)
+    public Dictionary<ulong, ulong> Beacons = new();                  // objective entity id => its map beacon
+    public HashSet<ulong> Revealed = new();                           // objectives with their own map icon, revealed to everyone
+    public HashSet<ulong> RiftFallback = new();                       // rifts whose own demon types won't spawn
     public HashSet<ulong> Claimed = new();                            // player db ids that claimed the end reward
     public HashSet<ulong> WardGiven = new();
 

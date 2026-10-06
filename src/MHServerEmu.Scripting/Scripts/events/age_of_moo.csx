@@ -84,6 +84,20 @@ const float OverheadSeconds    = 5f;
 const int   TauntMs            = 6000;    // how long Brevik's portrait taunts stay up
 const string AffixExclude      = "";
 
+// Fastest clear leaderboard: the game's Trainyard "Time Trial - Cosmic" board (weekly reset, shown as a time, fastest first, 6 reward
+// tiers), taken over (only Age of MOO counts), renamed and fed with the clear time of everyone who fought. Only each player's best
+// time counts. "" = off. Needs the board enabled in Data/Leaderboards/LeaderboardSchedule.json. The new name shows after reconnecting.
+const string ClearTimeLeaderboard = "Leaderboards/Prototypes/Leaderboards/DangerRoom/DRScenarioTimeTrainyardCosmic.prototype";
+
+if (ClearTimeLeaderboard.Length > 0)
+{
+    ScriptLeaderboards.TakeOver(ClearTimeLeaderboard);
+    ScriptLeaderboards.Rename(ClearTimeLeaderboard, "Age of MOO - Fastest Clear",
+        "Fastest Age of MOO clears this week.",
+        "Start the Age of MOO with the S.H.I.E.L.D. agent in Avengers Tower: break the stampede, unmask the Skrull Commanders and beat " +
+        "Brevik in both his forms as fast as you can. Your best time this week counts. Resets weekly.");
+}
+
 const string Cows  = "Entity/Characters/Mobs/CowsEG/";
 const string Cows2 = "Entity/Characters/Mobs/CowsEG2/";
 var HerdCows = new List<Foe>
@@ -245,8 +259,12 @@ void EnsureHubNpc(Region hub, Vector3? positionOverride = null, float? yawOverri
     if (positionOverride == null && hubNpcs.TryGetValue(hub, out ulong existingId) && ScriptSpawner.IsAlive(hub.Game, existingId))
         return;
 
-    if (hubNpcs.TryRemove(hub, out ulong oldId))
-        ScriptSpawner.Despawn(hub.Game, oldId);
+    hubNpcs.TryRemove(hub, out _);
+
+    // Remove every copy of the NPC in this hub, not just the one this script instance spawned: after a script reload
+    // the old instance's NPC is still standing there
+    foreach (WorldEntity old in hub.Entities.OfType<WorldEntity>().Where(entity => ScriptSpawner.GetTag(entity) == NpcTag).ToList())
+        ScriptSpawner.Despawn(hub.Game, old.Id);
 
     Vector3 position;
     float yaw;
@@ -864,6 +882,20 @@ void CompleteRun(Run run)
 
     DropRewards(run, run.RunDamage, CompletionRewards, "Age of MOO");
     float seconds = (float)(run.Region.Game.CurrentTime - run.StartTime).TotalSeconds;
+
+    // Clear time onto the weekly leaderboard for everyone who fought (time boards take milliseconds; only the best counts)
+    if (ClearTimeLeaderboard.Length > 0)
+    {
+        long milliseconds = (long)(seconds * 1000f);
+        foreach (Player player in PlayersIn(run.Region))
+        {
+            if (run.RunDamage.GetValueOrDefault(player.DatabaseUniqueId) <= 0)
+                continue;
+
+            if (ScriptLeaderboards.Submit(player, ClearTimeLeaderboard, milliseconds))
+                ScriptHooks.SendChatMessage(player, $"[Age of MOO] Clear time {FormatTime(seconds)} sent to the weekly Fastest Clear leaderboard.", false);
+        }
+    }
     EndRun(run, true, $"The herd is broken and Brevik is beaten! Cleared in {FormatTime(seconds)}.", true);
 }
 

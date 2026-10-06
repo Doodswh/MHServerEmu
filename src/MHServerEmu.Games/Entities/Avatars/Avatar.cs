@@ -7277,6 +7277,12 @@ namespace MHServerEmu.Games.Entities.Avatars
             RestoreSelfAppliedPowerConditions();     // This needs to happen after we assign powers
             UpdateBoostConditionPauseState(region.PausesBoostConditions());
 
+            // CUSTOM: put client-visible script bonuses back on, and let scripts reapply their conditions (lost when the
+            // avatar left the world)
+            ScriptBonuses.OnAvatarEnteredWorld(this);
+            if (ScriptHooks.AvatarEnteredWorld.HasHandlers)
+                ScriptHooks.AvatarEnteredWorld.Invoke(new(this, player));
+
             // Unlock chapters and waypoints that should be unlocked by default
             player.UnlockChapters();
             player.UnlockWaypoints();

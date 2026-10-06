@@ -502,6 +502,41 @@ namespace MHServerEmu.Games.Powers.Conditions
             return true;
         }
 
+        /// <summary>
+        /// CUSTOM: Initializes this condition from a condition mixed into <paramref name="powerProto"/> (an entry of its AppliesConditions),
+        /// without activating the power. The client finds the condition (and its visual) through the power ref + mixin index.
+        /// </summary>
+        public bool InitializeFromPowerMixinCondition(ulong conditionId, Game game, WorldEntity owner, PowerPrototype powerProto,
+            ConditionPrototype conditionProto, TimeSpan duration, PropertyCollection properties)
+        {
+            if (owner == null || powerProto == null || conditionProto == null)
+                return false;
+
+            _conditionId = conditionId;
+            _creatorId = owner.Id;
+            _ultimateCreatorId = owner.Id;
+
+            if (owner is Avatar avatar && avatar.GetOwnerOfType<Player>() is Player player)
+                CreatorPlayerId = player.DatabaseUniqueId;
+
+            _ownerAssetRef = DetermineAssetRefByOwner(owner, conditionProto);
+
+            _conditionPrototype = conditionProto;
+            _creatorPowerPrototype = powerProto;
+            _creatorPowerPrototypeRef = powerProto.DataRef;
+            _conditionPrototypeRef = PrototypeId.Invalid;
+            _creatorPowerIndex = conditionProto.BlueprintCopyNum;
+
+            _durationMS = (long)duration.TotalMilliseconds;
+            _updateIntervalMS = conditionProto.UpdateIntervalMS;
+            _cancelOnFlags = conditionProto.CancelOnFlags;
+
+            if (properties != null)
+                Properties.FlattenCopyFrom(properties, true);
+
+            return true;
+        }
+
         public bool InitializeFromOtherCondition(ulong conditionId, Condition other, WorldEntity owner)
         {
             _conditionId = conditionId;

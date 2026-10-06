@@ -1,6 +1,7 @@
 using System.Runtime.CompilerServices;
 using MHServerEmu.Core.Logging;
 using MHServerEmu.Games.Entities;
+using MHServerEmu.Games.Entities.Avatars;
 using MHServerEmu.Games.Entities.Inventories;
 using MHServerEmu.Games.GameData;
 using MHServerEmu.Games.GameData.Prototypes;
@@ -25,16 +26,48 @@ namespace MHServerEmu.Games.Scripting
 
         private static readonly ConditionalWeakTable<Agent, Dictionary<string, PropertyCollection>> _bonuses = new();
 
+        // Client-visible stats per avatar and key: kept here so they can be put back on when the avatar re-enters the world
+        private static readonly ConditionalWeakTable<Avatar, Dictionary<string, PropertyCollection>> _clientStats = new();
+        private const string ClientKeyPrefix = "bonus.";
+
         /// <summary>
         /// Applies <paramref name="bonus"/> to <paramref name="agent"/> under <paramref name="key"/>, replacing any earlier bonus with that key.
         /// The collection is owned by the agent afterwards; do not modify or reuse it.
         /// </summary>
-        public static void Apply(Agent agent, string key, PropertyCollection bonus)
+        /// <remarks>
+        /// With <paramref name="clientVisible"/>, an avatar's stats (everything except procs) are applied through an invisible
+        /// condition instead, which the client is told about: use it for stats the client must know (cooldowns, charges,
+        /// area sizes) or should show. Procs always stay server-side. Avatars only; other agents get the plain server-side bonus.
+        /// </remarks>
+        public static void Apply(Agent agent, string key, PropertyCollection bonus, bool clientVisible = false)
         {
             if (agent == null || string.IsNullOrEmpty(key) || bonus == null)
                 return;
 
             Remove(agent, key);
+
+            if (clientVisible && agent is Avatar avatar)
+            {
+                // Move the stats out of the bonus: they go on a condition, the procs stay in the server-side collection
+                PropertyCollection stats = new();
+                foreach (var kvp in bonus.ToList())
+                {
+                    if (kvp.Key.Enum == PropertyEnum.Proc)
+                        continue;
+
+                    stats.SetProperty(kvp.Value, kvp.Key);
+                    bonus.RemoveProperty(kvp.Key);
+                }
+
+                if (stats.IsEmpty == false)
+                {
+                    _clientStats.GetOrCreateValue(avatar)[key] = stats;
+
+                    // Conditions need the avatar in the world; otherwise OnAvatarEnteredWorld() applies it
+                    if (avatar.IsInWorld)
+                        ScriptConditions.ApplyProperties(avatar, ClientKeyPrefix + key, stats);
+                }
+            }
 
             // Same order as equipping an item: assign proc powers, then merge the stats
             if (agent.UpdateProcEffectPowers(bonus, true) == false)
@@ -49,8 +82,18 @@ namespace MHServerEmu.Games.Scripting
         /// </summary>
         public static bool Remove(Agent agent, string key)
         {
-            if (agent == null || _bonuses.TryGetValue(agent, out var bonuses) == false || bonuses.Remove(key, out PropertyCollection bonus) == false)
+            if (agent == null)
                 return false;
+
+            bool removedStats = false;
+            if (agent is Avatar avatar && _clientStats.TryGetValue(avatar, out var clientStats) && clientStats.Remove(key))
+            {
+                ScriptConditions.Remove(avatar, ClientKeyPrefix + key);
+                removedStats = true;
+            }
+
+            if (_bonuses.TryGetValue(agent, out var bonuses) == false || bonuses.Remove(key, out PropertyCollection bonus) == false)
+                return removedStats;
 
             // Same order as unequipping an item. Proc powers are reference counted, so a power also granted by gear stays assigned.
             bonus.RemoveFromParent(agent.Properties);
@@ -64,6 +107,19 @@ namespace MHServerEmu.Games.Scripting
         public static bool Has(Agent agent, string key)
         {
             return agent != null && _bonuses.TryGetValue(agent, out var bonuses) && bonuses.ContainsKey(key);
+        }
+
+        /// <summary>
+        /// Puts client-visible bonus stats back on <paramref name="avatar"/>: an avatar loses its conditions whenever it
+        /// leaves the world (region change, hero swap). Called by the avatar when it enters the world.
+        /// </summary>
+        internal static void OnAvatarEnteredWorld(Avatar avatar)
+        {
+            if (_clientStats.TryGetValue(avatar, out var clientStats) == false)
+                return;
+
+            foreach (var kvp in clientStats)
+                ScriptConditions.ApplyProperties(avatar, ClientKeyPrefix + kvp.Key, kvp.Value);
         }
 
         /// <summary>

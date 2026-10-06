@@ -51,6 +51,11 @@ const bool  BossesDropLoot     = true;
 const float OverheadSeconds    = 5f;
 const string AffixExclude      = "";
 
+// Fastest clear leaderboard: the game's Brood "Time Trial - Epic" board (weekly reset, shown as a time, fastest first, 6 reward tiers),
+// renamed and fed with the clear time of everyone who fought in a closed breach. Only each player's best time counts. "" = off.
+// Needs the board enabled in Data/Leaderboards/LeaderboardSchedule.json. The new name shows after players reconnect.
+const string ClearTimeLeaderboard = "Leaderboards/Prototypes/Leaderboards/DangerRoom/DRScenarioTimeBroodEpic.prototype";
+
 // Layout reshuffle for each breach: random percentages in these ranges (the terminal's own values are replaced)
 const int RoomCutMin       = 10, RoomCutMax       = 35;
 const int ConnectionCutMin = 0,  ConnectionCutMax = 40;
@@ -120,6 +125,15 @@ var CompletionRewards = new Reward[]
 //------------------------------------------------------------------------------
 
 var AllBosses = AnchorPool.Concat(FinalPool).ToList();
+
+if (ClearTimeLeaderboard.Length > 0)
+{
+    ScriptLeaderboards.TakeOver(ClearTimeLeaderboard);   // only breach clears count (not the Brood Danger Room scenario)
+    ScriptLeaderboards.Rename(ClearTimeLeaderboard, "Terminal Breach - Fastest Clear",
+        "Fastest Terminal Breach clears this week.",
+        "Open a breach with the S.H.I.E.L.D. agent in Avengers Tower, destroy every Breach Anchor and defeat the Breach Overlord as fast as " +
+        "you can. Your best time this week counts. Resets weekly.");
+}
 
 ScriptText.Register("breach_prompt", "Open a Terminal Breach?\nYou and your party members here enter a random Cosmic terminal with a fresh layout. " +
     "Destroy the Breach Anchors hidden across the map, then defeat the Breach Overlord.");
@@ -214,8 +228,12 @@ void EnsureHubNpc(Region hub, Vector3? positionOverride = null, float? yawOverri
     if (positionOverride == null && hubNpcs.TryGetValue(hub, out ulong existingId) && ScriptSpawner.IsAlive(hub.Game, existingId))
         return;
 
-    if (hubNpcs.TryRemove(hub, out ulong oldId))
-        ScriptSpawner.Despawn(hub.Game, oldId);
+    hubNpcs.TryRemove(hub, out _);
+
+    // Remove every copy of the NPC in this hub, not just the one this script instance spawned: after a script reload
+    // the old instance's NPC is still standing there
+    foreach (WorldEntity old in hub.Entities.OfType<WorldEntity>().Where(entity => ScriptSpawner.GetTag(entity) == NpcTag).ToList())
+        ScriptSpawner.Despawn(hub.Game, old.Id);
 
     Vector3 position;
     float yaw;
@@ -631,6 +649,20 @@ void CompleteRun(Run run)
     GiveRewards(run, run.RunDamage, CompletionRewards, "Breach completion");
 
     float seconds = (float)(run.Region.Game.CurrentTime - run.StartTime).TotalSeconds;
+
+    // Clear time onto the weekly leaderboard for everyone who fought (time boards take milliseconds; only the best counts)
+    if (ClearTimeLeaderboard.Length > 0)
+    {
+        long milliseconds = (long)(seconds * 1000f);
+        foreach (Player player in PlayersIn(run.Region))
+        {
+            if (run.RunDamage.GetValueOrDefault(player.DatabaseUniqueId) <= 0)
+                continue;
+
+            if (ScriptLeaderboards.Submit(player, ClearTimeLeaderboard, milliseconds))
+                ScriptHooks.SendChatMessage(player, $"[Terminal Breach] Clear time {FormatTime(seconds)} sent to the weekly Fastest Clear leaderboard.", false);
+        }
+    }
     EndRun(run, true, $"The breach is closed! Cleared in {FormatTime(seconds)}.", true);
 }
 

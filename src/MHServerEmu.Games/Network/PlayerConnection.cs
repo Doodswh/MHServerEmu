@@ -1,4 +1,4 @@
-﻿using System.Diagnostics;
+using System.Diagnostics;
 using Gazillion;
 using Google.ProtocolBuffers;
 using MHServerEmu.Core.Config;
@@ -649,7 +649,7 @@ namespace MHServerEmu.Games.Network
                 case ClientToGameServerMessage.NetMessageUnassignMappedPower:               OnUnassignMappedPower(message); break;
                 case ClientToGameServerMessage.NetMessageAssignStolenPower:                 OnAssignStolenPower(message); break;
                 case ClientToGameServerMessage.NetMessageVanityTitleSelect:                 OnVanityTitleSelect(message); break;
-                // case ClientToGameServerMessage.NetMessageRequestGlobalEventUpdate:       OnRequestGlobalEventUpdate(message); break;
+                case ClientToGameServerMessage.NetMessageRequestGlobalEventUpdate:          OnRequestGlobalEventUpdate(message); break;   // CUSTOM
                 // case ClientToGameServerMessage.NetMessageHasPendingGift:                 OnHasPendingGift(message); break;
                 case ClientToGameServerMessage.NetMessagePlayerTradeStart:                  OnPlayerTradeStart(message); break;
                 case ClientToGameServerMessage.NetMessagePlayerTradeCancel:                 OnPlayerTradeCancel(message); break;
@@ -1050,6 +1050,10 @@ namespace MHServerEmu.Games.Network
             if (item == null || Player.Owns(item))
                 return true;
 
+            // CUSTOM: items placed by scripts as scenery (ScriptSpawner.SpawnGroundItem with canPickUp = false) stay where they are
+            if (ScriptSpawner.IsSceneryItem(item))
+                return true;
+
             // Validate pickup range
             bool useInteractFallbackRange = pickupInteraction.HasUseInteractFallbackRange && pickupInteraction.UseInteractFallbackRange;
             if (avatar.InInteractRange(item, InteractionMethod.PickUp, useInteractFallbackRange) == false)
@@ -1067,11 +1071,20 @@ namespace MHServerEmu.Games.Network
             if (restrictedToPlayerGuid != 0 && restrictedToPlayerGuid != Player.DatabaseUniqueId)
                 return Logger.WarnReturn(false, $"OnPickupInteraction(): Player [{Player}] is attempting to pick up item [{item}] restricted to player 0x{restrictedToPlayerGuid:X}");
 
+            // CUSTOM: remembered for the ItemPickedUp script hook (the item can be destroyed below by stacking)
+            PrototypeId pickedUpRef = item.PrototypeDataRef;
+            int pickedUpCount = Math.Max(item.CurrentStackSize, 1);
+            bool pickedUpWasDropped = ScriptRewards.WasPlayerDropped(item);
+
             // Try to pick up the item as currency
             if (Player.AcquireCurrencyItem(item))
             {
                 Player.CurrentAvatar?.TryActivateOnLootPickupProcs(item);
                 item.Destroy();
+
+                if (ScriptHooks.ItemPickedUp.HasHandlers)
+                    ScriptHooks.ItemPickedUp.Invoke(new(Player, pickedUpRef, pickedUpCount, pickedUpWasDropped));
+
                 return true;
             }
 
@@ -1107,6 +1120,10 @@ namespace MHServerEmu.Games.Network
 
                 return false;
             }
+
+            // CUSTOM: tell scripts (only for items picked up from the ground, never for stash / inventory moves)
+            if (ScriptHooks.ItemPickedUp.HasHandlers)
+                ScriptHooks.ItemPickedUp.Invoke(new(Player, pickedUpRef, pickedUpCount, pickedUpWasDropped));
 
             // Flag the item as recently added
             item.SetRecentlyAdded(true);
@@ -2261,6 +2278,24 @@ namespace MHServerEmu.Games.Network
             return true;
         }
 
+        // CUSTOM: the client asks for a global event's progress when it opens that event's vendor window (e.g. Beast's
+        // "BiFrost Unlock"). The game's own global events are not implemented; scripts answer through this hook with
+        // ScriptPresentation.GlobalEventUpdate() / GlobalEventLeaderboard().
+        private bool OnRequestGlobalEventUpdate(in MailboxMessage message)
+        {
+            var request = message.As<NetMessageRequestGlobalEventUpdate>();
+            if (request == null) return Logger.WarnReturn(false, "OnRequestGlobalEventUpdate(): Failed to retrieve message");
+
+            PrototypeId eventRef = (PrototypeId)request.EventId;
+            if (Player == null || eventRef.As<GlobalEventPrototype>() == null)
+                return true;
+
+            if (ScriptHooks.GlobalEventRequested.HasHandlers)
+                ScriptHooks.GlobalEventRequested.Invoke(new(Player, eventRef));
+
+            return true;
+        }
+
         private bool OnVanityTitleSelect(in MailboxMessage message)
         {
             var vanityTitleSelect = message.As<NetMessageVanityTitleSelect>();
@@ -2379,6 +2414,22 @@ namespace MHServerEmu.Games.Network
             Player gemOwner = gem.GetOwnerOfType<Player>();
             if (gemOwner != Player)
                 return Logger.WarnReturn(false, $"OnRequestSocketAffix(): Player [{Player}] is attempting to socket gem [{gem}] owned by player [{gemOwner}]");
+
+            // CUSTOM: the cube's socket affix is the empty socket, so a socketed item still accepts cubes; refuse once the item has
+            // its maximum of cube visuals or already has this cube's visual, before anything is consumed
+            if (destItem.HasGemVisual(gem))
+            {
+                Game.ChatManager?.SendChatFromCustomSystem(Player,
+                    "[StarkTech] This item already has that cube effect. The cube was not used.", showSender: false);
+                return true;
+            }
+
+            if (destItem.IsGemVisualLimitReached(gem))
+            {
+                Game.ChatManager?.SendChatFromCustomSystem(Player,
+                    $"[StarkTech] This item already has {Item.MaxGemVisuals} cube effects. The cube was not used.", showSender: false);
+                return true;
+            }
 
             if (destItem.CanSocketGem(gem))
                 destItem.SocketGem(gem);

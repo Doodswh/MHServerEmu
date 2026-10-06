@@ -1,4 +1,4 @@
-﻿using Gazillion;
+using Gazillion;
 using MHServerEmu.Core.Collisions;
 using MHServerEmu.Core.Extensions;
 using MHServerEmu.Core.Helpers;
@@ -1499,6 +1499,9 @@ namespace MHServerEmu.Games.Powers
             if (triggeredPowerEvent.PowerEventContext is not PowerEventContextMapPowersPrototype mapPowersContext)
                 return Logger.WarnReturn(false, "DoPowerEventActionMapPowers(): Incompatible power event context type");
 
+            // CUSTOM: a mirror image (rendered as an avatar) copies its owner's mapped powers itself (ScriptMirrorImages)
+            if (Owner is not Avatar && Owner.IsClientRenderedAsAvatar) return true;
+
             if (Owner is not Avatar avatar) return Logger.WarnReturn(false, "DoPowerEventActionMapPowers(): Owner is not Avatar avatar");
 
             if (mapPowersContext.MappedPowers.IsNullOrEmpty())
@@ -1522,6 +1525,9 @@ namespace MHServerEmu.Games.Powers
         {
             if (triggeredPowerEvent.PowerEventContext is not PowerEventContextUnassignMappedPowersPrototype unassignMappedPowersContext)
                 return Logger.WarnReturn(false, "DoPowerEventActionUnassignMappedPowers(): Incompatible power event context type");
+
+            // CUSTOM: see DoPowerEventActionMapPowers()
+            if (Owner is not Avatar && Owner.IsClientRenderedAsAvatar) return true;
 
             if (Owner is not Avatar avatar) return Logger.WarnReturn(false, "DoPowerEventActionUnassignMappedPowers(): Owner is not Avatar avatar");
 

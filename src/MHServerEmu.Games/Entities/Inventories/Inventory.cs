@@ -233,11 +233,22 @@ namespace MHServerEmu.Games.Entities.Inventories
             if (Prototype == null) return Logger.WarnReturn(0, "GetCapacity(): Prototype == null");
 
             int nSoftCap = Prototype.GetSoftCapacityDefaultSlots();
+            IEnumerable<PrototypeId> slotGroups = Prototype.GetSoftCapacitySlotGroups();
+
+            // CUSTOM: the unified stash only has console slot limits in the data (50 slots + bought extra slots). When it is
+            // enabled on PC, use those so the extra slot mechanic can be used there as well.
+            if (nSoftCap < 0 && Prototype.ConvenienceLabel == InventoryConvenienceLabel.UnifiedStash
+                && Prototype.SoftCapacityDefaultSlotsConsole >= 0 && Game?.CustomGameOptions?.EnableUnifiedStashOnPC == true)
+            {
+                nSoftCap = Prototype.SoftCapacityDefaultSlotsConsole;
+                slotGroups = Prototype.SoftCapacitySlotGroupsConsole ?? Array.Empty<PrototypeId>();
+            }
+
             if (nSoftCap < 0) return MaxCapacity;
 
             if (Owner == null) return Logger.WarnReturn(MaxCapacity, "GetCapacity(): Owner == null");
 
-            foreach (PrototypeId slotGroupRef in Prototype.GetSoftCapacitySlotGroups())
+            foreach (PrototypeId slotGroupRef in slotGroups)
             {
                 var slotGroup = slotGroupRef.As<InventoryExtraSlotsGroupPrototype>();
                 int extraSlots = Owner.Properties[PropertyEnum.InventoryExtraSlotsAvailable, slotGroup.DataRef];

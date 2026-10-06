@@ -1,4 +1,4 @@
-﻿using Gazillion;
+using Gazillion;
 using MHServerEmu.Core.Collisions;
 using MHServerEmu.Core.Extensions;
 using MHServerEmu.Core.Helpers;
@@ -973,8 +973,15 @@ namespace MHServerEmu.Games.Powers
             if (_ultimatePowerOwnerProto != null)
                 liveTuningMultiplier = LiveTuningManager.GetLiveWorldEntityTuningVar(_ultimatePowerOwnerProto, WorldEntityTuningVar.eWETV_MobPowerDamage);
 
+            // CUSTOM: script mirror images can log how each of their hits is calculated (MirrorImageOptions.LogDamage)
+            Scripting.MirrorImageOptions mirrorImage = Scripting.ScriptMirrorImages.FindOptionsForHit(Game, PowerOwnerId);
+            System.Text.StringBuilder mirrorImageLog = mirrorImage?.LogDamage == true ? new() : null;
+            bool mirrorImageLogSources = false;
+
             for (DamageType damageType = 0; damageType < DamageType.NumDamageTypes; damageType++)
             {
+                float mirrorImageLogBase = damageValues[(int)damageType];
+
                 // DamageMult
                 float damageMult = 1f;
                 damageMult += resultProperties[PropertyEnum.PayloadDamageMultTotal, DamageType.Any];
@@ -1014,6 +1021,35 @@ namespace MHServerEmu.Games.Powers
                 damageValues[(int)damageType] += Properties[PropertyEnum.DamageBaseUnmodified, damageType];
 
                 results.Properties[PropertyEnum.Damage, damageType] = damageValues[(int)damageType];
+
+                if (mirrorImageLog != null && (mirrorImageLogBase != 0f || damageValues[(int)damageType] != 0f))
+                {
+                    mirrorImageLog.Append($"\n    {damageType}: base {mirrorImageLogBase:N0} x mult {damageMult:0.###} x pct {damagePct:0.###}" +
+                        $" (rating {damageRating:N0}) x weaken {damagePctWeaken:0.###} x teamUp {teamUpDamageScalar:0.###} x liveTuning {liveTuningMultiplier:0.###}" +
+                        $" + flat {(float)Properties[PropertyEnum.DamageBaseUnmodified, damageType]:N0} = {damageValues[(int)damageType]:N0}");
+
+                    // An unusually large bonus: show where it comes from (what this hit carries, and what its user has)
+                    if (mirrorImageLogSources == false && (damageMult > 3f || damagePct > 3f))
+                    {
+                        mirrorImageLogSources = true;
+                        WorldEntity mirrorImageSource = Game.EntityManager.GetEntity<WorldEntity>(_propertySourceEntityId);
+                        mirrorImageLog.Append("\n    large bonus! carried by this hit:");
+                        mirrorImageLog.Append(Scripting.ScriptMirrorImages.DescribeDamageProperties(resultProperties, "\n      "));
+                        mirrorImageLog.Append($"\n    on its user [{mirrorImageSource?.PrototypeName}]:");
+                        mirrorImageLog.Append(Scripting.ScriptMirrorImages.DescribeDamageProperties(mirrorImageSource?.Properties, "\n      "));
+                    }
+                }
+            }
+
+            // CUSTOM: script mirror images scale their own damage (MirrorImageOptions.DamageScale)
+            float mirrorImageDamageScale = mirrorImage != null ? MathF.Max(mirrorImage.DamageScale, 0f) : 1f;
+            if (mirrorImageDamageScale != 1f)
+                ApplyDamageMultiplier(results.Properties, mirrorImageDamageScale);
+
+            if (mirrorImageLog != null && mirrorImageLog.Length > 0)
+            {
+                Logger.Info($"[MirrorImage] {PowerPrototype} (rank {(int)Properties[PropertyEnum.PowerRank]}, level {CombatLevel}) on {target?.PrototypeName}:" +
+                    $"{mirrorImageLog}\n    x DamageScale {mirrorImageDamageScale:0.###}; then crit and the target's defenses apply");
             }
 
             // Apply crit

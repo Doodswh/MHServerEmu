@@ -1,4 +1,4 @@
-﻿using System.Text;
+using System.Text;
 using Gazillion;
 using Google.ProtocolBuffers;
 using MHServerEmu.Core.Collections;
@@ -168,7 +168,8 @@ namespace MHServerEmu.Games.Entities
         // Console stuff - not implemented
         public bool IsConsolePlayer { get => false; }
         public bool IsConsoleUI { get => false; }
-        public bool IsUsingUnifiedStash { get => IsConsolePlayer || IsConsoleUI; }
+        // CUSTOM: EnableUnifiedStashOnPC also hands the unified stash to PC players (experimental)
+        public bool IsUsingUnifiedStash { get => IsConsolePlayer || IsConsoleUI || Game?.CustomGameOptions?.EnableUnifiedStashOnPC == true; }
 
         public Avatar PrimaryAvatar { get => CurrentAvatar; } // Fix for PC
         public Avatar SecondaryAvatar { get; private set; }
@@ -178,6 +179,7 @@ namespace MHServerEmu.Games.Entities
         public ulong DialogTargetId { get; private set; }
         public ulong DialogInteractorId { get; private set; }
         public PrototypeId CurrentOpenStashPagePrototypeRef { get; set; }
+
         public long InfinityXP { get => Properties[PropertyEnum.InfinityXP]; }
         public long OmegaXP { get => Properties[PropertyEnum.OmegaXP]; }
         public long GazillioniteBalance { get => PlayerConnection.GazillioniteBalance; set => PlayerConnection.GazillioniteBalance = value; }
@@ -813,6 +815,10 @@ namespace MHServerEmu.Games.Entities
             if (GetInventoryByRef(invProtoRef) != null)
                 return Logger.WarnReturn(false, $"UnlockInventory(): {GameDatabase.GetFormattedPrototypeName(invProtoRef)} already exists");
 
+            // CUSTOM: the unified stash can only be unlocked for players allowed to use it (consoles, or EnableUnifiedStashOnPC)
+            if (IsUsingUnifiedStash == false && invProtoRef.As<InventoryPrototype>()?.ConvenienceLabel == InventoryConvenienceLabel.UnifiedStash)
+                return Logger.WarnReturn(false, "UnlockInventory(): The unified stash is not enabled (EnableUnifiedStashOnPC)");
+
             if (_unlockedInventoryList.Contains(invProtoRef))
                 return Logger.WarnReturn(false, $"UnlockInventory(): {GameDatabase.GetFormattedPrototypeName(invProtoRef)} is already unlocked");
 
@@ -1365,6 +1371,9 @@ namespace MHServerEmu.Games.Entities
                 return Logger.WarnReturn(false, $"TrashItem(): Item {item} failed to enter world");
             }
 
+            // CUSTOM: scripts can tell a dropped item from a fresh find (ItemPickedUpArgs.WasDroppedByPlayer)
+            Scripting.ScriptRewards.MarkPlayerDropped(item);
+
             // Reapply lifespan
             float expirationTimeMult = Math.Max(Game.CustomGameOptions.TrashedItemExpirationTimeMultiplier, 0f);
             TimeSpan expirationTime = item.GetExpirationTime() * expirationTimeMult;
@@ -1709,7 +1718,9 @@ namespace MHServerEmu.Games.Entities
                     continue;
                 }
 
-                if (stashInvProto.IsPlayerStashInventory && IsUsingUnifiedStash == false && stashInvProto.ConvenienceLabel == InventoryConvenienceLabel.UnifiedStash)
+                // CUSTOM: only consoles get the unified stash handed out automatically. On PC (EnableUnifiedStashOnPC) it is
+                // unlocked like any other stash tab (UnlockInventory), which also tells the client about it.
+                if (stashInvProto.IsPlayerStashInventory && (IsConsolePlayer || IsConsoleUI) == false && stashInvProto.ConvenienceLabel == InventoryConvenienceLabel.UnifiedStash)
                     continue;
 
                 if (stashInvProto.LockedByDefault == false)
@@ -3976,6 +3987,18 @@ namespace MHServerEmu.Games.Entities
             if (hudTutorialProto != null) hudTutorialRef = hudTutorialProto.DataRef;
             var message = NetMessageHUDTutorial.CreateBuilder().SetHudTutorialProtoId((ulong)hudTutorialRef).Build();
             SendMessage(message);
+        }
+
+        /// <summary>
+        /// CUSTOM: Opens one of the client's own UI panels by name (see UI/Types/UIPanelNames: PlayerStashInventoryPanel,
+        /// CraftingPanel, VendorPanel, TeamUpPanel, ...).
+        /// </summary>
+        public bool SendOpenUIPanel(string panelName)
+        {
+            if (string.IsNullOrWhiteSpace(panelName)) return Logger.WarnReturn(false, "SendOpenUIPanel(): panelName is empty");
+
+            SendMessage(NetMessageOpenUIPanel.CreateBuilder().SetPanelName(panelName).Build());
+            return true;
         }
 
         public bool SendOpenUIPanel(AssetId panelNameId)

@@ -218,7 +218,6 @@ namespace MHServerEmu.Games.GameData
                         var embeddedPrototype = (Prototype)fieldInfo.GetValue(prototype);
                         if (embeddedPrototype != null)
                         {
-                            if (hasPatch) PrototypePatchManager.Instance.SetPath(prototype, embeddedPrototype, fieldInfo.Name);
                             embeddedPrototype.PostProcess();
                         }
                         break;
@@ -227,12 +226,8 @@ namespace MHServerEmu.Games.GameData
                         var prototypeCollection = (IEnumerable<Prototype>)fieldInfo.GetValue(prototype);
                         if (prototypeCollection == null) continue;
 
-                        int index = 0;
                         foreach (Prototype element in prototypeCollection)
-                        {
-                            if (hasPatch) PrototypePatchManager.Instance.SetPathIndex(prototype, element, fieldInfo.Name, index++);
                             element.PostProcess();
-                        }
 
                         break;
 

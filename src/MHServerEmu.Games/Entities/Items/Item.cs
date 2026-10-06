@@ -1,4 +1,4 @@
-﻿using System.Text;
+using System.Text;
 using Gazillion;
 using MHServerEmu.Core.Collections;
 using MHServerEmu.Core.Extensions;
@@ -187,7 +187,8 @@ namespace MHServerEmu.Games.Entities.Items
                 Entity owner = Game.EntityManager.GetEntity<Entity>(invLoc.ContainerId);
 
                 // Account binding
-                if (Game.CustomGameOptions.DisableAccountBinding == false)
+                // CUSTOM: scripts can make single items bind even when binding is switched off (ScriptRewards.BindOnPickup)
+                if (Game.CustomGameOptions.DisableAccountBinding == false || Scripting.ScriptRewards.IsAlwaysBound(PrototypeDataRef))
                 {
                     // NOTE: Adding IsTradable == false to the check here can disable the Not Droppable binding state,
                     // allowing Not Droppable items to be traded without the trade window.
@@ -1556,27 +1557,78 @@ namespace MHServerEmu.Games.Entities.Items
             return true;
         }
 
+        // CUSTOM: StarkTech cube visuals all come from this folder (see the gem rolls in LootUtilities); an item keeps at most
+        // MaxGemVisuals of them, a further cube is refused (not consumed)
+        private const string GemVisualAffixPathPrefix = "Entity/Items/Affixes/BuiltInVFX/";
+        public const int MaxGemVisuals = 2;
+
+        private static bool IsGemVisualAffix(AffixPrototype affixProto)
+        {
+            return affixProto?.Position == AffixPosition.Visual
+                && (GameDatabase.GetPrototypeName(affixProto.DataRef)?.StartsWith(GemVisualAffixPathPrefix, StringComparison.OrdinalIgnoreCase) ?? false);
+        }
+
+        private static AffixSpec GetGemVisualSpec(Item gem)
+        {
+            foreach (AffixSpec affixSpec in gem.ItemSpec.AffixSpecs)
+            {
+                if (affixSpec.AffixProto?.Position == AffixPosition.Visual)
+                    return affixSpec;
+            }
+            return null;
+        }
+
         /// <summary>
-        /// CUSTOM: Replaces this item's visual effect affix with the one on <paramref name="gem"/>, if it has one.
+        /// CUSTOM: Returns <see langword="true"/> if <paramref name="gem"/> carries a visual effect and this item already has
+        /// <see cref="MaxGemVisuals"/> cube visuals, so socketing it would only eat the cube.
+        /// </summary>
+        public bool IsGemVisualLimitReached(Item gem)
+        {
+            if (gem == null || GetGemVisualSpec(gem) == null)
+                return false;
+
+            int gemVisuals = 0;
+            foreach (AffixSpec affixSpec in ItemSpec.AffixSpecs)
+            {
+                if (IsGemVisualAffix(affixSpec.AffixProto))
+                    gemVisuals++;
+            }
+
+            return gemVisuals >= MaxGemVisuals;
+        }
+
+        /// <summary>
+        /// CUSTOM: Returns <see langword="true"/> if this item already has the visual effect <paramref name="gem"/> carries.
+        /// The effect is an on/off flag, so a second copy does nothing and socketing it would only eat the cube.
+        /// </summary>
+        public bool HasGemVisual(Item gem)
+        {
+            AffixSpec gemVisualSpec = gem != null ? GetGemVisualSpec(gem) : null;
+            if (gemVisualSpec?.AffixProto == null)
+                return false;
+
+            foreach (AffixSpec affixSpec in ItemSpec.AffixSpecs)
+            {
+                if (affixSpec.AffixProto?.DataRef == gemVisualSpec.AffixProto.DataRef)
+                    return true;
+            }
+
+            return false;
+        }
+
+        /// <summary>
+        /// CUSTOM: Adds the visual effect affix of <paramref name="gem"/> to this item, if it has one. Cube visuals stack up to
+        /// <see cref="MaxGemVisuals"/>; the item's own visual (and the "no visuals" marker) is replaced by the first one.
         /// Returns <see langword="true"/> if the item changed.
         /// </summary>
         private bool TransferGemVisualAffix(Item gem)
         {
-            AffixSpec gemVisualSpec = null;
-            foreach (AffixSpec affixSpec in gem.ItemSpec.AffixSpecs)
-            {
-                if (affixSpec.AffixProto?.Position == AffixPosition.Visual)
-                {
-                    gemVisualSpec = affixSpec;
-                    break;
-                }
-            }
-
-            if (gemVisualSpec == null)
+            AffixSpec gemVisualSpec = GetGemVisualSpec(gem);
+            if (gemVisualSpec == null || IsGemVisualLimitReached(gem) || HasGemVisual(gem))
                 return false;
 
-            // Remove the visual affixes this item already has (including the "no visuals" one), then add the gem's
-            RemoveAffixesAtPosition(AffixPosition.Visual);
+            // Remove the visual affixes that aren't cube visuals (the item's own visual, the "no visuals" marker); cube visuals stay
+            RemoveAffixes(affixProto => affixProto?.Position == AffixPosition.Visual && IsGemVisualAffix(affixProto) == false);
 
             AffixSpec visualSpec = new(gemVisualSpec);
             ItemSpec.AddAffixSpec(visualSpec);
@@ -1589,22 +1641,22 @@ namespace MHServerEmu.Games.Entities.Items
         }
 
         /// <summary>
-        /// CUSTOM: Removes every affix at <paramref name="position"/> from this item, along with the stats it applied.
+        /// CUSTOM: Removes every affix matching <paramref name="match"/> from this item, along with the stats it applied.
         /// </summary>
-        private void RemoveAffixesAtPosition(AffixPosition position)
+        private void RemoveAffixes(Func<AffixPrototype, bool> match)
         {
             // Break ItemSpec's incapsulation the same way RemoveSocketAffix() does
             IList<AffixSpec> affixes = (IList<AffixSpec>)ItemSpec.AffixSpecs;
             for (int i = affixes.Count - 1; i >= 0; i--)
             {
-                if (affixes[i].AffixProto?.Position == position)
+                if (match(affixes[i].AffixProto))
                     affixes.RemoveAt(i);
             }
 
             for (int i = _affixProperties.Count - 1; i >= 0; i--)
             {
                 AffixPropertiesCopyEntry entry = _affixProperties[i];
-                if (entry.AffixProto?.Position != position)
+                if (match(entry.AffixProto) == false)
                     continue;
 
                 if (entry.Properties != null && Properties.HasChildCollection(entry.Properties))

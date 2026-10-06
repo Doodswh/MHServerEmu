@@ -83,7 +83,8 @@ C# only, shown to everyone in a region:
 - `ScriptSpawner.SpawnHostile(region, protoRef, near, minDist, maxDist, targetAvatar)` spawns an aggroed hostile agent.
 - `ScriptSpawner.AddRandomAffixes(agent, count)`, `ScriptSpawner.IsAlive(game, id)`, `ScriptSpawner.Despawn(game, id)`.
 
-- `ScriptRewards.DropItem(player, "Entity/Items/.../X.prototype", count, slot)` drops reward items owned by that player at their feet.
+- `ScriptRewards.DropItem(player, "Entity/Items/.../X.prototype", count, slot, itemLevel)` drops reward items owned by that player at
+  their feet. `itemLevel` 0 (the default) uses the hero's level; set it (e.g. 75, the max) for special gear rewards.
 
 Random-map events:
 - `ScriptSpawner.SpawnInteractable(region, protoRef, position, yawDegrees, tag)`: a friendly, invulnerable, clickable NPC or object.
@@ -109,7 +110,8 @@ entrance; respawns use the S room too); `ScriptTeleport.GetBuiltMap(region).GetM
 (the Limbo set has no dead-end or straight-corridor cells). `tests/map_test.csx` (`!maptest`) tries it. Host region used so far:
 Regions/ZZZDevelopment/WhiteRoom/BlackRoomRegion (empty, private).
 
-`events/_dark_dimension_incursion.csx` (ON HOLD, disabled by the leading `_`; remove it to turn the event back on): Doctor Strange in Avengers Tower sends a party into a hand-built Limbo map: four Dark Dimension rifts
+`events/dark_dimension_incursion.csx` (in testing): Doctor Strange in Avengers Tower sends a party into a hand-built outdoor map
+(tile sets in `CellSets`, default the Fort Stryker training forest; `!incursion tiles` switches, `!incursion skip` jumps phases): four Dark Dimension rifts
 spawning demons, three Mystic Power Nodes to channel while their guardians attack (Eye of Agamotto damage buff per node), Kaecilius
 invulnerable behind Mirror Images, a Mindless Titan, then rewards claimed by clicking Doctor Strange (`!incursion`).
 
@@ -138,12 +140,77 @@ a boss despawns (or `ClearWidget`). `!uitest whealth` tries it.
 `tests/event_tools_test.csx` has admin commands to try these (`!evtnpc`, `!evtlayout`, `!randspot`, `!farspot`).
 `!zonetest list / go / info / mark` (admin, built in) checks which unused zones load on the client.
 
+## Custom leaderboards (C#)
+
+The client can only show leaderboards from the game data, so a custom one is an existing board that a script renames and feeds:
+- `ScriptLeaderboards.Rename(boardPath, name [, brief, extended])`: replaces the board's texts (shows after reconnecting).
+- `ScriptLeaderboards.Submit(player, boardPath, value [, ruleIndex])`: adds a score through the board's own scoring rule. Kill / collect
+  style rules add up, completion-time rules keep the lowest (time boards take milliseconds). `ScriptLeaderboards.IsActive(boardPath)`.
+- The board keeps its reset cycle, rewards, display (number / time) and order from the game data, and must be enabled in
+  Data/Leaderboards/LeaderboardSchedule.json (`!leaderboards reloadschedule`).
+- `ScriptLeaderboards.TakeOver(boardPath)` at load makes the board script-only: its original scoring rules stop counting.
+  (Patching the rules' context with the patch manager doesn't work: patches land after the context filter is built.)
+
+In use: Midtown Boss Rush daily damage (Events/DaredevilVsHand, in thousands), Terminal Breach fastest clear
+(DangerRoom/DRScenarioTimeBroodEpic, weekly), Age of MOO fastest clear (DangerRoom/DRScenarioTimeTrainyardCosmic, weekly) and
+Endless Danger Room highest wave (Events/Anniversary2016, all-time, rule 54; `dangerroom/edr_leaderboard.csx`).
+Only boards the CLIENT's data marks public / Live are listed in game: patching a private board (e.g. TestLeaderboard) in
+Data/Game/Patches makes the server use it, but players never see it. Patch `PrototypeId` values must be numbers, not paths.
+Careful when picking a board: many inherit their name / description text from a parent board, and renaming changes that shared
+text on every board using it (e.g. the Epic time boards all inherit Brood Epic's name). Pick boards with their own Name. Free boards that fit: Events/SummerEvent and AgentsOfSHIELDEvent (4 hours, highest first),
+the other DangerRoom/DRScenarioTime* boards (weekly, fastest first; not the Cable ones, EDR runs in the Cable region), PvP/* (weekly).
+
+## Saved state (C#)
+
+- `ScriptStorage.Load(name)` / `Save(name, pairs)`: a small key / value file per script in `Data/ScriptData`, so progress survives
+  restarts and reloads. Read and written whole: save about once a minute, not on every change.
+- `events/community_goal.csx` uses it: every kill on the server counts toward shared stages (`Stages`), contributors with
+  `MinContribution` kills get each stage's rewards (also when they log in later). `!goal`, `!goal top`.
+
+## Item prices (C#)
+
+- `ScriptRewards.CountItems(player, itemPath)` / `TakeItems(player, itemPath, count)`: count or take items from a player's backpack
+  and general stash (all or nothing), e.g. an event currency price. `events/halloween.csx` (Trick or Treat: candy and pumpkin drops,
+  boss-kill tricks and treats, Ghost trading candy for Halloween Mystery Bags) uses them.
+- `ScriptRewards.DropLootTable(player, lootTablePath, slot)`: rolls a game loot table for the player and drops the result like a
+  kill would (items, credits, orbs, banner messages); loot cooldowns are ignored. `IsValidLootTable(path)` checks a path.
+  `events/halloween.csx` uses it for the original Halloween loot explosion.
+- `ScriptConditions.ApplyEffect(entity, key, effectName)`: puts a client condition effect (a glow, aura, spotlight, size change...)
+  on an entity by its client class name without the `MarvelConditionEffect_` prefix, with no stats. `FindEffects(filter)` lists the
+  names available. `tests/fx_test.csx` (`!fx find <text>`, `!fx <name>`, `!fx off`) is for trying them.
+- `ScriptCombatAI.Attach(agent, leader, options, powers)`: gives any agent a combat brain that replaces its own AI and works out
+  from the game data what each of its powers is for (attack, area, buff, debuff, heal, summon, toggle, dash, signature, ultimate):
+  upkeep first, then the best-scoring attack for the situation, big cooldowns saved for bosses / elites / packs. `leader` (optional)
+  is who it follows and fights around. `CombatAIOptions` holds every tuning value; `LogDecisions` logs each choice and why.
+- EXPERIMENTAL `ScriptMirrorImages.Spawn(avatar, options)` / `Count` / `Clear`: allies that clients draw as the player's own hero
+  and costume, with the hero's powers, talents and traits and a `ScriptCombatAI` brain (`MirrorImageOptions`, with `AI` inside).
+  `tests/mirror_test.csx` (`!mirror`, `!mirror <n>`, `!mirror clear`) is for trying them.
+  `ScriptMirrorImages.EnableAutoSpawn(avatar, options, cooldownSeconds)` / `DisableAutoSpawn(avatar)`: the avatar gets an image
+  automatically when it hits an enemy (one at a time). `items/set_bonuses.csx` uses it for the Legion of One 4 piece bonus
+  (a `SetTier` can take `mirror:` and `mirrorCooldownSeconds:`).
+- `ScriptRewards.BindOnPickup(itemPath)`: the item binds to the account when picked up even if the server has account binding
+  switched off: it cannot be traded and is destroyed when dropped. `ItemPickedUp` args have `WasDroppedByPlayer`, true when the
+  item was on the ground because a player dropped it: ignore those when counting pickups.
+- `events/community_goal.csx` also scores every contribution on a leaderboard (the Summer Event board, renamed). Its prize boxes are
+  renamed by the script and refilled by `Data/Game/Patches/PatchDataHalloween.json`; enable the board in `LeaderboardSchedule.json`.
+- `events/event_welcome.csx` shows players a popup about the running events once (until they click "Got it!"); edit its
+  `Pages`, and change `PopupId` to show a new popup for the next event.
+
 ## Gear bonuses and custom procs (C#)
 
 - `ScriptBonuses.Apply(agent, key, propertyCollection)` / `Remove(agent, key)`: merge extra stats and procs into a character the
   same way an equipped item does. Server-side only: combat math uses them, the character sheet does not show them.
+  Pass `clientVisible: true` (heroes only) to send the stats to the client as well, through an invisible condition: needed for
+  stats the client must know (area sizes, cooldowns, charges) and shows them on the character sheet. Procs stay server-side.
+  Boost one power with `bonus[PropertyEnum.DamageMultForPower, powerRef] = 0.25f` (name the power that deals the hit, often a combo).
 - `ScriptBonuses.AddProc(bonus, ProcTriggerType.OnSuperCrit, "Powers/ItemPowers/...", chance [, threshold])`: proc an existing power.
 - `ScriptBonuses.CountEquipped(agent, itemRef)`.
+- `ScriptConditions.ApplyPowerCondition(entity, key, powerPath [, conditionIndex, duration, properties])` / `Remove` / `Has`: put a
+  power's condition on an entity without using the power, with no stats unless given some. Borrows its client visual (size, glow,
+  particles). Zero duration = until removed. A hero loses conditions on region change / hero swap: reapply from
+  `ScriptHooks.AvatarEnteredWorld` (`e.Avatar`, `e.Player`). Set tiers take a `visualPower:` and sets a `heroes:` list. `tests/size_test.csx` (`!grow`) uses Giant-Man's 4x grow.
+  Client size rules: item size effects multiply and are capped at 0.7x-1.3x; only effects with OverrideMaxScale (Giant-Man grow 4x,
+  Juggernaut/Venom ultimates 1.5x) raise the cap, to their own size.
 - `ScriptText.OverrideItemFlavorText(itemPath, text)` / `OverrideText(stringId, text)`: replace existing game text (after reconnect).
 
 `items/set_bonuses.csx` builds two test gear sets from these (`!sets` shows your progress).

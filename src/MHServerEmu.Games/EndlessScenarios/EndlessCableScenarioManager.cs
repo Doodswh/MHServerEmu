@@ -75,6 +75,10 @@ namespace MHServerEmu.Games.EndlessScenarios
         private const int WaveWidgetLocalizedWaveLimit = 10000;
         private const string CableDangerRoomWaveWidgetPrototypeName = "UI/MetaGame/MissionName.prototype";
         private const string CableDangerRoomQuotaWidgetPrototypeName = "UI/MetaGame/DangerRoom/DangerRoomCounterBarBASE.prototype";
+        // CUSTOM: countdown shown during breaks between waves ("Time:" widget of the Danger Room HUD)
+        private const string BreakTimerWidgetPrototypeName = "UI/MetaGame/DangerRoom/DangerRoomTimer.prototype";
+        private static readonly TimeSpan BreakTimerMinDelay = TimeSpan.FromSeconds(15);   // the short gap between normal waves gets no timer
+        private PrototypeId _breakTimerWidgetRef;
         private const string CableNativeMissionPrototypeName = "Missions/Prototypes/PVEEndgame/DangerRoom/UniqueScenarios/DRMissionChallengeCableFight.prototype";
         private const string DangerRoomRewardChestPrototypeName = "Entity/Props/Chests/DangerRoomChestTournamentScenarioEntity.prototype";
         private const string DangerRoomRewardChestLootTablePrototypeName = "Loot/Tables/Mob/Bosses/DangerRoom/CableEventDangerRoomBoss.prototype";
@@ -538,6 +542,9 @@ namespace MHServerEmu.Games.EndlessScenarios
 
             runState.ShortenWaitForNextWave(currentTime + NextWaveDelay, currentTime);
             message = $"Break skipped, wave {runState.CurrentWave + 1} starts in {NextWaveDelay.TotalSeconds:0} seconds.";
+
+            // The break countdown jumps to the new start time (it is removed when the wave spawns)
+            ShowBreakTimer(runState, _game.RegionManager.GetRegion(runState.RegionId), NextWaveDelay);
 
             // Let the run owner know if someone else skipped it
             if (runState.PlayerDbId != player.DatabaseUniqueId)
@@ -1048,6 +1055,7 @@ namespace MHServerEmu.Games.EndlessScenarios
                     return;
 
                 int nextWave = runState.CurrentWave + 1;
+                ClearBreakTimer(runState, region);
                 CleanupLeftoverRunCombatants(runState, region, $"before wave {nextWave}");
                 ApplyWaveDifficultyToRegion(runState, region, nextWave);
                 if (SpawnWave(runState, region, nextWave, currentTime))
@@ -1263,6 +1271,10 @@ namespace MHServerEmu.Games.EndlessScenarios
             runState.MarkWaveClear(nextWaveAt, currentTime);
             CleanupLeftoverRunCombatants(runState, region, $"wave {clearedWave} clear");
 
+            // CUSTOM: count the break down on the HUD
+            if (delay >= BreakTimerMinDelay)
+                ShowBreakTimer(runState, region, delay);
+
             if (showDefaultMessages)
                 SendWaveClearBanner(player, clearedWave);
 
@@ -1361,7 +1373,44 @@ namespace MHServerEmu.Games.EndlessScenarios
             }
 
             ClearNativeCableObjectiveWidgets(runState, region);
+            ClearBreakTimer(runState, region);
             runState.ClearObjectiveWidgetRefreshSchedule();
+        }
+
+        /// <summary>
+        /// CUSTOM: Shows (or resets) the break countdown on the HUD of everyone in the run's region.
+        /// </summary>
+        private void ShowBreakTimer(EndlessCableScenarioRunState runState, Region region, TimeSpan remaining)
+        {
+            if (runState == null || region?.UIDataProvider == null)
+                return;
+
+            if (_breakTimerWidgetRef == PrototypeId.Invalid)
+                _breakTimerWidgetRef = GameDatabase.GetPrototypeRefByName(BreakTimerWidgetPrototypeName);
+
+            if (_breakTimerWidgetRef == PrototypeId.Invalid)
+                return;
+
+            PrototypeId contextRef = GetCableWidgetContextRef(runState);
+            UIWidgetGenericFraction timer = region.UIDataProvider.GetWidget<UIWidgetGenericFraction>(_breakTimerWidgetRef, contextRef);
+            if (timer == null)
+                return;
+
+            timer.SetAreaContext(contextRef);
+            timer.SetTimeRemaining((long)Math.Max(remaining.TotalMilliseconds, 0));
+        }
+
+        /// <summary>
+        /// CUSTOM: Removes the break countdown (when the next wave starts or the run ends).
+        /// </summary>
+        private void ClearBreakTimer(EndlessCableScenarioRunState runState, Region region)
+        {
+            if (runState == null || region?.UIDataProvider == null || _breakTimerWidgetRef == PrototypeId.Invalid)
+                return;
+
+            PrototypeId contextRef = GetCableWidgetContextRef(runState);
+            if (region.UIDataProvider.FindWidget<UISyncData>(_breakTimerWidgetRef, contextRef) != null)
+                region.UIDataProvider.DeleteWidget(_breakTimerWidgetRef, contextRef);
         }
 
         internal bool TryRefreshNativeObjectiveWidgetOverride(MissionObjective objective)

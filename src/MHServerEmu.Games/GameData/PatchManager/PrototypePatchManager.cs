@@ -18,7 +18,6 @@ namespace MHServerEmu.Games.GameData.PatchManager
         private static readonly Logger Logger = LogManager.CreateLogger();
         private readonly Stack<PrototypeId> _protoStack = new();
         private readonly Dictionary<PrototypeId, List<PrototypePatchEntry>> _patchDict = new();
-        private readonly Dictionary<Prototype, string> _pathDict = new();
         private bool _initialized = false;
 
         public static PrototypePatchManager Instance { get; } = new();
@@ -34,7 +33,6 @@ namespace MHServerEmu.Games.GameData.PatchManager
         private bool LoadPatchDataFromDisk()
         {
             _patchDict.Clear();
-            _pathDict.Clear();
             _protoStack.Clear();
 
             string patchDirectory = Path.Combine(FileHelper.DataDirectory, "Game", "Patches");
@@ -87,9 +85,20 @@ namespace MHServerEmu.Games.GameData.PatchManager
 
                     foreach (PrototypePatchEntry value in updateValues)
                     {
+                        if (value == null)
+                            continue;
+
                         if (!value.Enabled)
                         {
                             skippedDisabled++;
+                            continue;
+                        }
+
+                        // A broken entry is skipped and named; the rest of the file still loads
+                        if (value.IsInvalid)
+                        {
+                            Logger.Warn($"[PatchManager] Skipped an invalid entry in '{fileName}' (prototype '{value.Prototype}', path '{value.Path}'): {value.InvalidReason}");
+                            skippedInvalid++;
                             continue;
                         }
 
@@ -188,20 +197,24 @@ namespace MHServerEmu.Games.GameData.PatchManager
 
         public void PostOverride(Prototype prototype)
         {
-            if (_protoStack.Count == 0) return;
-
-            string currentPath = string.Empty;
-            if (prototype.DataRef == PrototypeId.Invalid && !_pathDict.TryGetValue(prototype, out currentPath))
+            // Patches are applied once, from the root prototype: nested prototypes (no DataRef of their own) are reached by
+            // walking the patch path from their root.
+            PrototypeId patchProtoRef = prototype.DataRef;
+            if (patchProtoRef == PrototypeId.Invalid)
                 return;
 
-            PrototypeId patchProtoRef = _protoStack.Peek();
-            if (prototype.DataRef != PrototypeId.Invalid)
+            // Take this prototype off the load stack. Anything above it is a prototype whose load started (PreCheck) but never
+            // finished: drop it, or it would block every later patch.
+            if (_protoStack.Contains(patchProtoRef))
             {
-                if (prototype.DataRef != patchProtoRef)
-                    return;
+                while (_protoStack.Count > 0)
+                {
+                    PrototypeId top = _protoStack.Pop();
+                    if (top == patchProtoRef)
+                        break;
 
-                if (_patchDict.ContainsKey(prototype.DataRef))
-                    patchProtoRef = _protoStack.Pop();
+                    Logger.Warn($"[PatchManager] '{entry_PrototypeName(top)}' started loading but never finished; its patches were not applied.");
+                }
             }
 
             if (!_patchDict.TryGetValue(patchProtoRef, out var list))
@@ -222,9 +235,6 @@ namespace MHServerEmu.Games.GameData.PatchManager
             // The dangling if had no body — log when patches are applied.
             if (appliedCount > 0)
                 Logger.Trace($"[PatchManager] Applied {appliedCount} patch(es) to '{entry_PrototypeName(patchProtoRef)}'.");
-
-            if (_protoStack.Count == 0)
-                _pathDict.Clear();
         }
 
         
@@ -328,7 +338,7 @@ namespace MHServerEmu.Games.GameData.PatchManager
                 else
                 {
                     object rawValue = entry.Value.GetValue();
-                    object convertedValue = ConvertValue(rawValue, fieldInfo.PropertyInfo.PropertyType);
+                    object convertedValue = ConvertValue(rawValue, fieldInfo.PropertyInfo.PropertyType, $"'{entry.Prototype}' -> '{entry.Path}'");
 
                     if (!GameDatabase.PrototypeClassManager.TrySetPropertyValue(targetObject, fieldInfo.PropertyInfo, convertedValue))
                     {
@@ -348,44 +358,6 @@ namespace MHServerEmu.Games.GameData.PatchManager
             }
         }
 
-        public void SetPath(Prototype parent, Prototype child, string fieldName)
-        {
-            if (child == null) return;
-            _pathDict.TryGetValue(parent, out var parentPath);
-            if (parent.DataRef != PrototypeId.Invalid && _patchDict.ContainsKey(parent.DataRef))
-                parentPath = string.Empty;
-            string newPath = string.IsNullOrEmpty(parentPath) ? fieldName : $"{parentPath}.{fieldName}";
-            _pathDict[child] = newPath;
-        }
-
-        public void SetPathIndex(Prototype parent, Prototype child, string fieldName, int index)
-        {
-            if (child == null) return;
-            _pathDict.TryGetValue(parent, out var parentPath);
-            if (parent.DataRef != PrototypeId.Invalid && _patchDict.ContainsKey(parent.DataRef))
-                parentPath = string.Empty;
-            string newPath = string.IsNullOrEmpty(parentPath) ? $"{fieldName}[{index}]" : $"{parentPath}.{fieldName}[{index}]";
-            _pathDict[child] = newPath;
-        }
-
-       
-        public void SetPathMixin(Prototype parent, PrototypeMixinList mixinList, string fieldName)
-        {
-            if (mixinList == null) return;
-            _pathDict.TryGetValue(parent, out var parentPath);
-            if (parent.DataRef != PrototypeId.Invalid && _patchDict.ContainsKey(parent.DataRef))
-                parentPath = string.Empty;
-
-            for (int i = 0; i < mixinList.Count; i++)
-            {
-                var item = mixinList[i];
-                if (item?.Prototype == null) continue;
-
-                string mixinKey = $"{fieldName}[BlueprintId={(ulong)item.BlueprintId},Copy={item.BlueprintCopyNum}]";
-                string newPath = string.IsNullOrEmpty(parentPath) ? mixinKey : $"{parentPath}.{mixinKey}";
-                _pathDict[item.Prototype] = newPath;
-            }
-        }
         private void LoadOpenCalligraphyPatch(JsonElement patchesArray, string fileName, ref int count, ref int skippedDisabled, ref int skippedInvalid, ref int resolvedViaReplacement)
         {
             foreach (var patchElement in patchesArray.EnumerateArray())
@@ -458,7 +430,18 @@ namespace MHServerEmu.Games.GameData.PatchManager
                     currentValueElement = doc.RootElement.Clone();
                 }
 
-                ValueBase valueBase = PatchEntryConverter.GetValueBase(currentValueElement, mappedType);
+                ValueBase valueBase;
+                try
+                {
+                    valueBase = PatchEntryConverter.GetValueBase(currentValueElement, mappedType);
+                }
+                catch (Exception ex)
+                {
+                    // One bad patch must not reject the whole file
+                    Logger.Warn($"[PatchManager] Skipped an invalid patch in OC Patch '{fileName}' (prototype '{prototypeName}', path '{pathBuilder}'): value could not be read as {mappedType}: {ex.Message}");
+                    skippedInvalid++;
+                    continue;
+                }
 
                 var entry = new PrototypePatchEntry(
                     enabled: true,
@@ -739,7 +722,10 @@ namespace MHServerEmu.Games.GameData.PatchManager
 
                     if (foundMixinObj == null)
                     {
-                        return current;
+                        // A selector that matches nothing is a miss. Returning the current node here would apply the patch
+                        // to the parent instead, silently.
+                        Logger.Warn($"[PatchManager] Mixin selector '{part}' matched nothing on '{current.GetType().Name}' (path '{path}').");
+                        return null;
                     }
 
                     current = foundMixinObj;
@@ -911,10 +897,18 @@ namespace MHServerEmu.Games.GameData.PatchManager
             return ConvertValue(valueEntry, elementType);
         }
 
-        public static object ConvertValue(object rawValue, Type targetType)
+        /// <summary>
+        /// Converts a patch value to <paramref name="targetType"/>. <paramref name="context"/> (the prototype and path being
+        /// patched, when known) is only used to name the patch in conversion warnings.
+        /// </summary>
+        public static object ConvertValue(object rawValue, Type targetType, string context = null)
         {
             if (rawValue == null || (rawValue is JsonElement jsonValCheck && jsonValCheck.ValueKind == JsonValueKind.Null))
                 return null;
+
+            // Orientation: [yaw, pitch, roll]
+            if (targetType == typeof(Core.VectorMath.Orientation) && rawValue is JsonElement jsonOrientation && jsonOrientation.ValueKind == JsonValueKind.Array)
+                return PatchEntryConverter.ParseJsonOrientation(jsonOrientation);
 
             if (targetType.IsInstanceOfType(rawValue))
                 return rawValue;
@@ -945,6 +939,7 @@ namespace MHServerEmu.Games.GameData.PatchManager
                 }
                 catch (Exception ex)
                 {
+                    WarnConversion(context, targetType, ex);
                     return null;
                 }
             }
@@ -958,7 +953,7 @@ namespace MHServerEmu.Games.GameData.PatchManager
 
                     Array newArray = Array.CreateInstance(elementType, jsonArray.Length);
                     for (int i = 0; i < jsonArray.Length; i++)
-                        newArray.SetValue(ConvertValue(jsonArray[i], elementType), i);
+                        newArray.SetValue(ConvertValue(jsonArray[i], elementType, context), i);
 
                     return newArray;
                 }
@@ -995,6 +990,7 @@ namespace MHServerEmu.Games.GameData.PatchManager
                     }
                     catch (Exception ex)
                     {
+                        WarnConversion(context, targetType, ex);
                         return null;
                     }
                 }
@@ -1012,11 +1008,14 @@ namespace MHServerEmu.Games.GameData.PatchManager
                     if (targetType == typeof(LocaleStringId)) return (LocaleStringId)jsonVal.GetUInt64();
                     if (targetType == typeof(AssetId)) return (AssetId)jsonVal.GetUInt64();
                     if (targetType == typeof(PrototypeGuid)) return (PrototypeGuid)jsonVal.GetUInt64();
+                    if (targetType == typeof(CurveId)) return (CurveId)jsonVal.GetUInt64();
                     if (targetType.IsEnum)
                         return PatchEntryConverter.ParseAndValidateEnum(jsonVal, targetType);
                 }
                 catch (Exception ex)
                 {
+                    // Falls through to the generic conversions below, which report their own failure
+                    WarnConversion(context, targetType, ex);
                 }
             }
 
@@ -1025,9 +1024,13 @@ namespace MHServerEmu.Games.GameData.PatchManager
                 Type elementType = targetType.GetElementType();
                 Array newArray = Array.CreateInstance(elementType, jsonElementArray.Length);
                 for (int i = 0; i < jsonElementArray.Length; i++)
-                    newArray.SetValue(ConvertValue(jsonElementArray[i], elementType), i);
+                    newArray.SetValue(ConvertValue(jsonElementArray[i], elementType, context), i);
                 return newArray;
             }
+
+            // Ids that are ulongs underneath (e.g. a ULong patch value for a CurveId field)
+            if (targetType == typeof(CurveId) && rawValue is ulong curveValue)
+                return (CurveId)curveValue;
 
             if (targetType == typeof(AssetId) && rawValue is string assetString)
             {
@@ -1107,6 +1110,11 @@ namespace MHServerEmu.Games.GameData.PatchManager
                 return converter.ConvertFrom(rawValue);
 
             return Convert.ChangeType(rawValue, targetType);
+        }
+
+        private static void WarnConversion(string context, Type targetType, Exception ex)
+        {
+            Logger.Warn($"[PatchManager] Could not convert a patch value to '{targetType.Name}'{(string.IsNullOrEmpty(context) ? "" : $" for {context}")}: {ex.Message}");
         }
 
     }

@@ -10,8 +10,10 @@ using MHServerEmu.Core.VectorMath;
 using MHServerEmu.Games.Behavior;
 using MHServerEmu.Games.Entities;
 using MHServerEmu.Games.Entities.Avatars;
+using MHServerEmu.Games.Entities.Items;
 using MHServerEmu.Games.GameData;
 using MHServerEmu.Games.GameData.Prototypes;
+using MHServerEmu.Games.Loot;
 using MHServerEmu.Games.Navi;
 using MHServerEmu.Games.Network;
 using MHServerEmu.Games.Populations;
@@ -42,6 +44,9 @@ namespace MHServerEmu.Games.Scripting
         // Tags of entities spawned by SpawnInteractable (entries vanish with the entity)
         private static readonly ConditionalWeakTable<WorldEntity, string> _tags = new();
 
+        // Ground items placed as scenery: the pickup handler ignores them
+        private static readonly ConditionalWeakTable<WorldEntity, object> _sceneryItems = new();
+
         /// <summary>
         /// Resolves an agent prototype. <paramref name="pathOrNames"/> is either a full prototype path
         /// (Entity/Characters/Bosses/.../X.prototype) or one or more '|'-separated name fragments ("DoctorOctopus|DocOck")
@@ -62,15 +67,17 @@ namespace MHServerEmu.Games.Scripting
         /// from <paramref name="near"/>. If <paramref name="target"/> is set, the agent goes straight for it. Returns <see langword="null"/> on failure.
         /// With <paramref name="aggroed"/> = <see langword="false"/> it guards its spot with normal aggro range instead of
         /// hunting players across the map.
+        /// With <paramref name="ignoreCrowds"/> = <see langword="true"/> players and other characters never push the spawn away: it lands
+        /// within <paramref name="maxDistance"/> even if the spot is packed (overlapping characters push apart on their own).
         /// </summary>
         public static Agent SpawnHostile(Region region, PrototypeId agentRef, Vector3 near, float minDistance, float maxDistance,
-            Avatar target = null, bool dropLoot = true, bool giveExperience = true, bool aggroed = true)
+            Avatar target = null, bool dropLoot = true, bool giveExperience = true, bool aggroed = true, bool ignoreCrowds = false)
         {
             AgentPrototype agentProto = agentRef.As<AgentPrototype>();
             if (region == null || agentProto == null)
                 return null;
 
-            if (TryFindSpawnPosition(region, agentProto, near, minDistance, maxDistance, out Vector3 position, out Cell cell) == false)
+            if (TryFindSpawnPosition(region, agentProto, near, minDistance, maxDistance, out Vector3 position, out Cell cell, ignoreCrowds) == false)
                 return Logger.WarnReturn<Agent>(null, $"SpawnHostile(): No free spot for [{agentRef.GetName()}] in [{region.PrototypeName}]");
 
             if (agentProto.Bounds != null)
@@ -122,6 +129,71 @@ namespace MHServerEmu.Games.Scripting
                 PrimeCombat(agent, target);
 
             PlaySpawnVisual(agent);
+            return agent;
+        }
+
+        /// <summary>
+        /// EXPERIMENTAL. Spawns a mirror image of <paramref name="owner"/>: an allied agent that every client draws as the
+        /// owner's own hero and costume. <paramref name="bodyRef"/> is the agent that really exists on the server and supplies
+        /// the AI and attacks (a summoned ally, e.g. an item illusion); it fights for the owner and vanishes after
+        /// <paramref name="lifespanSeconds"/> (0 = stays until despawned). Returns <see langword="null"/> on failure.
+        /// </summary>
+        /// <remarks>
+        /// The client plays the body's attacks on the hero's model, so attacks whose animations the hero does not have show
+        /// no animation.
+        /// </remarks>
+        public static Agent SpawnMirrorImage(Avatar owner, PrototypeId bodyRef, float lifespanSeconds = 0f, string name = "")
+        {
+            AgentPrototype bodyProto = bodyRef.As<AgentPrototype>();
+            Region region = owner?.Region;
+            if (region == null || owner.IsInWorld == false || bodyProto == null || bodyProto is AvatarPrototype)
+                return null;
+
+            Vector3 ownerPosition = owner.RegionLocation.Position;
+            if (TryFindSpawnPosition(region, bodyProto, ownerPosition, 80f, 300f, out Vector3 position, out Cell cell, true) == false)
+                return Logger.WarnReturn<Agent>(null, $"SpawnMirrorImage(): No free spot near [{owner}]");
+
+            if (bodyProto.Bounds != null)
+                position.Z += bodyProto.Bounds.GetBoundHalfHeight();
+
+            using EntitySettings settings = ObjectPoolManager.Instance.Get<EntitySettings>();
+            settings.EntityRef = bodyRef;
+            settings.Position = position;
+            settings.Orientation = owner.RegionLocation.Orientation;
+            settings.RegionId = region.Id;
+            settings.Cell = cell;
+            settings.ClientAvatarPrototypeRef = owner.PrototypeDataRef;
+            settings.ClientAvatarName = name;
+
+            if (lifespanSeconds > 0f)
+                settings.Lifespan = TimeSpan.FromSeconds(lifespanSeconds);
+
+            using PropertyCollection properties = ObjectPoolManager.Instance.Get<PropertyCollection>();
+            properties[PropertyEnum.CharacterLevel] = owner.CharacterLevel;
+            properties[PropertyEnum.CombatLevel] = owner.CombatLevel;
+            properties[PropertyEnum.DifficultyTier] = region.DifficultyTierRef;
+            properties[PropertyEnum.AllianceOverride] = owner.Alliance != null ? owner.Alliance.DataRef : PrototypeId.Invalid;
+            properties[PropertyEnum.PowerUserOverrideID] = owner.Id;     // its damage counts as the owner's, and its AI assists the owner
+            properties[PropertyEnum.CostumeCurrent] = owner.EquippedCostumeRef;
+
+            // The body's own rank would give it that rank's stats (a boss body: damage x6, health x75). A mirror image is an ally:
+            // the team-up rank carries no stat changes.
+            PrototypeId allyRankRef = GameDatabase.GetPrototypeRefByName("Mods/Ranks/TeamUp.prototype");
+            if (allyRankRef != PrototypeId.Invalid)
+                properties[PropertyEnum.Rank] = allyRankRef;
+            properties[PropertyEnum.NoLootDrop] = true;
+            properties[PropertyEnum.NoExpOnDeath] = true;
+            properties[PropertyEnum.Dormant] = false;
+            properties[PropertyEnum.Visible] = true;
+            settings.Properties = properties;
+
+            if (region.Game.EntityManager.CreateEntity(settings) is not Agent agent)
+                return Logger.WarnReturn<Agent>(null, $"SpawnMirrorImage(): Failed to create [{bodyRef.GetName()}]");
+
+            agent.Properties.RemoveProperty(PropertyEnum.MissionPrototype);
+            agent.SetDormant(false);
+            agent.SetSimulated(true);
+            agent.ActivateAI();
             return agent;
         }
 
@@ -192,6 +264,79 @@ namespace MHServerEmu.Games.Scripting
 
             _tags.AddOrUpdate(entity, tag ?? string.Empty);
             return entity;
+        }
+
+        /// <summary>
+        /// Puts an item on the ground at <paramref name="position"/>, like a drop that belongs to nobody: every player sees
+        /// it and anyone can pick it up. It stays until it is picked up or despawned. Useful for items whose only model is
+        /// their dropped form (event currencies such as the Halloween Pumpkin or the Christmas tree). Tagged like
+        /// <see cref="SpawnInteractable"/> entities. Returns <see langword="null"/> on failure.
+        /// </summary>
+        /// <remarks>
+        /// With <paramref name="canPickUp"/> = false the item is scenery: the server ignores every attempt to pick it up.
+        /// The client still treats it as an item (it shows its name and lets players click it), nothing happens when they do.
+        /// </remarks>
+        public static WorldEntity SpawnGroundItem(Region region, PrototypeId itemRef, Vector3 position, string tag, bool canPickUp = true)
+        {
+            if (region == null || itemRef.As<ItemPrototype>() == null)
+                return Logger.WarnReturn<WorldEntity>(null, $"SpawnGroundItem(): [{itemRef.GetName()}] is not an item prototype");
+
+            if (TryGetCell(region, position, out Vector3 floorPosition, out Cell cell) == false)
+                return Logger.WarnReturn<WorldEntity>(null, $"SpawnGroundItem(): {position} is outside the cells of [{region.PrototypeName}]");
+
+            // The loot roller needs a player to roll the item for (it picks a hero from them); any player in the region will do,
+            // the item does not belong to them
+            Player rollFor = null;
+            foreach (Player player in new PlayerIterator(region))
+            {
+                rollFor = player;
+                break;
+            }
+
+            if (rollFor == null)
+                return Logger.WarnReturn<WorldEntity>(null, $"SpawnGroundItem(): No player in [{region.PrototypeName}] to roll [{itemRef.GetName()}] for");
+
+            ItemSpec itemSpec;
+            try
+            {
+                itemSpec = region.Game.LootManager.CreateItemSpec(itemRef, LootContext.Drop, rollFor);
+            }
+            catch (Exception e)
+            {
+                return Logger.WarnReturn<WorldEntity>(null, $"SpawnGroundItem(): Failed to create an item spec for [{itemRef.GetName()}]: {e.Message}");
+            }
+
+            if (itemSpec == null)
+                return Logger.WarnReturn<WorldEntity>(null, $"SpawnGroundItem(): Failed to create an item spec for [{itemRef.GetName()}]");
+
+            using EntitySettings settings = ObjectPoolManager.Instance.Get<EntitySettings>();
+            settings.EntityRef = itemRef;
+            settings.Position = floorPosition;
+            settings.RegionId = region.Id;
+            settings.Cell = cell;
+            settings.ItemSpec = itemSpec;
+
+            using PropertyCollection properties = ObjectPoolManager.Instance.Get<PropertyCollection>();
+            properties[PropertyEnum.InventoryStackCount] = Math.Max(itemSpec.StackCount, 1);
+            settings.Properties = properties;
+
+            if (region.Game.EntityManager.CreateEntity(settings) is not WorldEntity entity)
+                return Logger.WarnReturn<WorldEntity>(null, $"SpawnGroundItem(): Failed to create [{itemRef.GetName()}]");
+
+            _tags.AddOrUpdate(entity, tag ?? string.Empty);
+            if (canPickUp == false)
+                _sceneryItems.AddOrUpdate(entity, null);
+
+            return entity;
+        }
+
+        /// <summary>
+        /// Returns <see langword="true"/> if <paramref name="entity"/> is a ground item placed as scenery
+        /// (<see cref="SpawnGroundItem"/> with canPickUp = false), which must not be picked up.
+        /// </summary>
+        public static bool IsSceneryItem(WorldEntity entity)
+        {
+            return entity != null && _sceneryItems.TryGetValue(entity, out _);
         }
 
         /// <summary>
@@ -452,7 +597,7 @@ namespace MHServerEmu.Games.Scripting
         }
 
         private static bool TryFindSpawnPosition(Region region, AgentPrototype agentProto, Vector3 near, float minDistance, float maxDistance,
-            out Vector3 position, out Cell cell)
+            out Vector3 position, out Cell cell, bool ignoreCrowds = false)
         {
             position = Vector3.Zero;
             cell = null;
@@ -478,12 +623,19 @@ namespace MHServerEmu.Games.Scripting
             const PositionCheckFlags IgnoreEntities = PositionCheckFlags.CanPathTo | PositionCheckFlags.InRadius;
             const BlockingCheckFlags StrictBlocking = BlockingCheckFlags.CheckSpawns | BlockingCheckFlags.CheckGroundMovementPowers | BlockingCheckFlags.CheckLanding;
 
-            var passes = new (PositionCheckFlags PosFlags, BlockingCheckFlags BlockFlags, float RangeMult, int Tests)[]
-            {
-                (Strict,                       StrictBlocking,                  1f, 64),
-                (IgnoreEntities,               BlockingCheckFlags.CheckLanding, 2f, 128),
-                (PositionCheckFlags.InRadius,  BlockingCheckFlags.None,         3f, 256),
-            };
+            // ignoreCrowds: characters never block, and the ring never widens (the spawn stays at the requested spot)
+            var passes = ignoreCrowds
+                ? new (PositionCheckFlags PosFlags, BlockingCheckFlags BlockFlags, float RangeMult, int Tests)[]
+                {
+                    (IgnoreEntities,               BlockingCheckFlags.CheckLanding, 1f, 128),
+                    (PositionCheckFlags.InRadius,  BlockingCheckFlags.None,         1f, 256),
+                }
+                : new (PositionCheckFlags PosFlags, BlockingCheckFlags BlockFlags, float RangeMult, int Tests)[]
+                {
+                    (Strict,                       StrictBlocking,                  1f, 64),
+                    (IgnoreEntities,               BlockingCheckFlags.CheckLanding, 2f, 128),
+                    (PositionCheckFlags.InRadius,  BlockingCheckFlags.None,         3f, 256),
+                };
 
             for (int pass = 0; pass < passes.Length; pass++)
             {

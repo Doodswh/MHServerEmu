@@ -1,0 +1,114 @@
+[
+  {
+    "Enabled": true,
+    "Prototype": "Loot/Tables/Events/SummerTournamentFirstPlaceBoxTable.prototype",
+    "Path": "Choices[0].Item",
+    "Description": "Halloween Candy Hunt leaderboard (reuses the Summer Event board, see Scripts/events/community_goal.csx). First place box: 25 Never Melting Cores -> 25 Halloween Pumpkins.",
+    "ValueType": "PrototypeId",
+    "Value": 8742989480698715559
+  },
+  {
+    "Enabled": true,
+    "Prototype": "Loot/Tables/Events/SummerTournamentFirstPlaceBoxTable.prototype",
+    "Path": "Choices[1].Item",
+    "Description": "First place box: Ice Cream Bars -> Halloween Mystery Bags.",
+    "ValueType": "PrototypeId",
+    "Value": 2282370008873116725
+  },
+  {
+    "Enabled": true,
+    "Prototype": "Loot/Tables/Events/SummerTournamentFirstPlaceBoxTable.prototype",
+    "Path": "Choices[1].NumMin",
+    "Description": "First place box: 2 Halloween Mystery Bags (was 5).",
+    "ValueType": "Integer",
+    "Value": 2
+  },
+  {
+    "Enabled": true,
+    "Prototype": "Loot/Tables/Events/SummerTournamentFirstPlaceBoxTable.prototype",
+    "Path": "Choices[2].Item",
+    "Description": "First place box: Summer Fortune Cards -> Random Cosmic Artifact Box.",
+    "ValueType": "PrototypeId",
+    "Value": 342102974677656257
+  },
+  {
+    "Enabled": true,
+    "Prototype": "Loot/Tables/Events/SummerTournamentFirstPlaceBoxTable.prototype",
+    "Path": "Choices[2].NumMin",
+    "Description": "First place box: 1 Random Cosmic Artifact Box (was 2).",
+    "ValueType": "Integer",
+    "Value": 1
+  },
+  {
+    "Enabled": true,
+    "Prototype": "Loot/Tables/Events/SummerTournamentTop10BoxTable.prototype",
+    "Path": "Choices[0].Item",
+    "Description": "Top 10% box: 20 Never Melting Cores -> 20 Halloween Pumpkins.",
+    "ValueType": "PrototypeId",
+    "Value": 8742989480698715559
+  },
+  {
+    "Enabled": true,
+    "Prototype": "Loot/Tables/Events/SummerTournamentTop10BoxTable.prototype",
+    "Path": "Choices[1].Item",
+    "Description": "Top 10% box: Ice Cream Bars -> Halloween Mystery Bag.",
+    "ValueType": "PrototypeId",
+    "Value": 2282370008873116725
+  },
+  {
+    "Enabled": true,
+    "Prototype": "Loot/Tables/Events/SummerTournamentTop10BoxTable.prototype",
+    "Path": "Choices[1].NumMin",
+    "Description": "Top 10% box: 1 Halloween Mystery Bag (was 3).",
+    "ValueType": "Integer",
+    "Value": 1
+  },
+  {
+    "Enabled": true,
+    "Prototype": "Loot/Tables/Events/SummerTournamentTop10BoxTable.prototype",
+    "Path": "Choices[2].Item",
+    "Description": "Top 10% box: Summer Fortune Card -> Odin's Bounty Fortune Cards.",
+    "ValueType": "PrototypeId",
+    "Value": 8652531632129843415
+  },
+  {
+    "Enabled": true,
+    "Prototype": "Loot/Tables/Events/SummerTournamentTop10BoxTable.prototype",
+    "Path": "Choices[2].NumMin",
+    "Description": "Top 10% box: 2 Odin's Bounty Fortune Cards (was 1).",
+    "ValueType": "Integer",
+    "Value": 2
+  },
+  {
+    "Enabled": true,
+    "Prototype": "Loot/Tables/Events/SummerTournamentTop50BoxTable.prototype",
+    "Path": "Choices[0].Item",
+    "Description": "Top 50% box: 10 Never Melting Cores -> 10 Halloween Pumpkins.",
+    "ValueType": "PrototypeId",
+    "Value": 8742989480698715559
+  },
+  {
+    "Enabled": true,
+    "Prototype": "Loot/Tables/Events/SummerTournamentTop50BoxTable.prototype",
+    "Path": "Choices[1].Item",
+    "Description": "Top 50% box: 2 Ice Cream Bars -> 2 Odin's Bounty Fortune Cards.",
+    "ValueType": "PrototypeId",
+    "Value": 8652531632129843415
+  },
+  {
+    "Enabled": true,
+    "Prototype": "Loot/Tables/Events/SummerTournamentPlacementBoxTable.prototype",
+    "Path": "Choices[0].Item",
+    "Description": "Placement box: 5 Never Melting Cores -> 5 Halloween Pumpkins.",
+    "ValueType": "PrototypeId",
+    "Value": 8742989480698715559
+  },
+  {
+    "Enabled": true,
+    "Prototype": "Loot/Tables/Events/SummerTournamentPlacementBoxTable.prototype",
+    "Path": "Choices[1].Item",
+    "Description": "Placement box: 1 Ice Cream Bar -> 1 Odin's Bounty Fortune Card.",
+    "ValueType": "PrototypeId",
+    "Value": 8652531632129843415
+  }
+]

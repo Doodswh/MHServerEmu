@@ -31,6 +31,21 @@ namespace MHServerEmu.Games.GameData.PatchManager
         [JsonIgnore]
         public bool Patched { get; set; }
 
+        // Set for an entry that could not be read (missing field, unknown type, unparsable value). The loader skips and names
+        // it, and keeps loading the rest of the file.
+        [JsonIgnore]
+        public string InvalidReason { get; private set; }
+        [JsonIgnore]
+        public bool IsInvalid { get => InvalidReason != null; }
+
+        public static PrototypePatchEntry Invalid(bool enabled, string prototype, string path, string reason)
+        {
+            return new PrototypePatchEntry(enabled, prototype ?? "?", path ?? string.Empty, string.Empty, null, false)
+            {
+                InvalidReason = string.IsNullOrEmpty(reason) ? "unknown error" : reason
+            };
+        }
+
         [JsonConstructor]
         public PrototypePatchEntry(bool enabled, string prototype, string path, string description, ValueBase value, bool replaceEntirely)
         {
@@ -84,40 +99,45 @@ namespace MHServerEmu.Games.GameData.PatchManager
             using JsonDocument doc = JsonDocument.ParseValue(ref reader);
             var root = doc.RootElement;
 
-            if (!root.TryGetProperty("ValueType", out var valueTypeProp))
-            {
-                throw new JsonException("Patch Entry is missing required property 'ValueType'.");
-            }
+            // A broken entry is returned as Invalid (skipped and named by the loader) instead of thrown, so that one bad
+            // entry does not reject the whole file.
+            if (root.ValueKind != JsonValueKind.Object)
+                return PrototypePatchEntry.Invalid(true, null, null, "the entry is not a JSON object");
+
+            bool enabled = true;
+            if (root.TryGetProperty("Enabled", out var enabledProp) && (enabledProp.ValueKind == JsonValueKind.True || enabledProp.ValueKind == JsonValueKind.False))
+                enabled = enabledProp.GetBoolean();
+
+            string prototype = root.TryGetProperty("Prototype", out var prototypeProp) && prototypeProp.ValueKind == JsonValueKind.String
+                ? prototypeProp.GetString() : null;
+            string path = root.TryGetProperty("Path", out var pathProp) && pathProp.ValueKind == JsonValueKind.String
+                ? pathProp.GetString() : null;
+
+            if (string.IsNullOrEmpty(prototype))
+                return PrototypePatchEntry.Invalid(enabled, prototype, path, "missing required property 'Prototype'");
+
+            if (string.IsNullOrEmpty(path))
+                return PrototypePatchEntry.Invalid(enabled, prototype, path, "missing required property 'Path'");
+
+            if (!root.TryGetProperty("ValueType", out var valueTypeProp) || valueTypeProp.ValueKind != JsonValueKind.String)
+                return PrototypePatchEntry.Invalid(enabled, prototype, path, "missing required property 'ValueType'");
 
             string valueTypeString = valueTypeProp.GetString();
             if (string.IsNullOrEmpty(valueTypeString))
-                throw new JsonException("Property 'ValueType' cannot be null or empty.");
+                return PrototypePatchEntry.Invalid(enabled, prototype, path, "property 'ValueType' is empty");
 
             valueTypeString = valueTypeString.Replace("[]", "Array");
             if (!Enum.TryParse<ValueType>(valueTypeString, true, out var valueType))
             {
-                throw new JsonException($"Invalid ValueType '{valueTypeString}'. Valid types are: {string.Join(", ", Enum.GetNames(typeof(ValueType)))}");
+                return PrototypePatchEntry.Invalid(enabled, prototype, path,
+                    $"unknown ValueType '{valueTypeString}'. Valid types are: {string.Join(", ", Enum.GetNames(typeof(ValueType)))}");
             }
-
-            if (!root.TryGetProperty("Prototype", out var prototypeProp))
-                throw new JsonException("Patch Entry is missing required property 'Prototype'.");
-            string prototype = prototypeProp.GetString();
-
-            if (!root.TryGetProperty("Path", out var pathProp))
-                throw new JsonException($"Patch Entry for '{prototype}' is missing required property 'Path'.");
-            string path = pathProp.GetString();
 
             if (!root.TryGetProperty("Value", out var valueProp))
-                throw new JsonException($"Patch Entry '{prototype}' -> '{path}' is missing required property 'Value'.");
-
-            bool enabled = true;
-            if (root.TryGetProperty("Enabled", out var enabledProp))
-            {
-                enabled = enabledProp.GetBoolean();
-            }
+                return PrototypePatchEntry.Invalid(enabled, prototype, path, "missing required property 'Value'");
 
             string description = "";
-            if (root.TryGetProperty("Description", out var descProp))
+            if (root.TryGetProperty("Description", out var descProp) && descProp.ValueKind == JsonValueKind.String)
             {
                 description = descProp.GetString();
             }
@@ -125,7 +145,7 @@ namespace MHServerEmu.Games.GameData.PatchManager
             try
             {
                 bool replaceEntirely = false;
-                if (root.TryGetProperty("ReplaceEntirely", out var replaceProp))
+                if (root.TryGetProperty("ReplaceEntirely", out var replaceProp) && (replaceProp.ValueKind == JsonValueKind.True || replaceProp.ValueKind == JsonValueKind.False))
                 {
                     replaceEntirely = replaceProp.GetBoolean();
                 }
@@ -150,7 +170,7 @@ namespace MHServerEmu.Games.GameData.PatchManager
             }
             catch (Exception ex)
             {
-                throw new JsonException($"Error creating PatchEntry for {prototype} at {path}: {ex.Message}", ex);
+                return PrototypePatchEntry.Invalid(enabled, prototype, path, $"the Value could not be read as {valueType}: {ex.Message}");
             }
         }
 
@@ -185,16 +205,21 @@ namespace MHServerEmu.Games.GameData.PatchManager
                 ValueType.Long => new SimpleValue<long>(jsonElement.GetInt64(), valueType),
                 ValueType.ULong => new SimpleValue<ulong>(jsonElement.GetUInt64(), valueType),
                 ValueType.RawJson => new SimpleValue<JsonElement>(jsonElement.Clone(), valueType),
+                ValueType.CurveId => new SimpleValue<CurveId>((CurveId)jsonElement.GetUInt64(), valueType),
+                ValueType.Orientation => new SimpleValue<Orientation>(ParseJsonOrientation(jsonElement), valueType),
 
-                // Complex types
-                ValueType.Prototype => new SimpleValue<Prototype>(ParseJsonPrototype(jsonElement), valueType),
+                // Complex types. Prototypes are built when the patch is applied, not when the file is read: building one can
+                // load the prototypes it references, and anything loaded before the patch manager is running would be cached
+                // unpatched for good.
+                ValueType.Prototype => new DeferredValue<Prototype>(RequireObject(jsonElement, valueType), valueType, ParseJsonPrototype),
                 ValueType.Properties => new SimpleValue<PropertyCollection>(ParseJsonProperties(jsonElement), valueType),
-                ValueType.ComplexObject => new SimpleValue<Prototype>(ParseJsonComplexObject(jsonElement), valueType),
-                ValueType.Eval => new SimpleValue<EvalPrototype>(ParseJsonEval(jsonElement), valueType),
+                ValueType.ComplexObject => new DeferredValue<Prototype>(RequireObject(jsonElement, valueType), valueType, ParseJsonComplexObject),
+                ValueType.Eval => new DeferredValue<EvalPrototype>(RequireObject(jsonElement, valueType), valueType, ParseJsonEval),
 
                 // Array types
                 ValueType.PrototypeIdArray or ValueType.PrototypeDataRefArray => new ArrayValue<PrototypeId>(jsonElement, valueType, x => (PrototypeId)x.GetUInt64()),
-                ValueType.PrototypeArray => new ArrayValue<Prototype>(jsonElement, valueType, x => ParseJsonPrototype(x)),
+                ValueType.PrototypeArray => new DeferredValue<Prototype[]>(RequireArray(jsonElement, valueType), valueType,
+                    x => x.EnumerateArray().Select(ParseJsonPrototype).ToArray()),
                 ValueType.StringArray => new ArrayValue<string>(jsonElement, valueType, x => x.GetString()),
                 ValueType.FloatArray => new ArrayValue<float>(jsonElement, valueType, x => x.GetSingle()),
                 ValueType.DoubleArray => new ArrayValue<double>(jsonElement, valueType, x => x.GetDouble()), 
@@ -208,6 +233,36 @@ namespace MHServerEmu.Games.GameData.PatchManager
 
                 _ => throw new NotSupportedException($"ValueType '{valueType}' is not supported.")
             };
+        }
+
+        // Shape checks for deferred values, so a wrong shape is still reported when the file is read
+        private static JsonElement RequireObject(JsonElement jsonElement, ValueType valueType)
+        {
+            if (jsonElement.ValueKind != JsonValueKind.Object)
+                throw new InvalidOperationException($"JSON element for {valueType} must be an object, but was {jsonElement.ValueKind}.");
+
+            return jsonElement;
+        }
+
+        private static JsonElement RequireArray(JsonElement jsonElement, ValueType valueType)
+        {
+            if (jsonElement.ValueKind != JsonValueKind.Array)
+                throw new InvalidOperationException($"JSON element for {valueType} must be an array, but was {jsonElement.ValueKind}.");
+
+            return jsonElement;
+        }
+
+        // Orientation: [yaw, pitch, roll]
+        public static Orientation ParseJsonOrientation(JsonElement jsonElement)
+        {
+            if (jsonElement.ValueKind != JsonValueKind.Array)
+                throw new InvalidOperationException("JSON element for Orientation must be an array.");
+
+            var jsonArray = jsonElement.EnumerateArray().ToArray();
+            if (jsonArray.Length != 3)
+                throw new InvalidOperationException($"JSON array for Orientation must have 3 elements (yaw, pitch, roll), but found {jsonArray.Length}.");
+
+            return new Orientation(jsonArray[0].GetSingle(), jsonArray[1].GetSingle(), jsonArray[2].GetSingle());
         }
 
         private static Vector3 ParseJsonVector3(JsonElement jsonElement)
@@ -243,6 +298,7 @@ namespace MHServerEmu.Games.GameData.PatchManager
 
             if (classType == null)
             {
+                Logger.Warn("[PatchManager] ComplexObject patch value has no usable 'ParentDataRef' or 'ClassName' (prototype class not found); the value is null.");
                 return null;
             }
 
@@ -262,6 +318,7 @@ namespace MHServerEmu.Games.GameData.PatchManager
                 var fieldInfo = prototype.GetType().GetProperty(property.Name);
                 if (fieldInfo == null)
                 {
+                    Logger.Warn($"[PatchManager] Patch value has a field '{property.Name}' that does not exist on its prototype class; it was ignored.");
                     continue;
                 }
 
@@ -272,6 +329,7 @@ namespace MHServerEmu.Games.GameData.PatchManager
                 }
                 catch (Exception ex)
                 {
+                    Logger.Warn($"[PatchManager] Could not set field '{property.Name}' on a patch value of type '{prototype.GetType().Name}': {ex.Message}");
                 }
             }
 
@@ -291,11 +349,13 @@ namespace MHServerEmu.Games.GameData.PatchManager
 
             if (classType == null)
             {
+                Logger.Warn($"[PatchManager] Eval patch value: ParentDataRef {(ulong)referenceType} is not a known prototype; the value is null.");
                 return null;
             }
 
             if (!typeof(EvalPrototype).IsAssignableFrom(classType))
             {
+                Logger.Warn($"[PatchManager] Eval patch value: ParentDataRef {(ulong)referenceType} is a '{classType.Name}', not an eval; the value is null.");
                 return null;
             }
 
@@ -311,6 +371,7 @@ namespace MHServerEmu.Games.GameData.PatchManager
                 var fieldInfo = evalPrototype.GetType().GetProperty(property.Name);
                 if (fieldInfo == null)
                 {
+                    Logger.Warn($"[PatchManager] Patch value has a field '{property.Name}' that does not exist on its prototype class; it was ignored.");
                     continue;
                 }
 
@@ -321,6 +382,7 @@ namespace MHServerEmu.Games.GameData.PatchManager
                 }
                 catch (Exception ex)
                 {
+                    Logger.Warn($"[PatchManager] Could not set field '{property.Name}' on a patch value of type '{evalPrototype.GetType().Name}': {ex.Message}");
                 }
             }
 
@@ -340,6 +402,7 @@ namespace MHServerEmu.Games.GameData.PatchManager
 
             if (classType == null)
             {
+                Logger.Warn($"[PatchManager] Prototype patch value: ParentDataRef {(ulong)referenceType} is not a known prototype; the value is null.");
                 return null;
             }
 
@@ -355,6 +418,7 @@ namespace MHServerEmu.Games.GameData.PatchManager
                 var fieldInfo = prototype.GetType().GetProperty(property.Name);
                 if (fieldInfo == null)
                 {
+                    Logger.Warn($"[PatchManager] Patch value has a field '{property.Name}' that does not exist on its prototype class; it was ignored.");
                     continue;
                 }
 
@@ -365,6 +429,7 @@ namespace MHServerEmu.Games.GameData.PatchManager
                 }
                 catch (Exception ex)
                 {
+                    Logger.Warn($"[PatchManager] Could not set field '{property.Name}' on a patch value of type '{prototype.GetType().Name}': {ex.Message}");
                 }
             }
 
@@ -750,9 +815,11 @@ namespace MHServerEmu.Games.GameData.PatchManager
         Vector3,
         PropertyId,
         Eval,
-        Long,          
-        ULong,          
-        RawJson,        
+        Long,
+        ULong,
+        RawJson,
+        CurveId,        // a curve reference (a ulong, like PrototypeId)
+        Orientation,    // [yaw, pitch, roll], e.g. Markers[N].Rotation
 
         // Complex Types
         Prototype,
@@ -792,6 +859,39 @@ namespace MHServerEmu.Games.GameData.PatchManager
         }
 
         public override object GetValue() => Value;
+    }
+
+    /// <summary>
+    /// A value that is built from its JSON the first time it is needed (when the patch is applied), not when the patch file
+    /// is read. Used for prototype values: building one can load other prototypes, which must not happen before the patch
+    /// manager is running.
+    /// </summary>
+    public class DeferredValue<T> : ValueBase
+    {
+        private readonly JsonElement _json;
+        private readonly Func<JsonElement, T> _parser;
+        private bool _parsed;
+        private T _value;
+
+        public override ValueType ValueType { get; }
+
+        public DeferredValue(JsonElement json, ValueType valueType, Func<JsonElement, T> parser)
+        {
+            _json = json.Clone();   // the patch file's JSON document is disposed after loading
+            _parser = parser;
+            ValueType = valueType;
+        }
+
+        public override object GetValue()
+        {
+            if (_parsed == false)
+            {
+                _value = _parser(_json);
+                _parsed = true;
+            }
+
+            return _value;
+        }
     }
 
     public class ArrayValue<T> : SimpleValue<T[]>

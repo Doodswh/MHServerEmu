@@ -1,4 +1,4 @@
-﻿using Gazillion;
+using Gazillion;
 using Google.ProtocolBuffers;
 using MHServerEmu.Core.Memory;
 using MHServerEmu.Core.Serialization;
@@ -111,7 +111,12 @@ namespace MHServerEmu.Games.Network
 
                 // Add world instance id for avatars
                 Avatar avatar = entity as Avatar;
-                if (avatar != null)
+                WorldEntity worldEntity = entity as WorldEntity;
+
+                // An entity rendered as an avatar is sent like one: the avatar prototype and a world instance id
+                bool isRenderedAsAvatar = avatar == null && worldEntity != null && worldEntity.IsClientRenderedAsAvatar;
+
+                if (avatar != null || isRenderedAsAvatar)
                     fieldFlags |= EntityCreateMessageFlags.HasAvatarWorldInstanceId;
 
                 // Apply world entity specific flags
@@ -120,7 +125,6 @@ namespace MHServerEmu.Games.Network
                 ref LocomotionState locomotionState = ref LocomotionState.Null;
                 PrototypeId activePowerPrototypeRef = PrototypeId.Invalid;
 
-                WorldEntity worldEntity = entity as WorldEntity;
                 if (worldEntity != null)
                 {
                     // Make sure that the world entity in proximity is in world, because items in other players' inventories
@@ -189,7 +193,7 @@ namespace MHServerEmu.Games.Network
                 ulong entityId = entity.Id;
                 Serializer.Transfer(archive, ref entityId);
 
-                PrototypeId entityPrototypeRef = entity.PrototypeDataRef;
+                PrototypeId entityPrototypeRef = isRenderedAsAvatar ? worldEntity.GetClientPrototypeDataRef() : entity.PrototypeDataRef;
                 Serializer.TransferPrototypeEnum<EntityPrototype>(archive, ref entityPrototypeRef);
 
                 uint fieldFlagsRaw = (uint)fieldFlags;
@@ -206,7 +210,7 @@ namespace MHServerEmu.Games.Network
 
                 if (fieldFlags.HasFlag(EntityCreateMessageFlags.HasAvatarWorldInstanceId))
                 {
-                    uint avatarWorldInstanceId = avatar.AvatarWorldInstanceId;
+                    uint avatarWorldInstanceId = avatar != null ? avatar.AvatarWorldInstanceId : worldEntity.SpoofAvatarWorldInstanceId;
                     Serializer.Transfer(archive, ref avatarWorldInstanceId);
                 }
 
@@ -310,7 +314,7 @@ namespace MHServerEmu.Games.Network
 
             if (fieldFlags.HasFlag(LocomotionMessageFlags.HasEntityPrototypeRef))
             {
-                PrototypeId entityPrototypeRef = worldEntity.PrototypeDataRef;
+                PrototypeId entityPrototypeRef = worldEntity.GetClientPrototypeDataRef();
                 Serializer.TransferPrototypeEnum<EntityPrototype>(archive, ref entityPrototypeRef);
             }
 
@@ -553,7 +557,7 @@ namespace MHServerEmu.Games.Network
 
             // AvatarWorldInstanceId
             Avatar avatar = worldEntity as Avatar;
-            if (avatar != null)
+            if (avatar != null || worldEntity.IsClientRenderedAsAvatar)
                 extraFieldFlags |= EnterGameWorldMessageFlags.HasAvatarWorldInstanceId;
 
             // Settings flags
@@ -582,7 +586,7 @@ namespace MHServerEmu.Games.Network
 
             if (locoFieldFlags.HasFlag(LocomotionMessageFlags.HasEntityPrototypeRef))
             {
-                PrototypeId entityPrototypeRef = worldEntity.PrototypeDataRef;
+                PrototypeId entityPrototypeRef = worldEntity.GetClientPrototypeDataRef();
                 Serializer.TransferPrototypeEnum<EntityPrototype>(archive, ref entityPrototypeRef);
             }
 
@@ -596,7 +600,7 @@ namespace MHServerEmu.Games.Network
 
             if (extraFieldFlags.HasFlag(EnterGameWorldMessageFlags.HasAvatarWorldInstanceId))
             {
-                uint avatarWorldInstanceId = avatar.AvatarWorldInstanceId;
+                uint avatarWorldInstanceId = avatar != null ? avatar.AvatarWorldInstanceId : worldEntity.SpoofAvatarWorldInstanceId;
                 Serializer.Transfer(archive, ref avatarWorldInstanceId);
             }
 

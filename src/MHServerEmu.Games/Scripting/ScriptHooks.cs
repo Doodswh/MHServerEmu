@@ -82,6 +82,25 @@ namespace MHServerEmu.Games.Scripting
         /// </summary>
         public static readonly ScriptHook<EntityInteractedArgs> EntityInteracted = new(nameof(EntityInteracted));
 
+        /// <summary>
+        /// Raised after an avatar enters the world (login, region change, hero swap), once its powers are assigned. An avatar loses
+        /// its conditions when it leaves the world, so reapply script conditions (see ScriptConditions) here.
+        /// </summary>
+        public static readonly ScriptHook<AvatarEnteredWorldArgs> AvatarEnteredWorld = new(nameof(AvatarEnteredWorld));
+
+        /// <summary>
+        /// Raised when a player's client asks for a global event's progress: it does so when the player opens the window of
+        /// that event's vendor (e.g. Beast's "BiFrost Unlock" vendor). Answer with ScriptPresentation.GlobalEventUpdate()
+        /// and GlobalEventLeaderboard() to fill the window's progress bars and contributor list.
+        /// </summary>
+        public static readonly ScriptHook<GlobalEventRequestedArgs> GlobalEventRequested = new(nameof(GlobalEventRequested));
+
+        /// <summary>
+        /// Raised when a player picks an item up from the ground (not for moves between their own inventories). Runs often:
+        /// keep handlers cheap.
+        /// </summary>
+        public static readonly ScriptHook<ItemPickedUpArgs> ItemPickedUp = new(nameof(ItemPickedUp));
+
         private static readonly Dictionary<string, IScriptHook> _hooksByName = new(StringComparer.OrdinalIgnoreCase)
         {
             { ConditionApplying.Name,       ConditionApplying },
@@ -97,6 +116,9 @@ namespace MHServerEmu.Games.Scripting
             { ItemAffixesRolling.Name,      ItemAffixesRolling },
             { RegionGenerating.Name,        RegionGenerating },
             { EntityInteracted.Name,        EntityInteracted },
+            { AvatarEnteredWorld.Name,      AvatarEnteredWorld },
+            { GlobalEventRequested.Name,    GlobalEventRequested },
+            { ItemPickedUp.Name,            ItemPickedUp },
         };
 
         public static IEnumerable<IScriptHook> All { get => _hooksByName.Values; }

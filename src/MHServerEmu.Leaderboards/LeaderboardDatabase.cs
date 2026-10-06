@@ -114,6 +114,10 @@ namespace MHServerEmu.Leaderboards
             foreach (LeaderboardScheduler scheduler in schedulers)
             {
                 DBLeaderboard oldDbLeaderboard = oldDbLeaderboards.FirstOrDefault(lb => lb.LeaderboardId == (long)scheduler.LeaderboardId);
+
+                // CUSTOM: boards made public / Live after the database was generated (e.g. by a prototype patch) get their record now
+                oldDbLeaderboard ??= TryCreateMissingLeaderboard(scheduler);
+
                 if (oldDbLeaderboard == null)
                 {
                     Logger.Warn($"LoadSchedule(): Loaded scheduler {scheduler}, but found no record for it in the database");
@@ -212,6 +216,50 @@ namespace MHServerEmu.Leaderboards
             Logger.Info($"Loaded leaderboard schedule from {Path.GetFileName(schedulePath)}");
 
             return updatedLeaderboards.Count > 0;
+        }
+
+        /// <summary>
+        /// CUSTOM: Creates the database record (disabled, with an inactive initial instance, like <see cref="GenerateTables"/> does) for a
+        /// scheduled leaderboard that has none because it wasn't Live / public when the database was generated. The schedule then
+        /// enables it as usual. It is loaded at the next server start. Returns <see langword="null"/> if the leaderboard can't be used.
+        /// </summary>
+        private DBLeaderboard TryCreateMissingLeaderboard(LeaderboardScheduler scheduler)
+        {
+            PrototypeGuid leaderboardId = (PrototypeGuid)scheduler.LeaderboardId;
+            PrototypeId dataRef = GameDatabase.GetDataRefByPrototypeGuid(leaderboardId);
+            LeaderboardPrototype proto = GameDatabase.GetPrototype<LeaderboardPrototype>(dataRef);
+
+            if (proto == null || proto.DesignState != DesignWorkflowState.Live || proto.Public == false || proto.IsMetaLeaderboard)
+                return null;
+
+            ulong instanceId = Leaderboard.GenerateInitialInstanceId(leaderboardId);
+            DateTime currentYear = new(DateTime.Now.Year, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+
+            DBLeaderboard dbLeaderboard = new()
+            {
+                LeaderboardId = (long)leaderboardId,
+                PrototypeName = dataRef.GetNameFormatted(),
+                ActiveInstanceId = (long)instanceId,
+                IsEnabled = false,
+                StartTime = Clock.DateTimeToTimestamp(currentYear),
+                MaxResetCount = 0
+            };
+
+            DBManager.InsertLeaderboards(new List<DBLeaderboard> { dbLeaderboard });
+            DBManager.UpdateOrInsertInstances(new List<DBLeaderboardInstance>
+            {
+                new()
+                {
+                    InstanceId = (long)instanceId,
+                    LeaderboardId = (long)leaderboardId,
+                    State = LeaderboardState.eLBS_Rewarded,
+                    ActivationDate = 0,
+                    Visible = false
+                }
+            });
+
+            Logger.Info($"LoadSchedule(): Created the missing database record for {dbLeaderboard.PrototypeName} (restart the server if it was added by reloadschedule)");
+            return dbLeaderboard;
         }
 
         /// <summary>

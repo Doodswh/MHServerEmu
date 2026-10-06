@@ -77,6 +77,11 @@ namespace MHServerEmu.Games.Entities
         public int VariationSeed { get; set; }
         public bool IsPopulation { get; set; }
 
+        // For WorldEntity: clients draw the new entity as this avatar prototype (a hero) instead of its own prototype.
+        // ClientAvatarName is the name shown above it (empty = none).
+        public PrototypeId ClientAvatarPrototypeRef { get; set; }
+        public string ClientAvatarName { get; set; }
+
         public bool IsInPool { get; set; }
 
         public EntitySettings() { }     // Use pooling instead of calling this directly
@@ -119,6 +124,9 @@ namespace MHServerEmu.Games.Entities
             Lifespan = default;
             VariationSeed = 0;
             IsPopulation = default;
+
+            ClientAvatarPrototypeRef = PrototypeId.Invalid;
+            ClientAvatarName = null;
         }
 
         public void Dispose()

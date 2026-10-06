@@ -254,6 +254,23 @@ namespace MHServerEmu.Games.Scripting
 
         #endregion
 
+        #region Client panels
+
+        /// <summary>
+        /// Opens one of the client's own windows for <paramref name="player"/> by name. The names are the game's UI panel
+        /// names: PlayerStashInventoryPanel, CraftingPanel, VendorPanel, TeamUpPanel, RosterPanel, CharacterSheetPanel,
+        /// PowerLibraryPanel, MissionLogPanel, WaypointPanel, AchievementsPanel, StorePanel, TradePanel, SocialPanel, ...
+        /// Only existing windows can be opened; scripts cannot create new ones. The stash window opens this way too, but the
+        /// client only moves items while the player is interacting with a real stash object: for a portable stash, spawn one
+        /// (Entity/Characters/PetsAndSummons/HoloStashAgent) or give the STASH Access Card item instead.
+        /// </summary>
+        public static bool OpenPanel(Player player, string panelName)
+        {
+            return player != null && player.SendOpenUIPanel(panelName);
+        }
+
+        #endregion
+
         #region Tutorials, notifications, global events, teams, primitives
 
         /// <summary>
@@ -290,6 +307,37 @@ namespace MHServerEmu.Games.Scripting
                 return Logger.WarnReturn(false, $"GlobalEventProgress(): unknown prototype [{eventPath}]");
 
             return Send(player, NetMessageGlobalEventDataUpdate.CreateBuilder().SetEventId((ulong)eventRef).SetTotalProgress(Math.Clamp(progress, 0f, 1f)).Build());
+        }
+
+        /// <summary>
+        /// Fills a global event vendor's window: the overall bar (<paramref name="totalProgress"/>) and one bar per criteria of
+        /// the event (criteria prototype path => value). Values are sent as given (only negatives are raised to 0): the scale
+        /// the client expects is still being worked out. The bars' names and colors come from the criteria prototypes; rename
+        /// them with ScriptText.OverrideText. Send it from <see cref="ScriptHooks.GlobalEventRequested"/>.
+        /// </summary>
+        public static bool GlobalEventUpdate(Player player, string eventPath, float totalProgress, IEnumerable<KeyValuePair<string, float>> criteriaProgress)
+        {
+            PrototypeId eventRef = ResolvePrototype(eventPath);
+            if (eventRef == PrototypeId.Invalid)
+                return Logger.WarnReturn(false, $"GlobalEventUpdate(): unknown prototype [{eventPath}]");
+
+            var builder = NetMessageGlobalEventDataUpdate.CreateBuilder().SetEventId((ulong)eventRef).SetTotalProgress(Math.Max(totalProgress, 0f));
+
+            if (criteriaProgress != null)
+            {
+                foreach (var kvp in criteriaProgress)
+                {
+                    PrototypeId criteriaRef = ResolvePrototype(kvp.Key);
+                    if (criteriaRef == PrototypeId.Invalid)
+                        continue;
+
+                    builder.AddCriteriaProgress(GlobalEventCriteriaData.CreateBuilder()
+                        .SetCriteriaId((ulong)criteriaRef)
+                        .SetProgress(Math.Max(kvp.Value, 0f)));
+                }
+            }
+
+            return Send(player, builder.Build());
         }
 
         /// <summary>

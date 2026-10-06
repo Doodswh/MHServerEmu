@@ -56,6 +56,12 @@ const bool   ShowBossHealth        = true;  // HUD health bar for each boss of t
 const string BossHealthWidget      = "UI/MetaGame/SurturRaid/FiveMan/SlagHealth.prototype";
 const float  DefeatedShowSeconds   = 2f;    // a defeated boss stays on the health bar (at 0 %) this long
 const string AffixExclude      = "";     // comma-separated affix name words to never roll on bosses
+
+// Daily damage leaderboard: the game's "Daredevil vs The Hand" board (daily reset, highest first, 5 reward tiers), renamed and fed
+// with each player's boss damage (in thousands) when a rush ends. "" = off. Needs the board enabled in
+// Data/Leaderboards/LeaderboardSchedule.json. The new name shows after players reconnect.
+const string DamageLeaderboard = "Leaderboards/Prototypes/Leaderboards/Events/DaredevilVsHand.prototype";
+const long   DamagePerPoint    = 1000;
 const string PreferPaths       = "Patrol|Midtown|Manhattan";  // prefer boss variants whose path contains one of these
 
 // Name is what players see, Match is how the boss is found in the game data (Midtown's own event bosses)
@@ -103,6 +109,9 @@ var Waves = new List<Wave>
 // The name is shown in chat ("Wave 3: Electro at Times Square!").
 var SpawnSpots = new List<Spot>
 {
+    // Where Midtown's own Dark Dimension event opens its portal (DarkDimensionTinyV1 marker in the park cell
+    // UES_Static_ParkLeft_X4_Y3_A; Midtown's area origin is 0,0,0, so the marker position is the map position)
+    new("the park", 9264f, 7568f, 65f),
 };
 
 var NamedSpots = SpawnSpots.Where(spot => string.IsNullOrWhiteSpace(spot.Name) == false).ToList();
@@ -146,6 +155,15 @@ var CompletionRewards = new Reward[]
     new("Entity/Items/Consumables/Prototypes/GenoshaInfluence200Box.prototype"),
     new(StarkCube, 1),
 };
+
+if (DamageLeaderboard.Length > 0)
+{
+    ScriptLeaderboards.TakeOver(DamageLeaderboard);   // only the rush counts (not Daredevil's Hand kills)
+    ScriptLeaderboards.Rename(DamageLeaderboard, "Midtown Boss Rush",
+        "Total damage to Midtown Boss Rush bosses today, in thousands.",
+        "Join the Midtown Boss Rush in Cosmic Midtown Patrol. Every point is 1,000 damage dealt to rush bosses; all your rushes today add up. " +
+        "Resets daily.");
+}
 
 if (WaveRewards.Length != Waves.Count)
     Log.Warn($"WaveRewards has {WaveRewards.Length} lines but there are {Waves.Count} waves; waves without a line give no reward");
@@ -328,7 +346,8 @@ void StartWave(Run run, int waveIndex)
     Announce(region, (number == Waves.Count ? "Final wave" : $"Wave {number}") + $": {names}{where}!");
 }
 
-// Never near the players: the wave's spot, wider around it if crowded, then the other named spots
+// Always at the wave's spot: players standing there never push the boss away (ignoreCrowds). Only if the ground itself has no room
+// does it look wider around the spot, then at the other named spots.
 Agent SpawnAtSpot(Region region, Boss boss, Spot spot, Avatar anchor, int number)
 {
     IEnumerable<Spot> candidates = NamedSpots.Contains(spot)
@@ -340,7 +359,7 @@ Agent SpawnAtSpot(Region region, Boss boss, Spot spot, Avatar anchor, int number
         for (int widen = 1; widen <= 3; widen++)
         {
             Agent agent = ScriptSpawner.SpawnHostile(region, boss.Ref, candidate.Position, 0f, SpotSpread * widen,
-                anchor, BossesDropLoot, true, BossesHuntPlayers);
+                anchor, BossesDropLoot, true, BossesHuntPlayers, ignoreCrowds: true);
             if (agent == null)
                 continue;
 
@@ -561,10 +580,33 @@ void EndRun(Run run, string bannerKey, string message)
             $"{i + 1}. {run.PlayerNames.GetValueOrDefault(pair.Key, "?")} ({pair.Value * 100 / total}%)")));
     }
 
+    SubmitDamageLeaderboard(run);
+
     Log.Info($"Boss rush started by {run.StarterName} ended on wave {run.WaveIndex + 1}/{Waves.Count}: {message}");
 
     // Completed or failed, the next one comes around after the break
     ScheduleNextRush(run.Region);
+}
+
+// Each player's damage this rush goes onto the daily leaderboard (rushes add up through the day)
+void SubmitDamageLeaderboard(Run run)
+{
+    if (DamageLeaderboard.Length == 0 || run.RunDamage.Count == 0)
+        return;
+
+    foreach (var pair in run.RunDamage)
+    {
+        long points = pair.Value / DamagePerPoint;
+        if (points <= 0)
+            continue;
+
+        Player player = run.Region.Game.EntityManager.GetEntityByDbGuid<Player>(pair.Key);
+        if (player == null)
+            continue;
+
+        if (ScriptLeaderboards.Submit(player, DamageLeaderboard, points))
+            ScriptHooks.SendChatMessage(player, $"[Midtown Boss Rush] +{points:N0} on today's Boss Rush leaderboard.", false);
+    }
 }
 
 void GiveRewards(Run run, int waveNumber, bool final)

@@ -23,5 +23,8 @@ namespace MHServerEmu.Games
         public bool EnableUltimatePrestige { get; private set; } = false;
         public bool ApplyHiddenPvPDamageModifiers { get; private set; } = false;
 
+        // CUSTOM (experimental): also give PC players the console version's unified stash (one 2000 slot stash page)
+        public bool EnableUnifiedStashOnPC { get; private set; } = false;
+
     }
 }
