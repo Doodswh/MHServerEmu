@@ -508,6 +508,23 @@ namespace MHServerEmu.Games.DRAG.Generators.Areas
                 }
             }
 
+            // CUSTOM: with the generation log on, say why a super cell could not be placed
+            if (Log)
+            {
+                Logger.Debug($"TrySpawningSuperCell(): [{superCell}] Max=({superCell.Max.X},{superCell.Max.Y}) grid={CellContainer.Width}x{CellContainer.Height} candidates={(picker.Empty() ? "none" : "some")}");
+
+                // Which grid squares have an opening to a neighbouring area (only those can hold an open edge tile)
+                List<string> external = new();
+                for (int y = 0; y < CellContainer.Height; y++)
+                    for (int x = 0; x < CellContainer.Width; x++)
+                    {
+                        GenCell gridCell = CellContainer.GetCell(x, y);
+                        if (gridCell != null && gridCell.ExternalConnections != Cell.Type.None)
+                            external.Add($"({x},{y})={gridCell.ExternalConnections}");
+                    }
+                Logger.Debug($"  external openings: {(external.Count == 0 ? "none" : string.Join(" ", external))}");
+            }
+
             bool success = false;
             Point2 pick = new(0, 0);
             while (!picker.Empty() && !success)
@@ -519,14 +536,27 @@ namespace MHServerEmu.Games.DRAG.Generators.Areas
                     {
                         if (superCellEntry == null) continue;
                         Point2 cellCoord = new(pick.X + superCellEntry.Offset.X, pick.Y + superCellEntry.Offset.Y);
-                        if (!CellContainer.ReservableCell(cellCoord.X, cellCoord.Y, GameDatabase.GetDataRefByAsset(superCellEntry.Cell)))
+                        PrototypeId entryCellRef = GameDatabase.GetDataRefByAsset(superCellEntry.Cell);
+                        if (!CellContainer.ReservableCell(cellCoord.X, cellCoord.Y, entryCellRef))
+                        {
                             success = false;
+                            if (Log)
+                            {
+                                GenCell occupant = CellContainer.GetCell(cellCoord.X, cellCoord.Y);
+                                Cell.Type entryType = entryCellRef.As<CellPrototype>()?.Type ?? Cell.Type.None;
+                                Logger.Debug($"  at ({pick.X},{pick.Y}): entry ({cellCoord.X},{cellCoord.Y}) [{GameDatabase.GetAssetName(superCellEntry.Cell)}] needs={entryType} " +
+                                    $"not reservable (occupied by {(occupant == null ? "nothing/out of grid" : occupant.CellRef == 0 ? "-" : occupant.CellRef.GetName())}, " +
+                                    $"open={CellContainer.DetermineType(cellCoord.X, cellCoord.Y)}, external={occupant?.ExternalConnections})");
+                            }
+                        }
                     }
                 }
             }
 
             if (success)
             {
+                if (Log) Logger.Debug($"  placed [{superCell}] at ({pick.X},{pick.Y})");
+
                 using var listHandle = ListPool<PrototypeId>.Instance.Get(out List<PrototypeId> list);
                 foreach (SuperCellEntryPrototype superCellEntry in superCell.Entries)
                 {

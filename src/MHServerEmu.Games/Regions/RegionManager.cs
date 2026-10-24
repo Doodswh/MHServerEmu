@@ -2,6 +2,7 @@
 using MHServerEmu.Core.Logging;
 using MHServerEmu.Core.Metrics;
 using MHServerEmu.Games.GameData;
+using System.Collections.Concurrent;
 using System.Diagnostics;
 
 namespace MHServerEmu.Games.Regions
@@ -45,6 +46,23 @@ namespace MHServerEmu.Games.Regions
             return region;
         }
 
+        /// <summary>
+        /// CUSTOM: Region names (or parts of prototype paths) whose map generation writes its detailed log, for finding out why
+        /// a region fails to generate. Filled by scripts; off for everything else.
+        /// </summary>
+        public static readonly ConcurrentDictionary<string, bool> GenerationLogFor = new(StringComparer.OrdinalIgnoreCase);
+
+        private static bool ShouldLogGeneration(PrototypeId regionProtoRef)
+        {
+            if (GenerationLogFor.IsEmpty) return false;
+
+            string name = regionProtoRef.GetName();
+            foreach (string key in GenerationLogFor.Keys)
+                if (name.Contains(key, StringComparison.OrdinalIgnoreCase)) return true;
+
+            return false;
+        }
+
         public Region GenerateRegion(ulong regionId, PrototypeId regionProtoRef, NetStructCreateRegionParams createParams)
         {
             const int NumTries = 10;
@@ -55,7 +73,7 @@ namespace MHServerEmu.Games.Regions
                 RegionDataRef = regionProtoRef,
                 GenerateAreas = true,
                 GenerateEntities = true,
-                GenerateLog = false
+                GenerateLog = ShouldLogGeneration(regionProtoRef)
             };
 
             if (settings.Seed == 0)

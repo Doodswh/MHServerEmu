@@ -1,4 +1,5 @@
-﻿using MHServerEmu.Core.Collections;
+﻿using System.Collections.Concurrent;
+using MHServerEmu.Core.Collections;
 using MHServerEmu.Core.Collisions;
 using MHServerEmu.Core.Logging;
 using MHServerEmu.Core.System.Random;
@@ -161,6 +162,13 @@ namespace MHServerEmu.Games.DRAG
             return !picker.Empty();
         }
 
+        /// <summary>
+        /// CUSTOM: Cell set folder -> backup folder (both relative to Resource/Cells, e.g. a seasonal set and its normal set).
+        /// When a set is loaded, the backup's cells are added for wall shapes the set itself has none of, so a grid that needs
+        /// such a shape can still be built. Filled by scripts.
+        /// </summary>
+        public static readonly ConcurrentDictionary<string, string> CellSetFallbacks = new(StringComparer.OrdinalIgnoreCase);
+
         public void LoadDirectory(AssetId cellSet, CellSetEntryPrototype cellSetEntry, int weight, bool unique)
         {
             if (weight <= 0) return;
@@ -169,7 +177,36 @@ namespace MHServerEmu.Games.DRAG
             {
                 foreach (var cellRef in cells)
                     AddReference(cellRef, weight, unique);
+
+                string cellSetPath = GameDatabase.GetAssetName(cellSet).Trim('/');
+                if (CellSetFallbacks.TryGetValue(cellSetPath, out string fallbackPath))
+                    LoadFallbackShapes(fallbackPath, cellSetEntry, weight, unique);
             }
+        }
+
+        // Adds the fallback folder's cells whose wall shape the registry does not have yet (shapes are checked before adding,
+        // so two fallback cells of the same missing shape both get in)
+        private void LoadFallbackShapes(string fallbackPath, CellSetEntryPrototype cellSetEntry, int weight, bool unique)
+        {
+            string prefix = "Resource/Cells/" + fallbackPath.Trim('/') + "/";
+            HashSet<Cell.Walls> present = new(_cellsWalls.Keys);
+            int added = 0;
+
+            foreach (PrototypeId cellRef in GameDatabase.DataDirectory.IteratePrototypesInHierarchy<CellPrototype>())
+            {
+                if (IsInCellSet(cellSetEntry, prefix, cellRef) == false)
+                    continue;
+
+                CellPrototype cell = cellRef.As<CellPrototype>();
+                if (cell == null || present.Contains(cell.Walls))
+                    continue;
+
+                AddReference(cellRef, weight, unique);
+                added++;
+            }
+
+            if (added > 0)
+                Logger.Debug($"LoadFallbackShapes(): added {added} cell(s) from [{fallbackPath}] for wall shapes the set is missing");
         }
 
         /// <summary>

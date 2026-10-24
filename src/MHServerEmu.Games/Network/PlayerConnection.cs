@@ -555,7 +555,7 @@ namespace MHServerEmu.Games.Network
                 // case ClientToGameServerMessage.NetMessageDebugAcquireAndSwitchToAvatar:  OnDebugAcquireAndSwitchToAvatar(message); break;
                 case ClientToGameServerMessage.NetMessageSwitchAvatar:                      OnSwitchAvatar(message); break;
                 case ClientToGameServerMessage.NetMessageChangeDifficulty:                  OnChangeDifficulty(message); break;
-                // case ClientToGameServerMessage.NetMessageSelectPublicEventTeam:          OnSelectPublicEventTeam(message); break;
+                case ClientToGameServerMessage.NetMessageSelectPublicEventTeam:             OnSelectPublicEventTeam(message); break;   // CUSTOM
                 case ClientToGameServerMessage.NetMessageRefreshAbilityKeyMapping:          OnRefreshAbilityKeyMapping(message); break;
                 case ClientToGameServerMessage.NetMessageAbilitySlotToAbilityBar:           OnAbilitySlotToAbilityBar(message); break;
                 case ClientToGameServerMessage.NetMessageAbilityUnslotFromAbilityBar:       OnAbilityUnslotFromAbilityBar(message); break;
@@ -2370,6 +2370,33 @@ namespace MHServerEmu.Games.Network
             if (petTechItem == null) return Logger.WarnReturn(false, "OnRequestPetTechDonate(): petTechItem == null");
 
             return ItemPrototype.DonateItemToPetTech(Player, petTechItem, itemToDonate.ItemSpec, itemToDonate);
+        }
+
+        // CUSTOM: the player picked a side in the public event team dialog (the Civil War event's choose-a-side panel)
+        private bool OnSelectPublicEventTeam(in MailboxMessage message)
+        {
+            var selectTeam = message.As<NetMessageSelectPublicEventTeam>();
+            if (selectTeam == null) return Logger.WarnReturn(false, $"OnSelectPublicEventTeam(): Failed to retrieve message");
+
+            PrototypeId teamRef = (PrototypeId)selectTeam.TeamPrototypeId;
+            PublicEventTeamPrototype teamProto = teamRef.As<PublicEventTeamPrototype>();
+            if (teamProto == null) return Logger.WarnReturn(false, $"OnSelectPublicEventTeam(): {teamRef} is not a public event team");
+
+            PublicEventPrototype eventProto = teamProto.PublicEventRef.As<PublicEventPrototype>();
+            if (eventProto == null) return Logger.WarnReturn(false, $"OnSelectPublicEventTeam(): no public event for team {teamProto}");
+
+            bool success = Player.SetPublicEventTeam(eventProto, teamRef);
+            Logger.Info($"OnSelectPublicEventTeam(): [{Player}] picked {teamProto} in {eventProto} ({(success ? "saved" : "failed")})");
+
+            SendMessage(NetMessagePublicEventTeamAssigned.CreateBuilder()
+                .SetPublicEventProtoId((ulong)eventProto.DataRef)
+                .SetSuccess(success)
+                .Build());
+
+            if (success && ScriptHooks.PublicEventTeamSelected.HasHandlers)
+                ScriptHooks.PublicEventTeamSelected.Invoke(new(Player, eventProto.DataRef, teamRef));
+
+            return true;
         }
 
         private bool OnSetActivePowerSpec(in MailboxMessage message)

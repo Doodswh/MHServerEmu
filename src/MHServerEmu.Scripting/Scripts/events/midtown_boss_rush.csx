@@ -39,6 +39,10 @@ const bool  BossesHuntPlayers  = false;  // with SpawnSpots: false = bosses hold
 const float EmptyRegionTimeout = 30f;   // end the rush if nobody is left in the region for this long
 const float TickSeconds        = 2f;
 const bool  BossesDropLoot     = true;
+
+// Difficulty on top of the wave list below (Midtown is shared, so only the rush bosses are changed, not the region)
+const float BossHealthBonus    = 0.25f;  // extra boss health: 0.25 = 25% more, 0 = normal
+const int   ExtraAffixes       = 1;      // random affixes added to every boss on top of its wave's own number
 const float MinDamagePercent   = 0f;     // share of a wave's boss damage a player needs for its rewards (0 = any damage)
 const int   TopDamageShown     = 3;      // damage leaders listed in chat when a rush ends
 
@@ -55,7 +59,7 @@ const bool   ShowBossPortraits     = true;  // portrait popup ("Rhino has arrive
 const bool   ShowBossHealth        = true;  // HUD health bar for each boss of the wave (boss icon + health %)
 const string BossHealthWidget      = "UI/MetaGame/SurturRaid/FiveMan/SlagHealth.prototype";
 const float  DefeatedShowSeconds   = 2f;    // a defeated boss stays on the health bar (at 0 %) this long
-const string AffixExclude      = "";     // comma-separated affix name words to never roll on bosses
+const string AffixExclude      = "Mods/Raids/,/Cosmics/,/EventSpecific/,ItemPowers,TextOnly,TextAffix,ChestDrop,LimboOrb";   // parts of affix paths never rolled: raid (Surtur, Ultron, Onslaught), Danger Room cosmic, event (Limbo, cow, Sentinel) and label-only / chest affixes. Only the standard boss and enemy affixes are left.
 
 // Daily damage leaderboard: the game's "Daredevil vs The Hand" board (daily reset, highest first, 5 reward tiers), renamed and fed
 // with each player's boss damage (in thousands) when a rush ends. "" = off. Needs the board enabled in
@@ -133,19 +137,19 @@ const string MidtownFC  = FC + "CosmicFortuneCardMidtown.prototype";
 
 var WaveRewards = new Reward[][]
 {
-    /*  1 */ new Reward[] { new(FC + "AgeOfUltronFortuneCard.prototype", 2) },
+    /*  1 */ new Reward[] { new(FC + "AgeOfUltronFortuneCard.prototype") },
     /*  2 */ new Reward[] { new(FC + "SpiderManHomecomingFortuneCard.prototype"), new(FC + "LoganFortuneCard.prototype") },
     /*  3 */ new Reward[] { new(MidtownFC) },
-    /*  4 */ new Reward[] { new(FC + "GuardiansOfTheGalaxyVol2FortuneCard.prototype", 3) },
+    /*  4 */ new Reward[] { new(FC + "GuardiansOfTheGalaxyVol2FortuneCard.prototype", 2) },
     /*  5 */ new Reward[] { new(CSBox + "CSGrantCrateProtectorsCommendations10Box.prototype") },
-    /*  6 */ new Reward[] { new(FC + "SpiderManHomecomingFortuneCard.prototype", 3) },
-    /*  7 */ new Reward[] { new(MidtownFC, 2) },
-    /*  8 */ new Reward[] { new(FC + "LoganFortuneCard.prototype", 3) },
+    /*  6 */ new Reward[] { new(FC + "SpiderManHomecomingFortuneCard.prototype", 2) },
+    /*  7 */ new Reward[] { new(MidtownFC) },
+    /*  8 */ new Reward[] { new(FC + "LoganFortuneCard.prototype", 2) },
     /*  9 */ new Reward[] { new(CSBox + "CSGrantCrateHeroCommendation25Box.prototype") },
     /* 10 */ new Reward[] { new(CSBox + "CSGrantCrateARMORDriveBox25.prototype") },
-    /* 11 */ new Reward[] { new(FC + "XMenFortuneCard.prototype", 5) },
+    /* 11 */ new Reward[] { new(FC + "XMenFortuneCard.prototype", 3) },
     /* 12 */ new Reward[] { new("Entity/Items/Consumables/Prototypes/RandomGiftboxes/RandomCosmicArtifactBox.prototype") },
-    /* 13 */ new Reward[] { new(FC + "OdinsBountyFortuneCard.prototype", 5) },
+    /* 13 */ new Reward[] { new(FC + "OdinsBountyFortuneCard.prototype", 3) },
 };
 
 var CompletionRewards = new Reward[]
@@ -311,7 +315,14 @@ void StartWave(Run run, int waveIndex)
             continue;
         }
 
-        ScriptSpawner.AddRandomAffixes(agent, wave.Affixes, AffixExclude);
+        ScriptSpawner.AddRandomAffixes(agent, wave.Affixes + ExtraAffixes, AffixExclude);
+
+        if (BossHealthBonus > 0f)
+        {
+            // Maximum health follows the bonus; then top the boss up to its new maximum
+            agent.Properties[PropertyEnum.HealthPctBonus] = (float)agent.Properties[PropertyEnum.HealthPctBonus] + BossHealthBonus;
+            agent.Properties[PropertyEnum.Health] = (long)agent.Properties[PropertyEnum.HealthMaxOther];
+        }
         run.Alive[agent.Id] = AllBosses.IndexOf(boss);
 
         if (ShowBossHealth)

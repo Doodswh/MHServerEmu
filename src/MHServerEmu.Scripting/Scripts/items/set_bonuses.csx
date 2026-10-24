@@ -20,6 +20,7 @@
 //       Midtown Rogues' Gallery: Art362, Art366, Art360, Art067SuperHeroic (Cosmic / Personal versions count too), any hero.
 //       Unstoppable Juggernauts: Art208, Art267, Art181, Art225 (Cosmic / Takedown versions count too) on Hulk or Juggernaut.
 //       Legion of One: Art275, Art277 (or Art278 / Art279), Art313, Art314 (Cosmic / Takedown versions count too), any hero.
+//       Legend of Punchclops: Cyclops uniques Unique021 (or Unique555), Unique070, Unique112, Unique068, Unique111; any 4, on Cyclops.
 
 using System.Runtime.CompilerServices;
 using MHServerEmu.Games.Entities;
@@ -58,6 +59,31 @@ static void BoostSummons(PropertyCollection bonus, float amount)
 
     bonus[PropertyEnum.PetDamagePctBonus] = amount;
 }
+
+// Adds +amount (0.25 = +25%) damage for every power with the keyword (e.g. Melee), the same way talents boost a power
+static void BoostKeyword(PropertyCollection bonus, float amount, string keywordPath)
+{
+    PrototypeId keywordRef = GameDatabase.GetPrototypeRefByName(keywordPath);
+    if (keywordRef != PrototypeId.Invalid)
+        bonus[PropertyEnum.DamageMultForPowerKeyword, keywordRef] = amount;
+}
+
+// Like ScriptBonuses.AddProc, but the proc only fires for powers with the keyword: the way unique items write
+// "chance to stun when you hit with a Melee power" (ProcKeyword[trigger, proc power, keyword])
+static void AddKeywordProc(PropertyCollection bonus, ProcTriggerType trigger, string powerPath, string keywordPath, float chance)
+{
+    PrototypeId powerRef = GameDatabase.GetPrototypeRefByName(powerPath);
+    PrototypeId keywordRef = GameDatabase.GetPrototypeRefByName(keywordPath);
+    if (powerRef == PrototypeId.Invalid || keywordRef == PrototypeId.Invalid)
+        return;
+
+    PropertyId procId = new(PropertyEnum.ProcKeyword, (PropertyParam)(int)trigger,
+        Property.ToParam(PropertyEnum.ProcKeyword, 1, powerRef), Property.ToParam(PropertyEnum.ProcKeyword, 2, keywordRef));
+    bonus[procId] = Math.Clamp(chance, 0f, 1f);
+}
+
+const string MeleeKeyword = "Powers/Blueprints/Keywords/Melee.defaults";
+const string CyclopsUniques = "Entity/Items/Armor/UniquePrototypes/Avatars/Cyclops/";
 
 var Sets = new List<GearSet>
 {
@@ -229,17 +255,75 @@ var Sets = new List<GearSet>
                     },
                 }),
         }),
+
+    // Cyclops only, built from his uniques (one per gear slot; any 4 of the 5 complete it). The community joke
+    // "Punchclops" (the game's own Heroism of Punchclops achievement and Legacy of Punchclops unique): ignore the optic
+    // blasts and punch everything. Boosts every Melee power: Punch Combo, Tactical Kicks, Sweeping Kicks, Combat Roll.
+    // Both Punchclops uniques are gloves, so either one is the glove piece (they already stun on Melee hits). The 4 piece
+    // proc is Fist of Apocalypse's: attack speed on Melee hits.
+    new GearSet("Legend of Punchclops",
+        pieces: new[]
+        {
+            ("Legacy or Heroism of Punchclops", CyclopsUniques + "Unique021.prototype|" +
+                                                CyclopsUniques + "Unique555.prototype"),
+            ("Ruby Quartz Sunglasses",          CyclopsUniques + "Unique070.prototype"),
+            ("Headmaster's Leather Jacket",     CyclopsUniques + "Unique112.prototype"),
+            ("Clan Rebellion Bodysuit",         CyclopsUniques + "Unique068.prototype"),
+            ("X-Factor Mutant Hunter Boots",    CyclopsUniques + "Unique111.prototype"),
+        },
+        heroes: new[]
+        {
+            ("Cyclops", "Entity/Characters/Avatars/Shipping/Cyclops.prototype"),
+        },
+        tiers: new[]
+        {
+            // Each tier states the total, not an addition to the tier before it
+            new SetTier(2, "+25% damage with Melee powers",
+                bonus => BoostKeyword(bonus, 0.25f, MeleeKeyword)),
+
+            new SetTier(3, "+50% damage with Melee powers. 10% Damage Reduction while you are in their face",
+                bonus =>
+                {
+                    BoostKeyword(bonus, 0.50f, MeleeKeyword);
+                    bonus[PropertyEnum.DamagePctResist, DamageType.Any] = 0.10f;
+                }),
+
+            new SetTier(4, "Punchclops: +100% damage with Melee powers, 10% Damage Reduction, +10% Damage vs Bosses, and a 25% chance " +
+                           "when you hit with a Melee power to gain Attack Speed for 10 seconds",
+                bonus =>
+                {
+                    BoostKeyword(bonus, 1.00f, MeleeKeyword);
+                    bonus[PropertyEnum.DamagePctResist, DamageType.Any] = 0.10f;
+                    bonus[PropertyEnum.DamagePctBonusVsBosses] = 0.10f;
+                    AddKeywordProc(bonus, ProcTriggerType.OnAnyHit, ItemPowers + "ArtifactPowers/Art322AttackSpeedProc.prototype", MeleeKeyword, 0.25f);
+                }),
+        }),
 };
 
 //------------------------------------------------------------------------------
 // Tooltips and on-screen text (registered at load)
 //------------------------------------------------------------------------------
 
+// The set text replaces a piece's flavor quote. Quotes worth keeping are listed here and shown under the set text
+// (the server has no copy of the client's text, so they are written out).
+var KeptFlavorText = new Dictionary<string, string>
+{
+    [CyclopsUniques + "Unique021.prototype"] = "Coming Soon: Punchclops Vs. Wolverine!",
+    [CyclopsUniques + "Unique555.prototype"] = "Punchclops is such an overachiever!",
+    [CyclopsUniques + "Unique070.prototype"] = "Wait, Scott is demonstrating fashion sense?\nIsn't that a sign of the apocalypse?\n—Iceman",
+    [CyclopsUniques + "Unique112.prototype"] = "Summers never fully shook off being possessed by Apocalypse.  He came back darker.  That's when he put that jacket on.\n—Wolverine",
+    [CyclopsUniques + "Unique068.prototype"] = "When Clan Askani was wiped out, we became the last resistance against Apocalypse. \n—Slym Dayspring (a.k.a. Scott Summers)",
+    [CyclopsUniques + "Unique111.prototype"] = "I wore these the first time I commanded a team without the Professor to turn to.  That's when I learned true leadership.",
+};
+
 foreach (GearSet set in Sets)
 {
+    int fullSet = set.Tiers.Max(tier => tier.Pieces);
     string pieceList = set.Pieces.Length <= 4
         ? string.Join(", ", set.Pieces.Select(piece => piece.Name))
-        : $"any {set.Tiers.Max(tier => tier.Pieces)} of the {set.Pieces.Length} {set.Name.Split(' ')[0]} artifacts";
+        : set.Pieces.Length <= 5
+            ? $"any {fullSet} of: " + string.Join(", ", set.Pieces.Select(piece => piece.Name))
+            : $"any {fullSet} of the {set.Pieces.Length} {set.Name.Split(' ')[0]} artifacts";
 
     string tooltip = $"#highlight#{set.Name}#/highlight#\n" +
         string.Join("\n", set.Tiers.Select(tier => $"({tier.Pieces}) {tier.Description}")) +
@@ -250,7 +334,8 @@ foreach (GearSet set in Sets)
     {
         foreach (string path in piece.Paths)
         {
-            if (ScriptText.OverrideItemFlavorText(path, tooltip) == false)
+            string text = KeptFlavorText.TryGetValue(path, out string quote) ? tooltip + "\n\n" + quote : tooltip;
+            if (ScriptText.OverrideItemFlavorText(path, text) == false)
                 Log.Warn($"{set.Name}: could not set the tooltip of [{path}]");
         }
     }

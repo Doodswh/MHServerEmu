@@ -1,4 +1,4 @@
-﻿using Gazillion;
+using Gazillion;
 using MHServerEmu.Core.Config;
 using MHServerEmu.Core.Logging;
 using MHServerEmu.Core.Network;
@@ -115,6 +115,10 @@ namespace MHServerEmu.Games.Network
 
                 case ServiceMessage.MTXStoreESConvertGameRequest mtxStoreESConvertGameRequest:
                     OnMTXStoreESConvertGameRequest(mtxStoreESConvertGameRequest);
+                    break;
+
+                case ServiceMessage.WebActionGameRequest webActionGameRequest:
+                    OnWebActionGameRequest(webActionGameRequest);
                     break;
 
                 default:
@@ -486,6 +490,30 @@ namespace MHServerEmu.Games.Network
             ServerManager.Instance.SendMessageToService(GameServiceType.PlayerManager, response);
 
             return true;
+        }
+
+        // CUSTOM: an action from a web page the player has open in the client (see ScriptHooks.WebAction)
+        private void OnWebActionGameRequest(in ServiceMessage.WebActionGameRequest webActionGameRequest)
+        {
+            bool handled = false;
+            string result = null;
+
+            Player player = Game.EntityManager.GetEntityByDbGuid<Player>(webActionGameRequest.PlayerDbId);
+            if (player == null)
+            {
+                Logger.Warn($"OnWebActionGameRequest(): Player 0x{webActionGameRequest.PlayerDbId:X} not found in game [{Game}]");
+            }
+            else if (Scripting.ScriptHooks.WebAction.HasHandlers)
+            {
+                Scripting.WebActionArgs hookArgs = new(player, webActionGameRequest.Action, webActionGameRequest.Data);
+                Scripting.ScriptHooks.WebAction.Invoke(hookArgs);
+                handled = hookArgs.Handled;
+                result = hookArgs.Result;
+            }
+
+            // Always answer, or the web page waits for the timeout
+            ServiceMessage.WebActionGameResponse response = new(webActionGameRequest.RequestId, handled, result);
+            ServerManager.Instance.SendMessageToService(GameServiceType.PlayerManager, response);
         }
 
         #endregion

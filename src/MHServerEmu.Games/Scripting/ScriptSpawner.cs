@@ -267,6 +267,44 @@ namespace MHServerEmu.Games.Scripting
         }
 
         /// <summary>
+        /// Spawns an entity exactly as a map places its own (level, position, orientation, cell; nothing else changed), so a
+        /// vendor opens its shop, a mission giver offers its missions, a stash or waypoint works as usual. Unlike
+        /// <see cref="SpawnInteractable"/> it doesn't make the entity a script prop, but it is tagged the same way
+        /// (<see cref="GetTag"/>) so scripts can find and remove it. Returns <see langword="null"/> on failure.
+        /// </summary>
+        public static WorldEntity SpawnAsMapEntity(Region region, PrototypeId entityRef, Vector3 position, float yawDegrees, string tag)
+        {
+            WorldEntityPrototype entityProto = entityRef.As<WorldEntityPrototype>();
+            if (region == null || entityProto == null)
+                return Logger.WarnReturn<WorldEntity>(null, $"SpawnAsMapEntity(): [{entityRef.GetName()}] is not a world entity prototype");
+
+            if (TryGetCell(region, position, out Vector3 floorPosition, out Cell cell) == false)
+                return Logger.WarnReturn<WorldEntity>(null, $"SpawnAsMapEntity(): {position} is outside the cells of [{region.PrototypeName}]");
+
+            if (entityProto.Bounds != null)
+                floorPosition.Z += entityProto.Bounds.GetBoundHalfHeight();
+
+            using EntitySettings settings = ObjectPoolManager.Instance.Get<EntitySettings>();
+            settings.EntityRef = entityRef;
+            settings.Position = floorPosition;
+            settings.Orientation = new(MathHelper.ToRadians(yawDegrees), 0f, 0f);
+            settings.RegionId = region.Id;
+            settings.Cell = cell;
+
+            using PropertyCollection properties = ObjectPoolManager.Instance.Get<PropertyCollection>();
+            int level = cell.Area.GetCharacterLevel(entityProto);
+            properties[PropertyEnum.CharacterLevel] = level;
+            properties[PropertyEnum.CombatLevel] = level;
+            settings.Properties = properties;
+
+            if (region.Game.EntityManager.CreateEntity(settings) is not WorldEntity entity)
+                return Logger.WarnReturn<WorldEntity>(null, $"SpawnAsMapEntity(): Failed to create [{entityRef.GetName()}]");
+
+            _tags.AddOrUpdate(entity, tag ?? string.Empty);
+            return entity;
+        }
+
+        /// <summary>
         /// Puts an item on the ground at <paramref name="position"/>, like a drop that belongs to nobody: every player sees
         /// it and anyone can pick it up. It stays until it is picked up or despawned. Useful for items whose only model is
         /// their dropped form (event currencies such as the Halloween Pumpkin or the Christmas tree). Tagged like
@@ -471,6 +509,84 @@ namespace MHServerEmu.Games.Scripting
 
             return bestDistanceSq >= 0f;
         }
+
+        /// <summary>
+        /// Finds <paramref name="count"/> walkable spots spread across <paramref name="region"/>, for objectives players must
+        /// travel to: each reachable on foot from <paramref name="from"/>, at least <paramref name="minDistance"/> from it and
+        /// <paramref name="minSpacing"/> from each other. Works on any map: when the ideal spots cannot be found it falls back,
+        /// step by step, to looser ones (smaller distances, then measuring from open ground beside <paramref name="from"/>,
+        /// then rings around <paramref name="from"/>), so it returns fewer than <paramref name="count"/> spots only when the
+        /// region has no usable ground. Fallbacks are logged.
+        /// </summary>
+        public static List<Vector3> FindSpreadSpots(Region region, Vector3 from, int count, float minDistance, float minSpacing)
+        {
+            List<Vector3> spots = new();
+            if (region == null || count <= 0)
+                return spots;
+
+            // 1. Random reachable spots, strict distances first
+            AddSpreadSpots(region, from, count, minDistance, minSpacing, spots);
+            int strict = spots.Count;
+
+            // 2. A start point against a wall or a door fails the "can walk there" test for every spot:
+            //    measure from open ground beside it instead
+            if (spots.Count < count && TryFindSpawnPosition(region, null, from, 100f, 500f, out Vector3 openGround, out _))
+                AddSpreadSpots(region, openGround, count, minDistance, minSpacing, spots);
+            int fromOpenGround = spots.Count - strict;
+
+            // 3. Rings around the start point, widest first (the placement SpawnHostile uses, which only needs walkable ground)
+            if (spots.Count < count)
+            {
+                float outer = Math.Max(minDistance * 2f, 2000f);
+                for (int step = 0; step < 4 && spots.Count < count; step++, outer *= 0.6f)
+                {
+                    for (int attempt = 0; attempt < count * 4 && spots.Count < count; attempt++)
+                    {
+                        if (TryFindSpawnPosition(region, null, from, outer * 0.5f, outer, out Vector3 spot, out _) == false)
+                            continue;
+
+                        // TryFindSpawnPosition() can hand back the start point itself as its last resort
+                        float spacing = Math.Min(minSpacing, outer * 0.25f);
+                        if (Vector3.Distance2D(spot, from) < outer * 0.25f || spots.Any(other => Vector3.Distance2D(other, spot) < spacing))
+                            continue;
+
+                        spots.Add(spot);
+                    }
+                }
+            }
+
+            if (strict < count)
+            {
+                Logger.Warn($"FindSpreadSpots(): [{region.PrototypeName}] seed {region.RandomSeed} from {from}: {spots.Count} / {count} spots " +
+                    $"({strict} spread, {fromOpenGround} from open ground, {spots.Count - strict - fromOpenGround} in rings around the start)");
+            }
+
+            return spots;
+        }
+
+        private static void AddSpreadSpots(Region region, Vector3 from, int count, float minDistance, float minSpacing, List<Vector3> spots)
+        {
+            // Strict distances first, then relaxed so small maps still get their spots
+            foreach (float scale in SpreadScales)
+            {
+                float spacing = minSpacing * scale;
+                for (int attempt = 0; attempt < count * 12 && spots.Count < count; attempt++)
+                {
+                    if (TryFindRandomSpot(region, out Vector3 spot, from, minDistance * scale) == false)
+                        continue;
+
+                    if (spots.Any(other => Vector3.Distance2D(other, spot) < spacing))
+                        continue;
+
+                    spots.Add(spot);
+                }
+
+                if (spots.Count >= count)
+                    return;
+            }
+        }
+
+        private static readonly float[] SpreadScales = { 1f, 0.6f, 0.3f, 0f };
 
         /// <summary>
         /// Returns where players arrive in <paramref name="region"/> (its start target), for placing NPCs and measuring distances.

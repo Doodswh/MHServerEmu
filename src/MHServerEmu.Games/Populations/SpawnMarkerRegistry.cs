@@ -1,5 +1,6 @@
 ﻿using MHServerEmu.Core.Collections;
 using MHServerEmu.Core.Collisions;
+using MHServerEmu.Core.Extensions;
 using MHServerEmu.Core.Logging;
 using MHServerEmu.Core.Memory;
 using MHServerEmu.Core.System.Random;
@@ -96,6 +97,10 @@ namespace MHServerEmu.Games.Populations
 
         public void AddCell(Cell cell)
         {
+            // CUSTOM: a stand-in cell can take over the spawn markers of the cell it replaces
+            if (cell.Settings != null && cell.Settings.UseStandInSpawnMarkers && AddStandInCell(cell))
+                return;
+
             int id = 0;
             CellPrototype cellProto = cell.Prototype;
             foreach (var marker in cellProto.MarkerSet.Markers)
@@ -124,6 +129,89 @@ namespace MHServerEmu.Games.Populations
                     }
                 }
             }
+        }
+
+        /// <summary>
+        /// CUSTOM: Registers the replaced cell's spawn markers on a stand-in cell. The stand-in has other ground, so each marker
+        /// goes to the stand-in's own spawn spot nearest to where it was; the rarest marker types (bosses, mission spots) pick
+        /// first and every spot is used once before any is shared.
+        /// </summary>
+        private bool AddStandInCell(Cell cell)
+        {
+            CellPrototype original = GameDatabase.GetPrototype<CellPrototype>(cell.Settings.StandInForRef);
+            if (original == null || original.MarkerSet.Markers.IsNullOrEmpty()) return false;
+
+            List<MarkerPrototype> spots = new();
+            foreach (var marker in cell.Prototype.MarkerSet.Markers)
+            {
+                if (marker is not EntityMarkerPrototype entityMarker) continue;
+                SpawnMarkerPrototype spawnMarker = entityMarker.GetMarkedPrototype<SpawnMarkerPrototype>();
+                if (spawnMarker != null && spawnMarker.Type != MarkerType.Prop)
+                    spots.Add(marker);
+            }
+
+            List<(EntityMarkerPrototype Marker, PrototypeId MarkerRef)> wanted = new();
+            foreach (var marker in original.MarkerSet.Markers)
+            {
+                if (marker is not EntityMarkerPrototype entityMarker) continue;
+                SpawnMarkerPrototype spawnMarker = entityMarker.GetMarkedPrototype<SpawnMarkerPrototype>();
+                if (spawnMarker == null || spawnMarker.Type == MarkerType.Prop) continue;
+                if (cell.Region.CheckMarkerFilter(GameDatabase.GetDataRefByPrototypeGuid(entityMarker.FilterGuid)) == false) continue;
+                if (entityMarker.EntityGuid == 0) continue;
+
+                // several cells share the original: each takes the markers that fall on it
+                if (cell.Settings.StandInSharesOriginal)
+                {
+                    Vector3 local = marker.Position - cell.Settings.StandInShift;
+                    Aabb box = cell.Prototype.BoundingBox;
+                    if (local.X < box.Min.X || local.X >= box.Max.X || local.Y < box.Min.Y || local.Y >= box.Max.Y) continue;
+                }
+
+                var markerRef = GameDatabase.GetDataRefByPrototypeGuid(entityMarker.EntityGuid);
+                if (markerRef != PrototypeId.Invalid) wanted.Add((entityMarker, markerRef));
+            }
+
+            var typeCounts = wanted.GroupBy(w => w.MarkerRef).ToDictionary(g => g.Key, g => g.Count());
+            bool[] used = new bool[spots.Count];
+            int id = 0;
+
+            // no spawn spots of its own (e.g. a rooftop): keep each marker where it was, pulled inside the stand-in
+            if (spots.Count == 0)
+            {
+                Aabb inner = cell.Prototype.BoundingBox.Expand(-200f);
+                foreach (var (marker, markerRef) in wanted)
+                {
+                    Vector3 target = marker.Position - cell.Settings.StandInShift;
+                    target = new Vector3(Math.Clamp(target.X, inner.Min.X, inner.Max.X), Math.Clamp(target.Y, inner.Min.Y, inner.Max.Y), target.Z);
+                    AddSpawnTypeLocation(markerRef, target, marker.Rotation, cell, ++id);
+                }
+
+                Logger.Debug($"AddStandInCell(): {wanted.Count} spawn markers of {GameDatabase.GetFormattedPrototypeName(original.DataRef)} " +
+                    $"kept in place on {GameDatabase.GetFormattedPrototypeName(cell.PrototypeDataRef)} (it has no spawn spots)");
+                return true;
+            }
+
+            foreach (var (marker, markerRef) in wanted.OrderBy(w => typeCounts[w.MarkerRef]))
+            {
+                Vector3 target = marker.Position - cell.Settings.StandInShift;
+                bool allUsed = used.All(u => u);
+                int best = -1;
+                float bestDistance = float.MaxValue;
+
+                for (int i = 0; i < spots.Count; i++)
+                {
+                    if (used[i] && allUsed == false) continue;
+                    float distance = Vector3.DistanceSquared2D(spots[i].Position, target);
+                    if (distance < bestDistance) { bestDistance = distance; best = i; }
+                }
+
+                used[best] = true;
+                AddSpawnTypeLocation(markerRef, spots[best].Position, spots[best].Rotation, cell, ++id);
+            }
+
+            Logger.Debug($"AddStandInCell(): {wanted.Count} spawn markers of {GameDatabase.GetFormattedPrototypeName(original.DataRef)} " +
+                $"placed on {spots.Count} spots of {GameDatabase.GetFormattedPrototypeName(cell.PrototypeDataRef)}");
+            return true;
         }
 
         private void AddSpawnTypeLocation(PrototypeId markerRef, Vector3 position, Orientation rotation, Cell cell, int id)

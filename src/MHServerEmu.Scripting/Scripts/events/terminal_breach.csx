@@ -28,8 +28,8 @@ using MHServerEmu.Games.Events;
 
 const string HubRegion     = "Regions/HUBRevamp/NPEAvengersTowerHUBRegion.prototype";   // the current Avengers Tower
 const string NpcPath       = "Entity/Characters/NPCs/HubNPCs/SHIELDAgentMale.prototype";
-Vector3? NpcPosition       = null;   // null = next to where players arrive in the hub; use "!breach npc here" to pick a spot
-float NpcYawDegrees        = 0f;     // only used with NpcPosition
+Vector3? NpcPosition       = new Vector3(-2360f, 1940f, 140f);   // Avengers Tower event line, east of Hank Pym (null = next to where players arrive)
+float NpcYawDegrees        = 270f;   // only used with NpcPosition
 
 const int   AnchorCount        = 4;
 const int   AnchorAffixes      = 1;       // extra random affixes on each anchor villain
@@ -49,7 +49,7 @@ const float HintInterval       = 90f;
 const float TickSeconds        = 2f;
 const bool  BossesDropLoot     = true;
 const float OverheadSeconds    = 5f;
-const string AffixExclude      = "";
+const string AffixExclude      = "Mods/Raids/,/Cosmics/,/EventSpecific/,ItemPowers,TextOnly,TextAffix,ChestDrop,LimboOrb";   // parts of affix paths never rolled: raid (Surtur, Ultron, Onslaught), Danger Room cosmic, event (Limbo, cow, Sentinel) and label-only / chest affixes. Only the standard boss and enemy affixes are left.
 
 // Fastest clear leaderboard: the game's Brood "Time Trial - Epic" board (weekly reset, shown as a time, fastest first, 6 reward tiers),
 // renamed and fed with the clear time of everyone who fought in a closed breach. Only each player's best time counts. "" = off.
@@ -395,7 +395,19 @@ void WaitForLoadIn(Run run, Player player, float waited)
 
     run.StartScheduled = true;
     run.Entrance = avatar.RegionLocation.Position;
+
+    // The anchors go down the moment the first player is in, not after StartDelay: players who run ahead set off the
+    // terminal's own doors and ambushes, which can seal the way back to the entrance and make every anchor spot "unreachable"
+    SpawnAnchors(run);
     After(run.Region.Game, StartDelay, () => StartRun(run));
+}
+
+// Where "can players walk there" is measured from: a living player in the breach (they may have left the entrance and the
+// way back may have closed behind them), or the entrance if nobody is around
+Vector3 PathOrigin(Run run)
+{
+    Avatar avatar = PlayersIn(run.Region).Select(player => player.CurrentAvatar).FirstOrDefault(a => a.IsDead == false);
+    return avatar != null ? avatar.RegionLocation.Position : run.Entrance;
 }
 
 void StartRun(Run run)
@@ -410,18 +422,16 @@ void StartRun(Run run)
     Announce(region, $"The breach into {Terminals[run.TerminalIndex].Name} is open! Destroy the Breach Anchors hidden across the map, " +
         $"then defeat the Breach Overlord. You have {FormatTime(TimeLimit)}. Type !breach for the distance to the nearest target.");
 
-    SpawnAnchors(run);
+    // Never skip to the Breach Overlord: a breach without anchors would be a free, seconds-long clear
+    if (run.AnchorTotal == 0)
+    {
+        Log.Warn($"No breach anchors could be placed in {region.PrototypeName} (seed {run.Seed}), cancelling the breach");
+        EndRun(run, false, "The breach could not stabilize in this terminal. No rewards this time: open another breach.", true);
+        return;
+    }
 
-    if (run.Targets.Count == 0)
-    {
-        Log.Warn($"No breach anchors could be placed in {region.PrototypeName}, going straight to the Breach Overlord");
-        SpawnLord(run);
-    }
-    else
-    {
-        ScriptText.SetObjectiveTitle(region, "breach_obj_anchors");
-        ScriptText.SetObjectiveCounter(region, 0, run.AnchorTotal);
-    }
+    ScriptText.SetObjectiveTitle(region, "breach_obj_anchors");
+    ScriptText.SetObjectiveCounter(region, 0, run.AnchorTotal);
 
     // Visible countdown ("Time:" widget from the Danger Room HUD, the same family as the counter bar)
     if (ScriptPresentation.WidgetTimer(region, TimerWidget, TimeLimit) == false)
@@ -431,32 +441,6 @@ void StartRun(Run run)
     After(region.Game, TickSeconds, () => Tick(run));
 }
 
-List<Vector3> PickSpreadSpots(Region region, Vector3 entrance, int count)
-{
-    var spots = new List<Vector3>();
-
-    // Strict spacing first, then relax so small maps still get their anchors
-    foreach (float scale in new[] { 1f, 0.6f, 0.3f, 0f })
-    {
-        for (int attempt = 0; attempt < count * 12 && spots.Count < count; attempt++)
-        {
-            if (ScriptSpawner.TryFindRandomSpot(region, out Vector3 spot, entrance, MinAnchorDistance * scale) == false)
-                continue;
-
-            float spacing = MinAnchorSpacing * scale;
-            if (spots.Any(other => Vector3.Distance2D(other, spot) < spacing))
-                continue;
-
-            spots.Add(spot);
-        }
-
-        if (spots.Count >= count)
-            break;
-    }
-
-    return spots;
-}
-
 void SpawnAnchors(Run run)
 {
     Region region = run.Region;
@@ -464,7 +448,8 @@ void SpawnAnchors(Run run)
     if (bosses.Count == 0)
         return;
 
-    List<Vector3> spots = PickSpreadSpots(region, run.Entrance, AnchorCount);
+    // Spread across the map; the helper has its own fallbacks for maps where the ideal spots can't be found
+    List<Vector3> spots = ScriptSpawner.FindSpreadSpots(region, run.Entrance, AnchorCount, MinAnchorDistance, MinAnchorSpacing);
     for (int i = 0; i < spots.Count; i++)
     {
         Boss boss = bosses[i % bosses.Count];
@@ -477,9 +462,8 @@ void SpawnAnchors(Run run)
     }
 
     run.AnchorTotal = run.Targets.Count;
-    Log.Info($"Breach in {region.PrototypeName}: {run.AnchorTotal} anchor(s) placed");
+    Log.Info($"Breach in {region.PrototypeName} (seed {run.Seed}): {run.AnchorTotal} / {AnchorCount} anchor(s) placed");
 }
-
 void SpawnLord(Run run)
 {
     if (run.Ended || run.LordSpawned)
@@ -496,8 +480,12 @@ void SpawnLord(Run run)
     }
 
     Boss lord = lords[Random.Shared.Next(lords.Count)];
-    if (ScriptSpawner.TryFindFarSpot(region, run.Entrance, out Vector3 spot) == false)
-        spot = run.Entrance;
+    Vector3 origin = PathOrigin(run);
+    if (ScriptSpawner.TryFindFarSpot(region, origin, out Vector3 spot) == false)
+    {
+        Log.Warn($"No far spot for the Breach Overlord in {region.PrototypeName} (seed {run.Seed}), placing it near the players");
+        spot = origin;
+    }
 
     Agent agent = ScriptSpawner.SpawnHostile(region, lord.Ref, spot, 0f, 300f, null, BossesDropLoot, true, aggroed: false);
     if (agent == null)
@@ -585,6 +573,7 @@ void TargetDown(Run run, ulong entityId, bool killed)
     run.AnchorsDown++;
     if (killed)
     {
+        run.AnchorsKilled++;
         ScriptText.ShowBannerToRegion(region, "breach_anchor_down", 0, "reward", 2500);
         GiveRewards(run, damageByPlayer, AnchorRewards, "Breach Anchor");
     }
@@ -650,8 +639,13 @@ void CompleteRun(Run run)
 
     float seconds = (float)(run.Region.Game.CurrentTime - run.StartTime).TotalSeconds;
 
-    // Clear time onto the weekly leaderboard for everyone who fought (time boards take milliseconds; only the best counts)
-    if (ClearTimeLeaderboard.Length > 0)
+    // Clear time onto the weekly leaderboard for everyone who fought (time boards take milliseconds; only the best counts).
+    // Only a full breach counts: every anchor placed and actually killed (not vanished)
+    bool fullClear = run.AnchorTotal >= AnchorCount && run.AnchorsKilled >= run.AnchorTotal;
+    if (fullClear == false)
+        Log.Warn($"Breach clear in {FormatTime(seconds)} not sent to the leaderboard: {run.AnchorsKilled} of {run.AnchorTotal} anchors killed ({AnchorCount} expected)");
+
+    if (ClearTimeLeaderboard.Length > 0 && fullClear)
     {
         long milliseconds = (long)(seconds * 1000f);
         foreach (Player player in PlayersIn(run.Region))
@@ -955,6 +949,7 @@ class Run
     public bool LordSpawned;
     public int AnchorTotal;
     public int AnchorsDown;
+    public int AnchorsKilled;
     public float EmptySeconds;
     public float NextHintAt;
     public HashSet<float> WarningsGiven = new();

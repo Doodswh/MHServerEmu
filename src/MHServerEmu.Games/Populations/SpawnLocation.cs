@@ -81,7 +81,7 @@ namespace MHServerEmu.Games.Populations
         private void AddCellRef(PrototypeId cellRef)
         {
             foreach (var cell in Region.Cells)
-                if (cell.PrototypeDataRef == cellRef)
+                if (cell.PrototypeDataRef == cellRef || cell.Settings?.StandInForRef == cellRef)   // CUSTOM: or a stand-in for it
                     SpawnCells.Add(cell);
         }
 

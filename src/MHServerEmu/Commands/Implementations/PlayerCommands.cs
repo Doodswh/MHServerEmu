@@ -419,9 +419,11 @@ namespace MHServerEmu.Commands.Implementations
             if (targetHandle == null || !targetHandle.IsConnected)
                 return $"Player '{targetPlayerName}' is not currently online.";
 
-            PlayerConnection targetConnection = targetHandle.Client as PlayerConnection;
-            Player targetPlayer = targetConnection?.Player;
-            Avatar targetAvatar = targetPlayer?.CurrentAvatar;
+            // targetHandle.Client is their frontend connection, not a PlayerConnection: find the player in the game they're in
+            if (adminConnection.Game.GameManager.TryGetGameForPlayerDbId(targetDbId, out Game targetGame) == false)
+                return $"Player '{targetPlayerName}' is currently transitioning or in a lobby.";
+
+            Avatar targetAvatar = targetGame.EntityManager.GetEntityByDbGuid<Player>(targetDbId)?.CurrentAvatar;
 
             if (targetAvatar == null || !targetAvatar.IsInWorld)
                 return $"Player '{targetPlayerName}' does not have an active avatar in the world.";
@@ -429,11 +431,8 @@ namespace MHServerEmu.Commands.Implementations
             if (targetAvatar.IsDead)
                 return $"Player '{targetPlayerName}' is already dead.";
 
-            Avatar killerAvatar = adminPlayer.CurrentAvatar;
-            ulong killerId = killerAvatar?.Id ?? adminPlayer.Id;
-
             PowerResults powerResults = new();
-            powerResults.Init(killerId, killerId, targetAvatar.Id, targetAvatar.RegionLocation.Position, null, default, true);
+            powerResults.Init(targetAvatar.Id, targetAvatar.Id, targetAvatar.Id, targetAvatar.RegionLocation.Position, null, default, true);
             powerResults.SetFlag(PowerResultFlags.InstantKill, true);
             targetAvatar.ApplyDamageTransferPowerResults(powerResults);
 

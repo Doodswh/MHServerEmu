@@ -664,13 +664,31 @@ namespace MHServerEmu.Games.Network
             }
         }
 
+        /// <summary>
+        /// CUSTOM: Areas shown to the client as another area, by area prototype path (e.g. the Civil War Airport rebuilt from the
+        /// helicarrier hangar, shown as the helicarrier area so the client loads that area's backdrop map, its sky and deck).
+        /// The server keeps using the real area for missions and spawns; only the area id sent to the client changes. Filled by scripts.
+        /// </summary>
+        public static readonly System.Collections.Concurrent.ConcurrentDictionary<string, string> ClientAreaOverrides = new(StringComparer.OrdinalIgnoreCase);
+
         private void AddArea(Area area, bool isStartArea)
         {
             _trackedAreas.Add(area.Id, new(_currentFrame));
 
+            PrototypeId clientAreaRef = area.PrototypeDataRef;
+            if (ClientAreaOverrides.IsEmpty == false &&
+                ClientAreaOverrides.TryGetValue(GameDatabase.GetPrototypeName(clientAreaRef), out string overridePath))
+            {
+                PrototypeId overrideRef = GameDatabase.GetPrototypeRefByName(overridePath);
+                if (overrideRef != PrototypeId.Invalid)
+                    clientAreaRef = overrideRef;
+                else
+                    Logger.Warn($"AddArea(): no area {overridePath} to show for {area}");
+            }
+
             SendMessage(NetMessageAddArea.CreateBuilder()
                 .SetAreaId(area.Id)
-                .SetAreaPrototypeId((ulong)area.PrototypeDataRef)
+                .SetAreaPrototypeId((ulong)clientAreaRef)
                 .SetAreaOrigin(area.Origin.ToNetStructPoint3())
                 .SetIsStartArea(isStartArea)
                 .Build());

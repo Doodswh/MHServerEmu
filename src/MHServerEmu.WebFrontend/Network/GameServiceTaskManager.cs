@@ -1,4 +1,4 @@
-﻿using System.Net;
+using System.Net;
 using Gazillion;
 using MHServerEmu.Core.Logging;
 using MHServerEmu.Core.Network;
@@ -19,6 +19,7 @@ namespace MHServerEmu.WebFrontend.Network
         private readonly TaskManager<ServiceMessage.MTXStoreESBalanceResponse> _esBalanceTaskManager = new();
         private readonly TaskManager<ServiceMessage.MTXStoreESConvertResponse> _esConvertTaskManager = new();
         private readonly TaskManager<ServiceMessage.AccountOperationResponse> _accountOperationTaskManager = new();
+        private readonly TaskManager<ServiceMessage.WebActionResponse> _webActionTaskManager = new();
 
         public static GameServiceTaskManager Instance { get; } = new();
 
@@ -100,6 +101,32 @@ namespace MHServerEmu.WebFrontend.Network
         public void OnMTXStoreESConvertResponse(in ServiceMessage.MTXStoreESConvertResponse response)
         {
             _esConvertTaskManager.CompleteTask(response.RequestId, response);
+        }
+
+        /// <summary>
+        /// CUSTOM: Asynchronously sends a web page action to the game instance the player is in (ScriptHooks.WebAction).
+        /// </summary>
+        public async Task<ServiceMessage.WebActionResponse> DoWebActionAsync(string email, string token, string action, string data)
+        {
+            var actionTask = _webActionTaskManager.CreateTask();
+
+            ServiceMessage.WebActionRequest request = new(actionTask.Id, email, token, action, data);
+            ServerManager.Instance.SendMessageToService(GameServiceType.PlayerManager, request);
+
+            ServiceMessage.WebActionResponse? response = await CompleteTaskWithTimeout(actionTask);
+
+            if (response == null)
+                return new(actionTask.Id, (int)HttpStatusCode.RequestTimeout);
+
+            return response.Value;
+        }
+
+        /// <summary>
+        /// Completes a previously started web page action.
+        /// </summary>
+        public void OnWebActionResponse(in ServiceMessage.WebActionResponse response)
+        {
+            _webActionTaskManager.CompleteTask(response.RequestId, response);
         }
 
         /// <summary>

@@ -1,4 +1,4 @@
-﻿using Gazillion;
+using Gazillion;
 using MHServerEmu.Core.Logging;
 using MHServerEmu.Core.Memory;
 using MHServerEmu.Core.Network;
@@ -134,6 +134,14 @@ namespace MHServerEmu.PlayerManagement.Network
 
                 case ServiceMessage.MTXStoreESConvertGameResponse mtxStoreESConvertGameResponse:
                     OnMTXStoreESConvertGameResponse(mtxStoreESConvertGameResponse);
+                    break;
+
+                case ServiceMessage.WebActionRequest webActionRequest:
+                    OnWebActionRequest(webActionRequest);
+                    break;
+
+                case ServiceMessage.WebActionGameResponse webActionGameResponse:
+                    OnWebActionGameResponse(webActionGameResponse);
                     break;
 
                 case ServiceMessage.AccountOperationRequest accountOperationRequest:
@@ -548,6 +556,40 @@ namespace MHServerEmu.PlayerManagement.Network
 
             // We should have already handled authentication before routing the request to the game instance, so just route the result back.
             ServiceMessage.MTXStoreESConvertResponse response = new(requestId, result ? (int)HttpStatusCode.OK : (int)HttpStatusCode.InternalServerError);
+            ServerManager.Instance.SendMessageToService(GameServiceType.WebFrontend, response);
+
+            return true;
+        }
+
+        // CUSTOM: generic web page action, authenticated the same way as the Add G page
+        private bool OnWebActionRequest(in ServiceMessage.WebActionRequest webActionRequest)
+        {
+            ulong requestId = webActionRequest.RequestId;
+
+            PlayerHandle player = null;
+
+            if (_playerManager.SessionManager.VerifyPlatformTicket(webActionRequest.Email, webActionRequest.Token, out ulong playerDbId))
+                player = _playerManager.ClientManager.GetPlayer(playerDbId);
+
+            if (player == null || player.State != PlayerHandleState.InGame)
+            {
+                ServiceMessage.WebActionResponse response = new(requestId, (int)HttpStatusCode.Forbidden);
+                ServerManager.Instance.SendMessageToService(GameServiceType.WebFrontend, response);
+                return true;
+            }
+
+            // Route the action to the game instance the player is currently in, where scripts handle it
+            ServiceMessage.WebActionGameRequest gameRequest = new(requestId, player.CurrentGame.Id, playerDbId, webActionRequest.Action, webActionRequest.Data);
+            ServerManager.Instance.SendMessageToService(GameServiceType.GameInstance, gameRequest);
+
+            return true;
+        }
+
+        private bool OnWebActionGameResponse(in ServiceMessage.WebActionGameResponse webActionGameResponse)
+        {
+            // Authentication happened before routing to the game instance, so just route the result back
+            int statusCode = webActionGameResponse.Handled ? (int)HttpStatusCode.OK : (int)HttpStatusCode.NotFound;
+            ServiceMessage.WebActionResponse response = new(webActionGameResponse.RequestId, statusCode, webActionGameResponse.Result);
             ServerManager.Instance.SendMessageToService(GameServiceType.WebFrontend, response);
 
             return true;

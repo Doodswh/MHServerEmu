@@ -54,6 +54,10 @@ namespace MHServerEmu.WebFrontend
             _webService.RegisterHandler("/MTXStore/AddG", new AddGWebHandler());
             _webService.RegisterHandler("/MTXStore/AddG/Submit", new AddGSubmitWebHandler());
 
+            // CUSTOM: the portal is a page of our own shown in the same client browser, with a generic route to scripts
+            _webService.RegisterHandler("/Portal", new Handlers.Portal.PortalWebHandler());
+            _webService.RegisterHandler("/Portal/Action", new Handlers.Portal.PortalActionWebHandler());
+
             if (config.EnableWebApi)
             {
                 InitializeWebBackend();
@@ -132,6 +136,8 @@ namespace MHServerEmu.WebFrontend
         {
             AddGWebHandler addGHandler = _webService.GetHandler("/MTXStore/AddG") as AddGWebHandler;
             addGHandler?.Load();
+
+            (_webService.GetHandler("/Portal") as Handlers.Portal.PortalWebHandler)?.Load();
         }
 
         private void InitializeWebBackend()

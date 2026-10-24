@@ -83,7 +83,8 @@ namespace MHServerEmu.Games.Entities
                         foreach (RandomInstanceRegionPrototype instance in area.RandomInstances)
                         {
                             PrototypeId instanceCell = GameDatabase.GetDataRefByAsset(instance.OriginCell);
-                            if (instanceCell == PrototypeId.Invalid || cellRef != instanceCell)
+                            // CUSTOM: or a stand-in for that cell
+                            if (instanceCell == PrototypeId.Invalid || (cellRef != instanceCell && Cell.Settings?.StandInForRef != instanceCell))
                                 continue;
 
                             if (instance.OriginEntity != entityRef)
@@ -102,7 +103,9 @@ namespace MHServerEmu.Games.Entities
 
                     // Try constructing a return to region origin if we still don't have a destination.
                     destination = TransitionDestination.FromRegionOrigin(region.Settings.Origin);
-                    if (destination != null)
+                    // CUSTOM: an origin that names no region (e.g. a region a script sent the player to) leads nowhere and
+                    // the client won't use it; fall through to the default region instead
+                    if (destination != null && destination.RegionRef != PrototypeId.Invalid)
                     {
                         _destinationList.Add(destination);
                         break;
@@ -133,6 +136,11 @@ namespace MHServerEmu.Games.Entities
             }
 
             _destinationList.Sort((destA, destB) => destA.UISortOrder.CompareTo(destB.UISortOrder));
+
+            // CUSTOM: say where a transition on a stand-in cell leads (its connection targets name the cell it replaced)
+            if (Cell?.Settings != null && Cell.Settings.StandInForRef != PrototypeId.Invalid)
+                Logger.Info($"OnEnteredWorld(): [{PrototypeName}] on stand-in cell {Cell.PrototypeName} at {RegionLocation.Position}: " +
+                    $"{_destinationList.Count} destination(s) {string.Join(", ", _destinationList.Select(d => d.RegionRef.GetName()))}");
 
             base.OnEnteredWorld(settings);
         }

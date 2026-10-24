@@ -839,6 +839,15 @@ namespace MHServerEmu.Games.Scripting
                 if (agent.ActivatePower(info.Ref, ref settings) != PowerUseResult.Success)
                     return false;
 
+                // Hold-and-release powers (Colossus' Titan Throw) only start the wind-up here and wait for the player to let go
+                // of the button: release straight away, the power itself waits out its minimum hold time before firing.
+                TimeSpan holdTime = TimeSpan.Zero;
+                if (info.Proto.ExtraActivation is SecondaryActivateOnReleasePrototype releaseProto)
+                {
+                    power.ReleaseVariableActivation(ref settings);
+                    holdTime = TimeSpan.FromMilliseconds(releaseProto.MinReleaseTimeMS);
+                }
+
                 if (power.IsPartOfAMovementPower() == false)
                     agent.Locomotor?.Stop();
 
@@ -846,7 +855,8 @@ namespace MHServerEmu.Games.Scripting
                 TimeSpan minRecast = TimeSpan.FromSeconds(info.MinRecastSeconds);
                 info.ReadyTime = now + (cooldown > minRecast ? cooldown : minRecast);
                 info.BonusTime = now + TimeSpan.FromMilliseconds(BonusRepeatMS);
-                _nextPowerTime = now + TimeSpan.FromSeconds(_options.AttackDelaySeconds);
+                // Wait out a held power's wind-up too: the agent is not "executing" it yet, and a new power would cancel the throw
+                _nextPowerTime = now + TimeSpan.FromSeconds(_options.AttackDelaySeconds) + holdTime;
                 _powerStartTime = now;
                 _lastPower = info.Ref;
 

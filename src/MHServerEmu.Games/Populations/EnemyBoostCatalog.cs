@@ -10,7 +10,7 @@ namespace MHServerEmu.Games.Populations
 {
     /// <summary>
     /// Queries over enemy boost (mob affix) prototypes used by scripts: the full affix list, filtered random pools,
-    /// and detection of affixes that can displace players. Contains no policy; scripts decide what to do with the results.
+    /// and detection of affixes that can push players around. Contains no policy; scripts decide what to do with the results.
     /// </summary>
     public static class EnemyBoostCatalog
     {
@@ -49,7 +49,7 @@ namespace MHServerEmu.Games.Populations
 
         /// <summary>
         /// Returns a cached random pick pool: all boosts minus those whose name contains any of the comma-separated
-        /// words in <paramref name="excludeNameContains"/>, and minus displacement boosts unless <paramref name="allowDisplacement"/> is set.
+        /// words in <paramref name="excludeNameContains"/>, and minus boosts that push players (see <see cref="IsDisplacement"/>; pulls stay in) unless <paramref name="allowDisplacement"/> is set.
         /// </summary>
         public static IReadOnlyList<PrototypeId> GetPool(string excludeNameContains, bool allowDisplacement)
         {
@@ -82,7 +82,8 @@ namespace MHServerEmu.Games.Populations
         }
 
         /// <summary>
-        /// Returns <see langword="true"/> if the boost can knock back, pull, knock down or knock up its targets.
+        /// Returns <see langword="true"/> if the boost can push its targets around: knock them back, down or up.
+        /// Pulls (a negative knockback distance, e.g. Implosion) do not count: they are allowed.
         /// Follows the boost's power chain (active / passive powers, triggered powers, summoned hotspots) through the game data.
         /// </summary>
         public static bool IsDisplacement(PrototypeId boostRef)
@@ -90,15 +91,7 @@ namespace MHServerEmu.Games.Populations
             if (boostRef == PrototypeId.Invalid)
                 return false;
 
-            return _displacementCache.GetOrAdd(boostRef, static r =>
-            {
-                // Name backstop for known pulls
-                string name = GameDatabase.GetPrototypeName(r);
-                if (string.IsNullOrEmpty(name) == false && name.Contains("implosion", StringComparison.OrdinalIgnoreCase))
-                    return true;
-
-                return BoostHasDisplacement(r.As<EnemyBoostPrototype>());
-            });
+            return _displacementCache.GetOrAdd(boostRef, static r => BoostHasDisplacement(r.As<EnemyBoostPrototype>()));
         }
 
         private static List<PrototypeId> BuildPool(string excludeNameContains, bool allowDisplacement)
@@ -161,8 +154,12 @@ namespace MHServerEmu.Games.Populations
             PowerPrototype powerProto = powerRef.As<PowerPrototype>();
             if (powerProto == null) return false;
 
-            if (powerProto.Properties != null && powerProto.Properties[PropertyEnum.KnockbackDistance] != 0f)
+            // A positive distance pushes away, a negative one pulls in (pulls are allowed)
+            float knockbackDistance = powerProto.Properties != null ? (float)powerProto.Properties[PropertyEnum.KnockbackDistance] : 0f;
+            if (knockbackDistance > 0f)
                 return true;
+
+            bool isPull = knockbackDistance < 0f;
 
             if (powerProto.AppliesConditions != null)
             {
@@ -171,7 +168,8 @@ namespace MHServerEmu.Games.Populations
                     if (item.Prototype is not ConditionPrototype conditionProto || conditionProto.Properties == null)
                         continue;
 
-                    if (conditionProto.Properties[PropertyEnum.Knockback] ||
+                    // A pull moves its target with a knockback condition too: that one is fine
+                    if ((conditionProto.Properties[PropertyEnum.Knockback] && isPull == false) ||
                         conditionProto.Properties[PropertyEnum.Knockdown] ||
                         conditionProto.Properties[PropertyEnum.Knockup])
                         return true;

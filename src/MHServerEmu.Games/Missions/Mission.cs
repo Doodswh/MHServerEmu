@@ -1,4 +1,4 @@
-﻿using System.Text;
+using System.Text;
 using Gazillion;
 using MHServerEmu.Core.Extensions;
 using MHServerEmu.Core.Logging;
@@ -2018,6 +2018,12 @@ namespace MHServerEmu.Games.Missions
 
             var objectiveSeq = CurrentObjectiveSequence;
 
+            // CUSTOM: remembered per objective to spot a "total" objective among its own parts (see below)
+            int numObjectives = 0;
+            int totalIndex = -1;
+            Span<int> currents = stackalloc int[8];
+            Span<int> requireds = stackalloc int[8];
+
             foreach (var objective in _objectiveDict.Values)
             {
                 var objectiveProto = objective.Prototype;
@@ -2054,9 +2060,36 @@ namespace MHServerEmu.Games.Missions
                     currentCount += current;
                     requiredCount += required;
                     found = true;
+
+                    if (numObjectives < currents.Length)
+                    {
+                        currents[numObjectives] = current;
+                        requireds[numObjectives] = required;
+                    }
+                    numObjectives++;
                 }
                 else return false;
             }
+
+            // CUSTOM: the X-Defense ambush missions put three objectives on the one Students fail widget: "9 students die"
+            // plus its two halves, "5 of these die" and "4 of those die" (either half fails the mission). Adding all three
+            // showed 18 student icons for 9 students, and every death took two icons away. When one objective's count is
+            // exactly the sum of the others, it is the total: show it alone.
+            if (fail && numObjectives >= 3 && numObjectives <= currents.Length)
+            {
+                for (int i = 0; i < numObjectives && totalIndex < 0; i++)
+                {
+                    if (requireds[i] > 0 && requireds[i] * 2 == requiredCount)
+                        totalIndex = i;
+                }
+
+                if (totalIndex >= 0)
+                {
+                    currentCount = currents[totalIndex];
+                    requiredCount = requireds[totalIndex];
+                }
+            }
+
             return found;
         }
 

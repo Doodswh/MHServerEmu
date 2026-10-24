@@ -101,6 +101,19 @@ namespace MHServerEmu.Games.Scripting
         /// </summary>
         public static readonly ScriptHook<ItemPickedUpArgs> ItemPickedUp = new(nameof(ItemPickedUp));
 
+        /// <summary>
+        /// Raised when a web page the player has open in the client (the portal page behind the store's Add G button, see
+        /// Data/Web/Portal) sends an action. The player is already authenticated and this runs on their game's thread.
+        /// Set <see cref="WebActionArgs.Handled"/> and <see cref="WebActionArgs.Result"/> to answer the page.
+        /// </summary>
+        public static readonly ScriptHook<WebActionArgs> WebAction = new(nameof(WebAction));
+
+        /// <summary>
+        /// Raised after a player picks a side in a public event's team dialog (the Civil War event's choose-a-side panel,
+        /// opened with ScriptPresentation.TeamSelectDialog). The team is already saved on the player.
+        /// </summary>
+        public static readonly ScriptHook<PublicEventTeamSelectedArgs> PublicEventTeamSelected = new(nameof(PublicEventTeamSelected));
+
         private static readonly Dictionary<string, IScriptHook> _hooksByName = new(StringComparer.OrdinalIgnoreCase)
         {
             { ConditionApplying.Name,       ConditionApplying },
@@ -119,6 +132,8 @@ namespace MHServerEmu.Games.Scripting
             { AvatarEnteredWorld.Name,      AvatarEnteredWorld },
             { GlobalEventRequested.Name,    GlobalEventRequested },
             { ItemPickedUp.Name,            ItemPickedUp },
+            { WebAction.Name,               WebAction },
+            { PublicEventTeamSelected.Name, PublicEventTeamSelected },
         };
 
         public static IEnumerable<IScriptHook> All { get => _hooksByName.Values; }

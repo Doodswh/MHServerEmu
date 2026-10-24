@@ -151,7 +151,8 @@ namespace MHServerEmu.Games.Entities
                 if (targetNode.Area != PrototypeId.Invalid && targetNode.Area != area)
                     continue;
 
-                if (targetNode.Cell != PrototypeId.Invalid && targetNode.Cell != cellRef)
+                // CUSTOM: or a stand-in for that cell (SingleCellAreaGenerator.CellReplacements / StaticAreaCellGenerator.CellSubstitutions)
+                if (targetNode.Cell != PrototypeId.Invalid && targetNode.Cell != cellRef && targetNode.Cell != cell.Settings?.StandInForRef)
                     continue;
 
                 TransitionDestination destination = FromTarget(targetNode.TargetId, region, transitionProto);

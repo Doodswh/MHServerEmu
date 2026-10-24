@@ -124,7 +124,12 @@ namespace MHServerEmu.Games.Regions
             if (_status.HasFlag(CellStatusFlag.PostInitialize) == false)
             {
                 _status |= CellStatusFlag.PostInitialize;
-                InstanceMarkerSet(Prototype.InitializeSet, Transform3.Identity(), options);
+                if (IsBareStandIn) { }   // CUSTOM: a bare stand-in places none of its own
+                else if (Settings != null && Settings.StandInForRef != PrototypeId.Invalid && StandInSkippedEntities.IsEmpty == false)
+                    InstanceMarkerSetSkipping(Prototype.InitializeSet, options);   // CUSTOM: a stand-in leaves some of its own out
+                else
+                    InstanceMarkerSet(Prototype.InitializeSet, Transform3.Identity(), options);
+                InstanceStandInInitializeSet();
             }
 
             if (Prototype.HotspotPrototypes.HasValue())
@@ -338,6 +343,76 @@ namespace MHServerEmu.Games.Regions
             }
 
             return false;
+        }
+
+        /// <summary>
+        /// CUSTOM: Entities a stand-in cell doesn't place from its own initial set, by prototype path (e.g. the helicarrier
+        /// hangar's doorway to the rest of the helicarrier, when the hangar stands in for the Civil War Airport). Filled by scripts.
+        /// </summary>
+        public static readonly System.Collections.Concurrent.ConcurrentDictionary<string, bool> StandInSkippedEntities = new(StringComparer.OrdinalIgnoreCase);
+
+        /// <summary>
+        /// CUSTOM: Stand-in cells, by prototype path, that place none of their own entities (NPCs, vendors, props, portals from
+        /// either marker set): only their floor is wanted (e.g. the helicarrier hub as a Civil War hideout; scripts place the
+        /// hideout's own NPCs). Filled by scripts.
+        /// </summary>
+        public static readonly System.Collections.Concurrent.ConcurrentDictionary<string, bool> StandInBareCells = new(StringComparer.OrdinalIgnoreCase);
+
+        private bool IsBareStandIn
+        {
+            get => Settings != null && Settings.StandInForRef != PrototypeId.Invalid && StandInBareCells.IsEmpty == false &&
+                   StandInBareCells.ContainsKey(GameDatabase.GetPrototypeName(PrototypeDataRef));
+        }
+
+        private static bool IsSkippedEntity(EntityMarkerPrototype entityMarker)
+        {
+            return StandInSkippedEntities.IsEmpty == false &&
+                   StandInSkippedEntities.ContainsKey(GameDatabase.GetPrototypeName(GameDatabase.GetDataRefByPrototypeGuid(entityMarker.EntityGuid)));
+        }
+
+        private void InstanceMarkerSetSkipping(MarkerSetPrototype markerSet, MarkerSetOptions options)
+        {
+            if (markerSet.Markers.HasValue() == false) return;
+
+            foreach (MarkerPrototype marker in markerSet.Markers)
+            {
+                if (marker == null) continue;
+                if (marker is EntityMarkerPrototype entityMarker &&
+                    StandInSkippedEntities.ContainsKey(GameDatabase.GetPrototypeName(GameDatabase.GetDataRefByPrototypeGuid(entityMarker.EntityGuid))))
+                    continue;
+                SpawnMarker(marker, Transform3.Identity(), options);
+            }
+        }
+
+        /// <summary>
+        /// CUSTOM: A cell that is one of several standing in for another (SingleCellAreaGenerator.CellReplacements) also places
+        /// the original's initial entities that fall on it (e.g. the region's exit), at the same spot in the area.
+        /// </summary>
+        private void InstanceStandInInitializeSet()
+        {
+            if (Settings == null || Settings.StandInSharesOriginal == false) return;
+
+            CellPrototype original = GameDatabase.GetPrototype<CellPrototype>(Settings.StandInForRef);
+            if (original?.InitializeSet.Markers.HasValue() != true) return;
+
+            // marker positions are local to the original; this cell sits StandInShift from it
+            Transform3 toThisCell = Transform3.BuildTransform(-Settings.StandInShift, Orientation.Zero);
+            Aabb box = Prototype.BoundingBox;
+
+            // what this cell places itself (e.g. its own exit, at its own floor height): not placed a second time
+            HashSet<PrototypeGuid> own = new();
+            if (Prototype.InitializeSet.Markers.HasValue())
+                foreach (MarkerPrototype ownMarker in Prototype.InitializeSet.Markers)
+                    if (ownMarker is EntityMarkerPrototype ownEntity) own.Add(ownEntity.EntityGuid);
+
+            foreach (MarkerPrototype marker in original.InitializeSet.Markers)
+            {
+                if (marker == null) continue;
+                if (marker is EntityMarkerPrototype entityMarker && (own.Contains(entityMarker.EntityGuid) || IsSkippedEntity(entityMarker))) continue;
+                Vector3 local = marker.Position - Settings.StandInShift;
+                if (local.X < box.Min.X || local.X >= box.Max.X || local.Y < box.Min.Y || local.Y >= box.Max.Y) continue;
+                SpawnMarker(marker, toThisCell, MarkerSetOptions.Default | MarkerSetOptions.NoOffset);
+            }
         }
 
         public bool InstanceMarkerSet(MarkerSetPrototype markerSet, in Transform3 transform, MarkerSetOptions instanceMarkerSetOptions)
@@ -634,6 +709,7 @@ namespace MHServerEmu.Games.Regions
                     InstanceMarkerSet(districtProto.MarkerSet, Transform3.Identity(), MarkerSetOptions.None);
             }
 
+            if (IsBareStandIn) return;   // CUSTOM: a bare stand-in places none of its own entities
             InstanceMarkerSet(cellProto.MarkerSet, Transform3.Identity(), options);
         }
 

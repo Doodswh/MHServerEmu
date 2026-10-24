@@ -1,4 +1,4 @@
-﻿using System.Buffers;
+using System.Buffers;
 using Gazillion;
 using MHServerEmu.Core.System.Time;
 using MHServerEmu.Core.VectorMath;
@@ -898,6 +898,53 @@ namespace MHServerEmu.Core.Network
         {
             public readonly ulong RequestId = requestId;
             public readonly bool Result = result;
+        }
+
+        #endregion
+
+        #region Web Actions
+
+        // CUSTOM: a generic route from a web page the client shows (opened with the session's platform ticket, like the
+        // Add G page) to the game instance the player is in, where it is raised as the WebAction script hook.
+
+        // WebFrontend -> PlayerManager
+        public readonly struct WebActionRequest(ulong requestId, string email, string token, string action, string data)
+            : IGameServiceMessage
+        {
+            public readonly ulong RequestId = requestId;
+            public readonly string Email = email;
+            public readonly string Token = token;
+            public readonly string Action = action;
+            public readonly string Data = data;
+        }
+
+        // PlayerManager -> WebFrontend
+        public readonly struct WebActionResponse(ulong requestId, int statusCode, string result = null)
+            : IGameServiceMessage
+        {
+            public readonly ulong RequestId = requestId;
+            public readonly int StatusCode = statusCode;
+            public readonly string Result = result;
+        }
+
+        // PlayerManager -> Game
+        public readonly struct WebActionGameRequest(ulong requestId, ulong gameId, ulong playerDbId, string action, string data)
+            : IGameServiceMessage
+        {
+            public readonly ulong RequestId = requestId;
+            public readonly ulong GameId = gameId;
+            public readonly ulong PlayerDbId = playerDbId;
+            public readonly string Action = action;
+            public readonly string Data = data;
+        }
+
+        // Game -> PlayerManager
+        public readonly struct WebActionGameResponse(ulong requestId, bool handled, string result)
+            : IGameServiceMessage
+        {
+            public readonly ulong RequestId = requestId;
+            public readonly bool Handled = handled;
+            public readonly string Result = result;
         }
 
         #endregion

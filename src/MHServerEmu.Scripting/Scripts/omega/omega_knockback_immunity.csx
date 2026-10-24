@@ -1,5 +1,5 @@
-// Omega difficulty: players are immune to knockback / pull / knockdown / knockup from other sources.
-// Forced displacement can lock the client in place until a region change, so it is not applied at all in Omega.
+// Omega difficulty: players are immune to knockback / knockdown / knockup from other sources. Pulls (e.g. the Implosion
+// affix) are allowed.
 //
 // This is a C# script rather than Lua on purpose: ConditionApplying fires for every condition in every game,
 // and C# handlers run natively without the lock Lua needs across game threads.
@@ -22,6 +22,10 @@ Hooks.On(ScriptHooks.ConditionApplying, e =>
                 $"knockback={e.IsKnockback} knockdown={e.IsKnockdown} knockup={e.IsKnockup}");
         return;
     }
+
+    // Pulls are fine, only pushes are blocked
+    if (e.IsPull)
+        return;
 
     e.Cancel = true;
 });

@@ -23,7 +23,48 @@ const int MaxStacksPerStat = 2;
 
 // Most affixes touching the same stat (Fighting, Brutal Strike damage, ...) on the FINISHED item, counting the game's normal roll,
 // built-in and unique affixes too. Extra prefix / suffix / cosmic affixes over this are dropped. 0 = no cap.
-const int MaxAffixesPerStat = 2;
+const int MaxAffixesPerStat = 0;
+
+// Order: the item first rolls exactly as it normally would at the rarity it dropped with (its normal affixes, by that rarity's
+// rules); then it becomes an Omega item and the extra affixes below go on top, past the game's affix limits.
+// (Needs the engine's ItemAffixesRollingArgs.AfterNormalRoll; on an older server build the Omega part runs before the normal
+// roll as it used to, and the normal roll then only fills in around it with the Omega rarity's rules.)
+var afterNormalRoll = typeof(ItemAffixesRollingArgs).GetMethod("AfterNormalRoll");
+if (afterNormalRoll == null)
+    Log.Warn("This server build has no ItemAffixesRollingArgs.AfterNormalRoll: Omega affixes are added before the normal roll");
+
+void MakeOmega(ItemAffixesRollingArgs e)
+{
+    if (e.SetOmegaRarity() == false)
+    {
+        Log.Warn("Omega rarity prototype not found, item left unchanged");
+        return;
+    }
+
+    e.MaxAffixesPerStat = MaxAffixesPerStat;
+
+    e.SetAffixRestrictions(AffixTier, HeroAffixesOnly);
+
+    // Stacked affixes (repeats allowed within the caps, shared across these four calls)
+    e.SetStackingLimits(MaxStacksPerAffix, MaxStacksPerProcAffix, MaxStacksPerStat);
+    e.AddStackedAffixes(AffixPosition.Cosmic, 2);
+    e.AddStackedAffixes(AffixPosition.Prefix, 6);
+    e.AddStackedAffixes(AffixPosition.Suffix, 6);
+    e.AddStackedAffixes(AffixPosition.Socket1, 1);
+
+    // One of each
+    e.AddUniqueAffixes(AffixPosition.Runeword, 2);
+    e.AddUniqueAffixes(AffixPosition.Blessing, 2);
+    e.AddUniqueAffixes(AffixPosition.Unique, 2);
+    e.AddUniqueAffixes(AffixPosition.Ultimate, 2);
+}
+
+// Restrictions on the extra affixes, taken from the game's own affix data (slot, rarity and item type are still ignored):
+//  AffixTier       15 = only top tier affixes (tier 15 is what the best armor rolls), 1-14 = that tier, 0 = any tier,
+//                  -1 = the item's own tier (artifacts are tier 1 in the game data, so that makes their affixes weak)
+//  HeroAffixesOnly skip affixes meant for other heroes (e.g. mental damage on a physical hero)
+const int  AffixTier       = 15;
+const bool HeroAffixesOnly = true;
 
 Hooks.On(ScriptHooks.ItemAffixesRolling, e =>
 {
@@ -46,27 +87,13 @@ Hooks.On(ScriptHooks.ItemAffixesRolling, e =>
     if (e.IsTeamUpGear == false && e.HasEquipmentSlot == false)
         return;
 
-    if (e.SetOmegaRarity() == false)
-    {
-        Log.Warn("Omega rarity prototype not found, item left unchanged");
-        return;
-    }
-
+    // Item level first: the normal roll's affix values follow it
     e.ItemLevel = e.IsLegendary ? LegendaryLevel : e.IsTeamUpGear ? TeamUpGearLevel : GearLevel;
-    e.MaxAffixesPerStat = MaxAffixesPerStat;
 
-    // Stacked affixes (repeats allowed within the caps, shared across these four calls)
-    e.SetStackingLimits(MaxStacksPerAffix, MaxStacksPerProcAffix, MaxStacksPerStat);
-    e.AddStackedAffixes(AffixPosition.Cosmic, 2);
-    e.AddStackedAffixes(AffixPosition.Prefix, 6);
-    e.AddStackedAffixes(AffixPosition.Suffix, 6);
-    e.AddStackedAffixes(AffixPosition.Socket1, 1);
-
-    // One of each
-    e.AddUniqueAffixes(AffixPosition.Runeword, 2);
-    e.AddUniqueAffixes(AffixPosition.Blessing, 2);
-    e.AddUniqueAffixes(AffixPosition.Unique, 2);
-    e.AddUniqueAffixes(AffixPosition.Ultimate, 2);
+    if (afterNormalRoll != null)
+        afterNormalRoll.Invoke(e, new object[] { (Action<ItemAffixesRollingArgs>)MakeOmega });
+    else
+        MakeOmega(e);
 });
 
 Log.Info("Omega item rules active");

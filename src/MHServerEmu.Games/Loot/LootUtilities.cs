@@ -1,4 +1,4 @@
-﻿using MHServerEmu.Core.Collections;
+using MHServerEmu.Core.Collections;
 using MHServerEmu.Core.Extensions;
 using MHServerEmu.Core.Logging;
 using MHServerEmu.Core.Memory;
@@ -217,9 +217,10 @@ namespace MHServerEmu.Games.Loot
             // CUSTOM: Scripts can reshape an item before its normal affixes are rolled (Omega items: Data/Scripts/omega/omega_items.csx).
             // This runs before affix limits are looked up, so a rarity change applies to them. Gems are handled above.
             int maxAffixesPerStat = 0;
+            ItemAffixesRollingArgs hookArgs = null;
             if (ScriptHooks.ItemAffixesRolling.HasHandlers)
             {
-                ItemAffixesRollingArgs hookArgs = new(resolver, settings, args, itemSpec, affixSet, itemProto);
+                hookArgs = new(resolver, settings, args, itemSpec, affixSet, itemProto);
                 ScriptHooks.ItemAffixesRolling.Invoke(hookArgs);
 
                 // A script built the whole item itself (e.g. gems)
@@ -230,6 +231,23 @@ namespace MHServerEmu.Games.Loot
             }
 
             MutationResults rollResult = RollNormalAffixes(resolver, settings, args, itemSpec, affixSet, itemProto);
+
+            // CUSTOM: script work queued with AfterNormalRoll (e.g. Omega rarity + stacked affixes on top of the normal roll)
+            if (hookArgs != null)
+            {
+                try
+                {
+                    hookArgs.RunAfterNormalRoll();
+                }
+                catch (Exception e)
+                {
+                    Logger.Error($"UpdateAffixesHelper(): script AfterNormalRoll failed for [{itemProto}]: {e.Message}");
+                }
+
+                maxAffixesPerStat = hookArgs.MaxAffixesPerStat;
+                if (hookArgs.Modified)
+                    rollResult |= MutationResults.AffixChange;
+            }
 
             // CUSTOM: a script-set cap on affixes per stat applies to the finished item (script affixes + the normal roll)
             if (maxAffixesPerStat > 0 && EnforceAffixStatCap(itemSpec, itemProto, maxAffixesPerStat))
@@ -322,18 +340,26 @@ namespace MHServerEmu.Games.Loot
         internal static void AddUniqueRandomAffixes(IItemResolver resolver, DropFilterArguments args, ItemSpec itemSpec,
     HashSet<ScopedAffixRef> affixSet, AffixPosition position, int count, bool skipChecks = false,
     Dictionary<PrototypeId, int> affixStacks = null, Dictionary<PropertyId, int> propertyStacks = null,
-    int maxStacksPerAffix = 2, int maxStacksPerProcAffix = 1, int maxStacksPerProperty = 4)
+    int maxStacksPerAffix = 2, int maxStacksPerProcAffix = 1, int maxStacksPerProperty = 4,
+    int tierMask = 0, PrototypeId heroRef = PrototypeId.Invalid)
         {
             IReadOnlyList<AffixPrototype> pool = GameDataTables.Instance.LootPickingTable.GetAffixesByPosition(position);
             if (pool == null) return;
 
             bool stackingMode = affixStacks != null;
+            bool checkTierOrHero = tierMask != 0 || heroRef != PrototypeId.Invalid;
 
             List<AffixPrototype> valid = ListPool<AffixPrototype>.Instance.Get();
             foreach (var affix in pool)
             {
-                if (skipChecks || affix.AllowAttachment(args))
-                    valid.Add(affix);
+                if (skipChecks == false && affix.AllowAttachment(args) == false)
+                    continue;
+
+                // CUSTOM: with the normal checks skipped, the tier and hero restrictions can still be applied on their own
+                if (checkTierOrHero && AllowsTierAndHero(affix.DropRestrictions, tierMask, heroRef) == false)
+                    continue;
+
+                valid.Add(affix);
             }
 
             if (valid.Count > 0)
@@ -510,6 +536,42 @@ namespace MHServerEmu.Games.Loot
                 return false;
 
             itemSpec.SetAffixes(kept);
+            return true;
+        }
+
+        /// <summary>
+        /// CUSTOM: checks only the tier (rank) and hero (usable by) parts of an affix's drop restrictions, looking inside
+        /// restriction lists; slot, rarity, item type and every other kind of restriction is ignored.
+        /// <paramref name="tierMask"/> is the tier's bit (tier 1 = 1, tier 15 = 16384), 0 = don't check tiers.
+        /// <paramref name="heroRef"/> is the hero the item is rolled for, Invalid = don't check heroes.
+        /// </summary>
+        private static bool AllowsTierAndHero(DropRestrictionPrototype[] restrictions, int tierMask, PrototypeId heroRef)
+        {
+            if (restrictions.IsNullOrEmpty())
+                return true;
+
+            foreach (DropRestrictionPrototype restrictionProto in restrictions)
+            {
+                switch (restrictionProto)
+                {
+                    case RankRestrictionPrototype rankProto:
+                        if (tierMask != 0 && (rankProto.AllowedRanks & tierMask) == 0)
+                            return false;
+                        break;
+
+                    case UsableByRestrictionPrototype usableByProto:
+                        // Unlike the original check (can any listed hero equip this item?), this is about the hero itself
+                        if (heroRef != PrototypeId.Invalid && usableByProto.Avatars.HasValue() && usableByProto.Avatars.Contains(heroRef) == false)
+                            return false;
+                        break;
+
+                    case RestrictionListPrototype listProto:
+                        if (AllowsTierAndHero(listProto.Children, tierMask, heroRef) == false)
+                            return false;
+                        break;
+                }
+            }
+
             return true;
         }
 

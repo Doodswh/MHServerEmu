@@ -64,7 +64,6 @@ namespace MHServerEmu.Commands.Implementations
         [CommandDescription("Moves everything from your general inventory into your stash tabs.")]
         [CommandUsage("stash moveitems")]
         [CommandInvokerType(CommandInvokerType.Client)]
-        [CommandUserLevel(AccountUserLevel.Admin)]
         public string MoveItems(string[] @params, NetClient client)
         {
             PlayerConnection playerConnection = (PlayerConnection)client;

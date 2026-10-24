@@ -657,10 +657,44 @@ namespace MHServerEmu.Games.Entities
 
         public PublicEventTeamPrototype GetPublicEventTeamPrototype()
         {
-            // TODO PropertyEnum.PublicEventTeamAssignment
-            // GetPublicEventTeam(ActivePublicEvent).As<PublicEventTeamPrototype>()
-            //return ((PrototypeId)12697619663363773645).As<PublicEventTeamPrototype>();  // Events/PublicEvents/Teams/CivilWarAntiReg.prototype
+            // CUSTOM: the player's team in any public event (only one event, the Civil War, has teams), from the assignment
+            // saved when they picked a side; only the event's current round (ePETV_EventInstance) counts
+            foreach (var kvp in Properties.IteratePropertyRange(PropertyEnum.PublicEventTeamAssignment))
+            {
+                Property.FromParam(kvp.Key, 0, out PrototypeId eventRef);
+                Property.FromParam(kvp.Key, 1, out int instance);
+                PublicEventPrototype eventProto = eventRef.As<PublicEventPrototype>();
+                if (eventProto == null || instance != eventProto.GetEventInstance()) continue;
+
+                PrototypeId teamRef = kvp.Value;
+                PublicEventTeamPrototype teamProto = teamRef.As<PublicEventTeamPrototype>();
+                if (teamProto != null)
+                    return teamProto;
+            }
+
             return null;
+        }
+
+        /// <summary>
+        /// CUSTOM: Puts the player on a public event team (e.g. Team Cap or Team Iron Man in the Civil War event), for the
+        /// event's current instance. <see cref="PrototypeId.Invalid"/> clears it. Saved with the player.
+        /// </summary>
+        public bool SetPublicEventTeam(PublicEventPrototype eventProto, PrototypeId teamRef)
+        {
+            if (eventProto == null) return Logger.WarnReturn(false, "SetPublicEventTeam(): eventProto == null");
+
+            if (teamRef != PrototypeId.Invalid && (eventProto.Teams.IsNullOrEmpty() || eventProto.Teams.Contains(teamRef) == false))
+                return Logger.WarnReturn(false, $"SetPublicEventTeam(): {teamRef.GetName()} is not a team of {eventProto}");
+
+            var teamProp = new PropertyId(PropertyEnum.PublicEventTeamAssignment, eventProto.DataRef, eventProto.GetEventInstance());
+            if (teamRef == PrototypeId.Invalid)
+                Properties.RemoveProperty(teamProp);
+            else
+                Properties[teamProp] = teamRef;
+
+            // missions waiting on "member of event team" (e.g. the Civil War progression and dailies) listen for this
+            GetRegion()?.PlayerEventTeamChangedEvent.Invoke(new(this, teamRef));
+            return true;
         }
 
         #endregion
@@ -3777,6 +3811,41 @@ namespace MHServerEmu.Games.Entities
 
         #region Kismet
 
+        /// <summary>
+        /// CUSTOM: Seconds after which a blocking cutscene the client never reported finished is finished by the server, by
+        /// prototype name (e.g. "CivilWar1WarMachineFalconEntrance") or full path. The scene is still sent; this only keeps
+        /// missions waiting on it going when the loaded map doesn't have it (a rebuilt map). Filled by scripts.
+        /// </summary>
+        public static readonly System.Collections.Concurrent.ConcurrentDictionary<string, float> KismetSeqFallbackSeconds = new(StringComparer.OrdinalIgnoreCase);
+
+        /// <summary>
+        /// CUSTOM: Cutscenes that aren't sent to the client at all, by prototype name or full path. With true the player's region
+        /// hears they finished a second later, so missions waiting on them go on; with false they are held (never finished).
+        /// Filled by scripts.
+        /// </summary>
+        public static readonly System.Collections.Concurrent.ConcurrentDictionary<string, bool> SkippedKismetSeqs = new(StringComparer.OrdinalIgnoreCase);
+
+        private static bool IsKismetSeqSkipped(PrototypeId kismetSeq, out bool hold)
+        {
+            hold = false;
+            if (SkippedKismetSeqs.IsEmpty) return false;
+            string path = GameDatabase.GetPrototypeName(kismetSeq);
+            if (SkippedKismetSeqs.TryGetValue(path, out bool finish) == false &&
+                SkippedKismetSeqs.TryGetValue(Path.GetFileNameWithoutExtension(path), out finish) == false)
+                return false;
+
+            hold = finish == false;
+            return true;
+        }
+
+        private static float GetKismetSeqFallback(PrototypeId kismetSeq)
+        {
+            if (KismetSeqFallbackSeconds.IsEmpty) return 0f;
+            string path = GameDatabase.GetPrototypeName(kismetSeq);
+            if (KismetSeqFallbackSeconds.TryGetValue(path, out float seconds)) return seconds;
+            return KismetSeqFallbackSeconds.TryGetValue(Path.GetFileNameWithoutExtension(path), out seconds) ? seconds : 0f;
+        }
+
         public void PlayKismetSeq(PrototypeId kismetSeq)
         {
             var avatar = CurrentAvatar;
@@ -3784,6 +3853,39 @@ namespace MHServerEmu.Games.Entities
 
             var kismetProto = GameDatabase.GetPrototype<KismetSequencePrototype>(kismetSeq);
             if (kismetProto == null) return;
+
+            // CUSTOM: skipped scenes aren't sent; the region hears they finished a second later (or never, when held)
+            if (IsKismetSeqSkipped(kismetSeq, out bool hold))
+            {
+                Logger.Info($"PlayKismetSeq(): {(hold ? "holding" : "skipping")} {kismetSeq.GetNameFormatted()} for {this}");
+                if (hold) return;
+
+                ulong skipPlayerId = Id;
+                Game skipGame = Game;
+                Scripting.ScriptTimer.After(skipGame, 1f, () =>
+                {
+                    Player player = skipGame.EntityManager.GetEntity<Player>(skipPlayerId);
+                    player?.GetRegion()?.KismetSeqFinishedEvent.Invoke(new(player, kismetSeq));
+                });
+                return;
+            }
+
+            float fallback = kismetProto.KismetSeqBlocking ? GetKismetSeqFallback(kismetSeq) : 0f;
+            if (fallback > 0f)
+            {
+                Logger.Info($"PlayKismetSeq(): {kismetSeq.GetNameFormatted()} for {this}, finished by the server after {fallback}s if the client doesn't");
+                ulong playerId = Id;
+                Game game = Game;
+                Scripting.ScriptTimer.After(game, fallback, () =>
+                {
+                    Player player = game.EntityManager.GetEntity<Player>(playerId);
+                    if (player == null || player.Properties.HasProperty(new PropertyId(PropertyEnum.FullScreenMovieQueued, kismetSeq)) == false)
+                        return;
+
+                    Logger.Warn($"PlayKismetSeq(): client never finished {kismetSeq.GetNameFormatted()}, finishing it for {player}");
+                    player.OnPlayKismetSeqDone(kismetSeq, 0);
+                });
+            }
 
             if (kismetProto.KismetSeqBlocking)
             {

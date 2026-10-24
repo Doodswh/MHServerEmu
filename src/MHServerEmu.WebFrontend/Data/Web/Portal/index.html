@@ -1,0 +1,475 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+	<meta charset="UTF-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1.0">
+	<title>Portal</title>
+	<link rel="preconnect" href="https://fonts.googleapis.com">
+	<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+	<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&display=swap" rel="stylesheet">
+	
+	<style>
+		*, *::before, *::after {
+			box-sizing: border-box;
+		}
+
+		html {
+			width: 100%;
+			height: 100%;
+			background-color: #0d0d0b;
+			color: #d7d7d7;
+			font: 18px/1.385 Verdana;
+			overflow: hidden;
+		}
+
+		body {
+			width: 100%;
+			height: 100%;
+			margin: 0;
+			display: flex;
+			align-items: center;
+			justify-content: center;
+			overflow: hidden;
+			padding: 16px;
+		}
+
+		*:focus, *:active {
+			outline: none;
+		}
+
+		h1, h2, h3, h4, h5, h6 {
+			color: #00aaff;
+			font-family: "Bebas Neue", "Trebuchet MS", Verdana, sans-serif;
+			font-weight: normal;
+		}
+
+		button, input {
+			border: 1px solid black;
+			background: #1c1c1c;
+			color: inherit;
+			font: inherit;
+		}
+
+		input {
+			width: 100%;
+			text-align: center;
+		}
+
+		input[type="range"] {
+		    -webkit-appearance: none;
+			appearance: none;
+			margin: 4px 0px;
+			margin-top: 1px;
+			background: transparent;
+			vertical-align: middle;
+		}
+
+		input[type="text"] {	
+			box-sizing: border-box;
+			height: 30px;
+			border: 1px solid #505350;			
+			border-radius: 4px;
+			background: linear-gradient(
+				#010501 0%, 
+				#120F0E 10%,
+				#252525 100%
+			);
+			height: 30px;
+			width: 100%;
+			min-width: 0;
+			color: white;
+			font-family: "Bebas Neue", "Trebuchet MS", Verdana, sans-serif;
+			font-size: 24px;
+			line-height: 24px;
+			vertical-align: middle;
+		}	
+		
+		input[type="range"]::-webkit-slider-runnable-track {
+			height: 8px;
+			background: black;
+			background-image: url('data:image/svg+xml;utf8,<svg width="52" height="20" viewBox="0 0 52 20" xmlns="http://www.w3.org/2000/svg"><rect x="10" width="50" height="20" fill="black"/><rect x="15" width="2" height="20" fill="%233C3C3D"/></svg>');
+			background-repeat: repeat;
+			border-radius: 4px;
+			box-shadow: inset 0 1px 1px rgba(0,0,0,0.3);
+		}
+		
+		input[type="range"]::-webkit-slider-thumb {
+			-webkit-appearance: none;
+			width: 26px;
+			height: 16px;
+			margin-top: -4px;
+			border: 1px solid #41DAE5;
+			border-radius: 4px;
+			background: linear-gradient(
+				-35deg,  
+				#0082C3 45%,
+				#23A4E5 55%,
+				#1196D6 70%, 
+				#0082C3 100%
+			);			
+			box-shadow:
+				inset 0 0 8px rgba(255,255,255,0.6),
+				0 0 8px rgba(65, 218, 229, 0.8);
+		}
+
+		table {
+			width: 100%;
+			margin: 12px 0px;
+			border-spacing: 10px;
+			border: 1px solid #383838;
+			border-radius: 6px;
+			box-shadow: inset 0 0 8px #383838;
+			table-layout: fixed;
+		}
+
+		table.summary-table {
+			margin-top: 16px;
+			border-spacing: 8px;
+		}
+
+		table.summary-table td {
+			width: 50%;
+			padding: 10px 12px;
+			border: 1px solid #2f434b;
+			border-radius: 6px;
+			background: linear-gradient(#02090d, #0a161c);
+			vertical-align: top;
+		}
+
+		.summary-label {
+			color: #8db9c8;
+			font: normal 20px / 20px "Bebas Neue", "Trebuchet MS", Verdana, sans-serif;
+			letter-spacing: 0.04em;
+			text-transform: uppercase;
+		}
+
+		.summary-value {
+			margin-top: 4px;
+			color: white;
+			font: normal 30px / 28px "Bebas Neue", "Trebuchet MS", Verdana, sans-serif;
+		}
+
+		div.content {
+			margin: 0 auto;
+			padding: 16px;
+			border: 1px solid #00717c;
+			background-color: #00090e;
+			width: min(760px, 100%);
+			max-width: 760px;
+			max-height: 100%;
+			overflow: auto;
+		}
+
+		div.button-container {
+			display: flex;
+			justify-content: center;
+		}
+
+		div.button-container button {
+			width: 50%;
+			margin: 0px 8px;
+		}
+
+		div.modal-popup {
+			display: none;
+			position: fixed;
+			left: 0;
+			top: 0;
+			width: 100%;
+			height: 100%;
+			z-index: 1;
+			background-color: rgba(0, 0, 0, 0.75);
+			justify-content: center;
+			align-items: center;
+		}
+		
+		button {
+			padding: 8px 40px 6px 40px;
+			font: normal 23px / 20px "Bebas Neue", "Trebuchet MS", Verdana, sans-serif;
+			color: white;
+			border: 2px solid #1ac04c;
+			cursor: pointer;
+			border-radius: 5px;
+			text-shadow: 1px 1px 2px black;
+			text-transform: uppercase;    
+			background: linear-gradient(337deg, #087A10 49%, #299F2C 51%, #0D7D16 70%, #087A10 100%);
+			box-shadow: inset 0 0 8px #39cb42, 0 0 4px #39cb42;
+		}
+
+		button:hover {
+			box-shadow: inset 0 0 8px #03ff0d, 0 0 4px #08cf10;
+			background: linear-gradient(337deg, #009E08 49%, #30DF39 51%, #24992b 70%, #009E08 100%);
+		}
+		button.sign-button, button.close-button{
+			border: 1px solid #4CF4F6;
+			background: linear-gradient(337deg, #0082C3 49%, #29A6E7 51%, #007CB8 70%, #0082C3 100%);
+			box-shadow: inset 0 0 8px #32B5F5, 0 0 4px #32B5F5;
+		}
+		button.sign-button{			
+			font-size: 32px;
+			line-height: 16px;
+			vertical-align: middle;
+			width: 32px;
+			padding: 8px 8px 4px 8px;
+			background: linear-gradient(337deg, #0082C3 49%, #29A6E7 51%, #007CB8 70%, #0082C3 100%);
+			box-shadow: inset 0 0 8px #32B5F5;
+		}			
+		button.sign-button:hover{
+			box-shadow: inset 0 0 8px #00f0ff;
+			background: linear-gradient(337deg, #299ED9 49%, #4DC5FF 51%, #2f98cd 70%, #299ED9 100%);
+		}		
+		td.plus-cell {
+			width: 28px;
+			padding-left: 0;
+			padding-right: 0;
+		}
+
+		td.plus-cell .sign-button {
+			margin-left: -6px;
+		}
+
+		button.close-button:hover {
+			box-shadow: inset 0 0 8px #00f0ff, 0 0 4px #26BFFA;
+			background: linear-gradient(337deg, #299ED9 49%, #4DC5FF 51%, #2f98cd 70%, #299ED9 100%);
+		}
+		.center {
+			text-align: center;
+			width: 100%;
+		}
+		.g {
+			color: #00090e;
+			font: bold 18px / 1 Arial;
+			text-shadow: 1px 2px 1px #00B2FE;			
+			display: inline-flex;
+			vertical-align: middle;
+			align-items: center;
+			justify-content: center;
+			width: 26px;
+			height: 26px;
+			background: linear-gradient(
+				-35deg,  
+				#007FFF 45%,
+				#03C2F7 54%,
+				#00B2FE 70%, 
+				#007FFF 100%
+			);
+			border: 1px solid #00B2FE;
+			border-radius: 50%;
+			margin-left: 8px;
+		}
+
+		.g-header {
+			display: inline-flex;
+			margin: 0 0 4px 0;
+		}
+		.es {
+			display: inline-block;
+			vertical-align: middle;
+			width: 48px;
+		}
+
+		td.range-cell {
+			width: auto;
+		}
+
+		td.compact-input-cell {
+			width: 112px;
+			text-align: right;
+		}
+
+		td.compact-g-cell {
+			width: 112px;
+			padding-left: 0;
+			padding-right: 0;
+			white-space: nowrap;
+			text-align: right;
+			vertical-align: top;
+		}
+
+		.g-stack {
+			display: flex;
+			flex-direction: column;
+			align-items: flex-start;
+			gap: 4px;
+			width: 100%;
+			margin-left: 0;
+			margin-top: 10px;
+		}
+
+		.g-stack input[type="text"] {
+			width: 100%;
+		}
+		/* Portal additions (everything above is the Add G page's own stylesheet, unchanged) */
+		table.action-table td {
+			padding: 4px;
+			vertical-align: middle;
+			text-align: center;
+		}
+
+		table.action-table button {
+			width: 100%;
+			padding: 8px 8px 6px 8px;
+		}
+
+		.status-ok {
+			color: #39cb42;
+		}
+
+		.status-bad {
+			color: #ff6a5c;
+		}
+
+		.small {
+			font-size: 14px;
+			color: #8db9c8;
+			word-wrap: break-word;
+		}
+
+		#output {
+			min-height: 76px;
+			margin: 0;
+			padding: 10px 12px;
+			border: 1px solid #2f434b;
+			border-radius: 6px;
+			background: linear-gradient(#02090d, #0a161c);
+			font-size: 15px;
+			white-space: pre-wrap;
+			word-wrap: break-word;
+		}
+	</style>
+</head>
+<body>
+	<div class="content">
+		<h1>Portal Test</h1>
+		<p id="session-line">Checking what the client sent...</p>
+		<p class="small" id="request-info"></p>
+		<table class="action-table">
+			<tr>
+				<td><button class="close-button" onclick="run('test.whoami', '')">Who am I</button></td>
+				<td><button class="close-button" onclick="run('test.banner', '')">Banner</button></td>
+				<td><button class="close-button" onclick="run('test.does-not-exist', '')">Unknown</button></td>
+			</tr>
+			<tr>
+				<td colspan="2"><input type="text" value="Hello from the web page" id="chat-text" maxlength="120" /></td>
+				<td><button onclick="run('test.chat', document.getElementById('chat-text').value)">Chat</button></td>
+			</tr>
+		</table>
+		<p id="output">Nothing sent yet.</p>
+		<div class="button-container">
+			<button onclick="openAddG()">Add G</button>
+			<button class="close-button" onclick="closePanel()">Close</button>
+		</div>
+	</div>
+
+	<form id="addg-form" method="post" action="/MTXStore/AddG" style="display: none;">
+		<input type="hidden" name="downloader" id="addg-downloader" value="" />
+		<input type="hidden" name="token" id="addg-token" value="" />
+		<input type="hidden" name="email" id="addg-email" value="" />
+	</form>
+
+	<script>
+		var requestContext = Object.freeze({
+			downloader: "%DOWNLOADER%",
+			token: "%TOKEN%",
+			email: "%EMAIL%",
+			requestInfo: "%REQUEST_INFO%"
+		});
+
+		var hasSession = requestContext.token.length > 0 && requestContext.email.length > 0;
+
+		function describeStatus(status) {
+			if (status == 200) return "handled by a script";
+			if (status == 400) return "the request was malformed";
+			if (status == 403) return "token not valid, or you are not in game";
+			if (status == 404) return "no script handles this action (is tests/web_test.csx loaded?)";
+			if (status == 408) return "the game did not answer in time";
+			if (status == 0) return "no connection";
+			return "unexpected status";
+		}
+
+		// This page's own address without parameters, plus /Action (the Add G page builds its /Submit address the same way)
+		function getActionUrl() {
+			var href = window.location.href;
+			var cut = href.indexOf("?");
+			if (cut >= 0) href = href.substring(0, cut);
+			cut = href.indexOf("#");
+			if (cut >= 0) href = href.substring(0, cut);
+			while (href.length > 0 && href.charAt(href.length - 1) == "/") href = href.substring(0, href.length - 1);
+			return href + "/Action";
+		}
+
+		function setOutput(text, ok) {
+			var output = document.getElementById("output");
+			output.className = ok ? "status-ok" : "status-bad";
+			output.innerText = text;
+		}
+
+		// Sends an action to the script in the player's game instance and shows its answer
+		function run(action, data) {
+			if (!hasSession) {
+				setOutput("No session: the client did not send a token and email to this address.", false);
+				return;
+			}
+
+			setOutput("Sending [" + action + "]...", true);
+
+			var started = new Date().getTime();
+			var actionRequest = {
+				Email: requestContext.email,
+				Token: requestContext.token,
+				Action: action,
+				Data: data
+			};
+
+			var xhr = new XMLHttpRequest();
+			xhr.open("POST", getActionUrl(), true);
+			xhr.onreadystatechange = function() { handleReadyStateChange(xhr, action, started); };
+			xhr.setRequestHeader("Content-Type", "application/json");
+			xhr.send(JSON.stringify(actionRequest));
+		}
+
+		function handleReadyStateChange(xhr, action, started) {
+			if (xhr.readyState != 4)
+				return;
+
+			var result = "";
+			try {
+				var parsed = JSON.parse(xhr.responseText);
+				if (parsed && parsed.Result) result = parsed.Result;
+			} catch (e) {
+				result = xhr.responseText;
+			}
+
+			var elapsed = new Date().getTime() - started;
+			setOutput(action + ": " + xhr.status + " (" + describeStatus(xhr.status) + "), " + elapsed + " ms\n" + (result ? result : "(no answer text)"),
+				xhr.status == 200);
+		}
+
+		function openAddG() {
+			document.getElementById("addg-downloader").value = requestContext.downloader;
+			document.getElementById("addg-token").value = requestContext.token;
+			document.getElementById("addg-email").value = requestContext.email;
+			document.getElementById("addg-form").submit();
+		}
+
+		function closePanel() {
+			myApi.CloseAddGPanel(false);
+		}
+
+		function initialize() {
+			var sessionLine = document.getElementById("session-line");
+			if (hasSession) {
+				sessionLine.className = "status-ok";
+				sessionLine.innerText = "Session received for " + requestContext.email + ". Actions will work.";
+			} else {
+				sessionLine.className = "status-bad";
+				sessionLine.innerText = "No session: the client sent no token and email to this address.";
+			}
+
+			document.getElementById("request-info").innerText = requestContext.requestInfo;
+		}
+
+		initialize();
+	</script>
+</body>
+</html>

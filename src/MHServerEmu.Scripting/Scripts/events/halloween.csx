@@ -51,7 +51,13 @@ const float RegionCooldown     = 45f;      // seconds between Trick or Treats in
 const int   TreatsForJackpot   = 5;
 const int   TrickDemons        = 6;
 const int   TrickBossAffixes   = 1;
-const string AffixExclude      = "";
+const string AffixExclude      = "Mods/Raids/,/Cosmics/,/EventSpecific/,ItemPowers,TextOnly,TextAffix,ChestDrop,LimboOrb";   // parts of affix paths never rolled: raid (Surtur, Ultron, Onslaught), Danger Room cosmic, event (Limbo, cow, Sentinel) and label-only / chest affixes. Only the standard boss and enemy affixes are left.
+
+// Regions (any part of the region's prototype path) where the event behaves differently:
+//  NoEventRegions   nothing at all: no candy or pumpkin drops, no Trick or Treat (training dummies are bosses and never run out)
+//  NoTrickRegions   a Trick becomes a Treat: no villain or demons spawn (extra bosses get mixed into a wave mode's waves)
+var NoEventRegions = new[] { "TrainingRoom" };
+var NoTrickRegions = new[] { "DangerRoom", "XDefense", "XmansionNWS", "HoloSim" };   // wave modes: Danger Room, X-Defense, S.H.I.E.L.D. Holo-Sim
 
 const string Villain = "Entity/Characters/Bosses/PatrolMidtown/MidtownEvent";
 const string Mobs    = "Entity/Characters/Mobs/";
@@ -114,14 +120,15 @@ var Exchanges = new Exchange[]
         costItem: Candy, costName: "Halloween Candy", price: 50,
         reward: MysteryBag, rewardName: "Halloween Mystery Bag")
     {
-        Position = null, YawDegrees = 0f,
+        // Avengers Tower event line (east of Hank Pym, after the Civil War NPCs)
+        Position = new Vector3(-1510f, 1940f, 140f), YawDegrees = 270f,
     },
 
     new("pumpkin", "Clea", "Entity/Characters/NPCs/Clea.prototype",
         costItem: Pumpkin, costName: "Halloween Pumpkins", price: 50,
         reward: Items + "Consumables/Prototypes/CSGrant/LoginEventCurrency50Box.prototype", rewardName: "Chest of 50 Event Currencies")
     {
-        Position = null, YawDegrees = 0f,
+        Position = new Vector3(-1680f, 1940f, 140f), YawDegrees = 270f,
     },
 };
 
@@ -151,6 +158,7 @@ var lastRoll     = new ConcurrentDictionary<ulong, TimeSpan>();   // region id =
 var trickBossIds = new ConcurrentDictionary<ulong, byte>();       // entity ids of Trick bosses (their death pays a Treat)
 var trickAddIds  = new ConcurrentDictionary<ulong, byte>();       // entity ids of Trick demons (they drop nothing extra)
 var hubNpcs      = new ConcurrentDictionary<(Region Hub, string Key), ulong>();   // hub instance + exchange => its NPC
+var regionRules  = new ConcurrentDictionary<PrototypeId, (bool NoEvent, bool NoTrick)>();   // region prototype => its rules
 
 PrototypeId hubRef = GameDatabase.GetPrototypeRefByName(HubRegion);
 
@@ -194,6 +202,16 @@ bool IsActive()
 }
 
 bool IsAdmin(Player player) => ScriptHooks.IsAdmin(player);
+
+(bool NoEvent, bool NoTrick) RulesFor(Region region)
+{
+    return regionRules.GetOrAdd(region.PrototypeDataRef, protoRef =>
+    {
+        string path = GameDatabase.GetPrototypeName(protoRef) ?? "";
+        return (NoEventRegions.Any(word => path.Contains(word, StringComparison.OrdinalIgnoreCase)),
+                NoTrickRegions.Any(word => path.Contains(word, StringComparison.OrdinalIgnoreCase)));
+    });
+}
 
 void Tell(Player player, string text) => ScriptHooks.SendChatMessage(player, "[Halloween] " + text, false);
 
@@ -291,8 +309,13 @@ void TrickOrTreat(Region region, Vector3 position, bool ignoreCooldown = false)
     float roll = Random.Shared.NextSingle();
     if (roll < TrickChance)
     {
-        Trick(region, position, players);
-        return;
+        if (RulesFor(region).NoTrick == false)
+        {
+            Trick(region, position, players);
+            return;
+        }
+
+        roll = 1f;   // no Tricks here: a plain Treat instead
     }
 
     bool super = roll < TrickChance + SuperTreatChance;
@@ -307,7 +330,7 @@ Hooks.On(ScriptHooks.EntityKilled, e =>
 
     WorldEntity victim = e.Victim;
     Region region = victim.Region;
-    if (region == null)
+    if (region == null || RulesFor(region).NoEvent)
         return;
 
     // A Trick boss went down: Treat for everyone around

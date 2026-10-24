@@ -130,7 +130,8 @@ namespace MHServerEmu.Games.GameData.Prototypes
                 {
                     if (teamRef == PrototypeId.Invalid) continue;
                     var teamProto = GameDatabase.GetPrototype<PublicEventTeamPrototype>(teamRef);
-                    if (teamProto == null || teamProto.PublicEventRef == PrototypeId.Invalid) continue;
+                    // CUSTOM: was "== Invalid", which skipped every team that had no event yet, so none ever got one
+                    if (teamProto == null || teamProto.PublicEventRef != PrototypeId.Invalid) continue;
                     teamProto.PublicEventRef = DataRef;
                 }
         }

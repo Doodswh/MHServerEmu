@@ -152,7 +152,9 @@ namespace MHServerEmu.Games.EndlessScenarios
         private static readonly TimeSpan StartInteractDelay = TimeSpan.FromMilliseconds(250);
         private static readonly TimeSpan NextWaveDelay = TimeSpan.FromSeconds(3);
         private static readonly TimeSpan BreakWaveDelay = TimeSpan.FromMinutes(3);
-        private static readonly TimeSpan CompletedRunRetention = TimeSpan.FromMinutes(10);
+        // CUSTOM: how long players can stay after a run ends (on-screen countdown); then they are sent back to town.
+        // The reward chest, crafter and return portal last exactly this long too.
+        private static readonly TimeSpan CompletedRunRetention = TimeSpan.FromMinutes(5);
         private static readonly TimeSpan AbortedRunRetention = TimeSpan.FromSeconds(10);
         private static readonly TimeSpan ImmediateThinkDelay = TimeSpan.Zero;
         private static readonly TimeSpan FollowupThinkDelay = TimeSpan.FromMilliseconds(100);
@@ -2257,7 +2259,13 @@ namespace MHServerEmu.Games.EndlessScenarios
             ClearCableObjectiveWidgets(runState, region);
             runState.Complete(currentTime);
 
-            _game.ChatManager?.SendChatFromCustomSystem(player, $"[Cable Endless Scenario] Run ended. Highest cleared wave: {runState.CompletedWaveCount}.", showSender: false);
+            // CUSTOM: on-screen countdown until everyone is sent back to town (not while another run is going in this region:
+            // the timer widget is shared and belongs to that run's breaks)
+            if (HasLiveRunInRegion(runState.RegionId) == false)
+                ShowBreakTimer(runState, region, CompletedRunRetention);
+
+            _game.ChatManager?.SendChatFromCustomSystem(player, $"[Cable Endless Scenario] Run ended. Highest cleared wave: {runState.CompletedWaveCount}. " +
+                $"You will be returned to town in {CompletedRunRetention.TotalMinutes:0} minutes.", showSender: false);
         }
 
         private Vector3 BuildCompletionRewardAnchor(EndlessCableScenarioRunState runState, Region region, Vector3 fallbackPosition)
@@ -3386,17 +3394,52 @@ namespace MHServerEmu.Games.EndlessScenarios
             if (currentTime - runState.CompletedAt < retention)
                 return;
 
-            Player player = _game.EntityManager.GetEntityByDbGuid<Player>(runState.PlayerDbId);
-            bool playerStillInRegion = player?.GetRegion()?.Id == runState.RegionId;
-            bool vendorStillExists = runState.HasCompletionVendor && _game.EntityManager.GetEntity<WorldEntity>(runState.CompletionVendorEntityId) != null;
-
-            if (runState.Status == EndlessCableScenarioRunStatus.Completed && playerStillInRegion && vendorStillExists)
-                return;
+            // CUSTOM: the countdown shown at the end of a completed run is over, send everyone still here back to town
+            if (runState.Status == EndlessCableScenarioRunStatus.Completed)
+                SendPlayersToTownAfterRun(runState);
 
             _activeRuns.Remove(runState.RunId);
             _completionRecipeAttemptsByRun.Remove(runState.RunId);
             CancelStartAfterInteractEvent(runState.RunId);
             CleanupRegionListener(runState.RegionId);
+        }
+
+        /// <summary>
+        /// CUSTOM: <see langword="true"/> if a run that has not finished yet is using the region.
+        /// </summary>
+        private bool HasLiveRunInRegion(ulong regionId)
+        {
+            foreach (EndlessCableScenarioRunState other in _activeRuns.Values)
+            {
+                if (other.RegionId == regionId && other.Status is not (EndlessCableScenarioRunStatus.Completed or EndlessCableScenarioRunStatus.Aborted))
+                    return true;
+            }
+
+            return false;
+        }
+
+        /// <summary>
+        /// CUSTOM: removes the end-of-run countdown and sends the players in the run's region back to town. Does nothing if a
+        /// new run was started in the region in the meantime (those players are busy and get their own countdown later).
+        /// </summary>
+        private void SendPlayersToTownAfterRun(EndlessCableScenarioRunState runState)
+        {
+            Region region = _game.RegionManager.GetRegion(runState.RegionId);
+            if (region == null || HasLiveRunInRegion(runState.RegionId))
+                return;
+
+            ClearBreakTimer(runState, region);
+
+            using var playersHandle = ListPool<Player>.Instance.Get(out List<Player> players);
+            foreach (Player player in new PlayerIterator(region))
+                players.Add(player);
+
+            foreach (Player player in players)
+            {
+                _game.ChatManager?.SendChatFromCustomSystem(player, "[Cable Endless Scenario] Time is up. Returning to town.", showSender: false);
+                if (Scripting.ScriptTeleport.ToTown(player) == false)
+                    Logger.Warn($"SendPlayersToTownAfterRun(): Failed to send [{player}] to town");
+            }
         }
 
         private void EnsureRegionListener(Region region)

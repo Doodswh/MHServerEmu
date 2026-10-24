@@ -1117,7 +1117,56 @@ namespace MHServerEmu.Games.Regions
                 return true;
             }
 
+            // CUSTOM: opted-in regions whose arrival marker is gone (e.g. its cell was left out for testing): arrive in the middle
+            // of the first cell instead of leaving the client on the loading screen
+            if (found == false && UsesArrivalFallback() && TryGetFirstCellSpot(out Vector3 fallbackSpot))
+            {
+                Logger.Warn($"FindTargetLocation(): target not found in [{PrototypeName}], arriving at {fallbackSpot} (first cell)");
+                markerPos = fallbackSpot;
+                markerRot = Orientation.Zero;
+                return true;
+            }
+
             return found;
+        }
+
+        /// <summary>
+        /// CUSTOM: Region names (or parts of prototype paths) where players arrive in the first cell when the region's own
+        /// arrival marker cannot be found. Filled by scripts.
+        /// </summary>
+        public static readonly System.Collections.Concurrent.ConcurrentDictionary<string, bool> ArrivalFallbackFor = new(StringComparer.OrdinalIgnoreCase);
+
+        private bool UsesArrivalFallback()
+        {
+            if (ArrivalFallbackFor.IsEmpty) return false;
+
+            string name = PrototypeName ?? string.Empty;
+            foreach (string key in ArrivalFallbackFor.Keys)
+                if (name.Contains(key, StringComparison.OrdinalIgnoreCase)) return true;
+
+            return false;
+        }
+
+        private bool TryGetFirstCellSpot(out Vector3 position)
+        {
+            foreach (Cell cell in Cells)
+            {
+                Vector3 center = cell.RegionBounds.Center;
+                Bounds bounds = new();
+                bounds.InitializeCapsule(48f, 48f, BoundsCollisionType.Blocking, BoundsFlags.None);
+                bounds.Center = center;
+
+                float halfSize = Math.Min(cell.RegionBounds.Width, cell.RegionBounds.Length) * 0.5f;
+                if (ChooseRandomPositionNearPoint(ref bounds, PathFlags.Walk, PositionCheckFlags.None, BlockingCheckFlags.None,
+                    0f, halfSize, out Vector3 candidate, null, null, 32))
+                {
+                    position = candidate;
+                    return true;
+                }
+            }
+
+            position = Vector3.Zero;
+            return false;
         }
 
         private Vector3? _builtMapStartPosition;

@@ -1,4 +1,4 @@
-﻿using MHServerEmu.Core.Config;
+using MHServerEmu.Core.Config;
 using MHServerEmu.Core.Logging;
 using MHServerEmu.Core.Network;
 using MHServerEmu.Games.Entities;
@@ -183,6 +183,13 @@ namespace MHServerEmu.Games.Network.InstanceManagement
 
                 case ServiceMessage.MTXStoreESConvertGameRequest mtxStoreESConvertGameRequest:
                     RouteMessageToGame(mtxStoreESConvertGameRequest.GameId, mtxStoreESConvertGameRequest);
+                    break;
+
+                case ServiceMessage.WebActionGameRequest webActionGameRequest:
+                    // CUSTOM: answer for a game that is gone, so the web page does not wait for the timeout
+                    if (RouteMessageToGame(webActionGameRequest.GameId, webActionGameRequest) == false)
+                        ServerManager.Instance.SendMessageToService(GameServiceType.PlayerManager,
+                            new ServiceMessage.WebActionGameResponse(webActionGameRequest.RequestId, false, null));
                     break;
 
                 default:

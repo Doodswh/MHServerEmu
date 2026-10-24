@@ -25,6 +25,9 @@ namespace MHServerEmu.Games.Scripting
         private int _maxStacksPerProcAffix = 1;
         private int _maxStacksPerStat = 4;
 
+        private int _tierMask;
+        private PrototypeId _heroRef = PrototypeId.Invalid;
+
         private string _itemName;
         private string _difficultyName;
 
@@ -71,6 +74,28 @@ namespace MHServerEmu.Games.Scripting
         /// extra prefix / suffix / cosmic affixes are dropped.
         /// </summary>
         public int MaxAffixesPerStat { get; set; }
+
+        private List<Action<ItemAffixesRollingArgs>> _afterNormalRoll;
+
+        /// <summary>
+        /// Runs <paramref name="action"/> after the game's normal affix roll (before <see cref="MaxAffixesPerStat"/> is applied).
+        /// The item first rolls exactly as it normally would for its current rarity; change the rarity and add extra affixes in
+        /// the action to put them on top of that normal roll instead of having the normal roll fill in around them.
+        /// </summary>
+        public void AfterNormalRoll(Action<ItemAffixesRollingArgs> action)
+        {
+            if (action == null) return;
+            _afterNormalRoll ??= new();
+            _afterNormalRoll.Add(action);
+        }
+
+        internal void RunAfterNormalRoll()
+        {
+            if (_afterNormalRoll == null) return;
+
+            foreach (Action<ItemAffixesRollingArgs> action in _afterNormalRoll)
+                action(this);
+        }
 
         /// <summary>True if the item goes into an equipment slot of the hero (or team-up) it is rolled for.</summary>
         public bool HasEquipmentSlot
@@ -257,6 +282,33 @@ namespace MHServerEmu.Games.Scripting
 
         #endregion
 
+        /// <summary>The highest affix tier in the game data (the tier of the best armor).</summary>
+        public const int MaxAffixTier = 15;
+
+        /// <summary>
+        /// Limits the affixes added by <see cref="AddStackedAffixes"/> and <see cref="AddUniqueAffixes"/> from now on, using
+        /// only the tier and hero parts of the game's own affix restrictions (slot, rarity and item type are still ignored).
+        /// <paramref name="tier"/>: 1-15 = only affixes of that tier (15 = the best), -1 = the item's own tier (items without
+        /// one, such as uniques, count as the top tier), 0 = any tier.
+        /// <paramref name="hero"/>: skip affixes meant for other heroes (e.g. mental damage on a physical hero). Only checked
+        /// when the item is rolled for a hero.
+        /// </summary>
+        public void SetAffixRestrictions(int tier, bool hero)
+        {
+            if (tier < 0)
+            {
+                // The item's own tier is a single bit already
+                int itemRank = FilterArgs.Rank != 0 ? FilterArgs.Rank : ItemPrototype.GetRank(FilterArgs.LootContext);
+                _tierMask = itemRank != 0 ? itemRank : 1 << (MaxAffixTier - 1);
+            }
+            else
+            {
+                _tierMask = tier == 0 ? 0 : 1 << (Math.Min(tier, MaxAffixTier) - 1);
+            }
+
+            _heroRef = hero && FilterArgs.RollFor.As<AvatarPrototype>() != null ? FilterArgs.RollFor : PrototypeId.Invalid;
+        }
+
         /// <summary>
         /// Caps for <see cref="AddStackedAffixes"/> on this item: copies of one affix, copies of one proc affix, and affixes touching one stat.
         /// </summary>
@@ -277,7 +329,7 @@ namespace MHServerEmu.Games.Scripting
             _propertyStacks ??= new();
 
             LootUtilities.AddUniqueRandomAffixes(_resolver, FilterArgs, ItemSpec, _affixSet, position, count, true,
-                _affixStacks, _propertyStacks, _maxStacksPerAffix, _maxStacksPerProcAffix, _maxStacksPerStat);
+                _affixStacks, _propertyStacks, _maxStacksPerAffix, _maxStacksPerProcAffix, _maxStacksPerStat, _tierMask, _heroRef);
             Modified = true;
         }
 
@@ -287,7 +339,8 @@ namespace MHServerEmu.Games.Scripting
         /// </summary>
         public void AddUniqueAffixes(AffixPosition position, int count)
         {
-            LootUtilities.AddUniqueRandomAffixes(_resolver, FilterArgs, ItemSpec, _affixSet, position, count, true);
+            LootUtilities.AddUniqueRandomAffixes(_resolver, FilterArgs, ItemSpec, _affixSet, position, count, true,
+                tierMask: _tierMask, heroRef: _heroRef);
             Modified = true;
         }
     }

@@ -1,4 +1,4 @@
-﻿using MHServerEmu.Core.Logging;
+using MHServerEmu.Core.Logging;
 using MHServerEmu.Core.Network;
 
 namespace MHServerEmu.WebFrontend.Network
@@ -21,6 +21,10 @@ namespace MHServerEmu.WebFrontend.Network
 
                 case ServiceMessage.MTXStoreESConvertResponse mtxStoreESConvertResponse:
                     GameServiceTaskManager.Instance.OnMTXStoreESConvertResponse(mtxStoreESConvertResponse);
+                    break;
+
+                case ServiceMessage.WebActionResponse webActionResponse:
+                    GameServiceTaskManager.Instance.OnWebActionResponse(webActionResponse);
                     break;
 
                 case ServiceMessage.AccountOperationResponse accountOperationResponse:

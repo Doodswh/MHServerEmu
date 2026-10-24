@@ -29,8 +29,8 @@ using MHServerEmu.Games.Events;
 
 const string HubRegion     = "Regions/HUBRevamp/NPEAvengersTowerHUBRegion.prototype";   // the current Avengers Tower
 const string NpcPath       = "Entity/Characters/NPCs/HubNPCs/SHIELDAgentFemale.prototype";
-Vector3? NpcPosition       = null;   // null = near where players arrive in the hub; use "!moo npc here" to pick a spot
-float NpcYawDegrees        = 0f;     // only used with NpcPosition
+Vector3? NpcPosition       = new Vector3(-1850f, 1940f, 140f);   // Avengers Tower event line, east of Hank Pym (null = near where players arrive)
+float NpcYawDegrees        = 270f;   // only used with NpcPosition
 
 // Where the herd strikes: one is picked at random for each run (fresh private instance every time)
 const string Terminals = "Regions/EndGame/Terminals/Cosmic/";
@@ -82,7 +82,7 @@ const float HintInterval       = 90f;
 const float TickSeconds        = 2f;
 const float OverheadSeconds    = 5f;
 const int   TauntMs            = 6000;    // how long Brevik's portrait taunts stay up
-const string AffixExclude      = "";
+const string AffixExclude      = "Mods/Raids/,/Cosmics/,/EventSpecific/,ItemPowers,TextOnly,TextAffix,ChestDrop,LimboOrb";   // parts of affix paths never rolled: raid (Surtur, Ultron, Onslaught), Danger Room cosmic, event (Limbo, cow, Sentinel) and label-only / chest affixes. Only the standard boss and enemy affixes are left.
 
 // Fastest clear leaderboard: the game's Trainyard "Time Trial - Cosmic" board (weekly reset, shown as a time, fastest first, 6 reward
 // tiers), taken over (only Age of MOO counts), renamed and fed with the clear time of everyone who fought. Only each player's best

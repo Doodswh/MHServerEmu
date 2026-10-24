@@ -44,8 +44,12 @@ int cellSetIndex = 0;
 const string EventDifficulty = "Difficulty/Tiers/Tier3Superheroic.prototype";   // Cosmic
 const int    MapLevel      = 60;
 
-Vector3? NpcPosition       = null;   // null = next to where players arrive in the hub; use "!incursion npc here" to pick a spot
-float NpcYawDegrees        = 0f;
+// Extra difficulty on top of Cosmic, for everything in the incursion (1 = plain Cosmic). Change and save: the next run uses it.
+const float EnemyToughness = 2.0f;   // enemies take this many times longer to kill (2 = like double health)
+const float EnemyDamage    = 1.5f;   // enemies hit this many times harder
+
+Vector3? NpcPosition       = new Vector3(-2190f, 1940f, 140f);   // Avengers Tower event line, east of Hank Pym (null = next to where players arrive)
+float NpcYawDegrees        = 270f;
 
 // The map: one character per tile of the chosen set. # = solid, S = arrival, P = rift portal, N = power node, K = Kaecilius.
 // The CellSets all have every exit combination, so dead ends and corridors are fine; keep S in an open spot.
@@ -69,7 +73,7 @@ const float ClaimWindow        = 120f;    // after the Titan falls: time to clai
 const float ReturnDelay        = 30f;     // then everyone is sent back to town after this
 const float HintInterval       = 90f;
 const float TickSeconds        = 2f;
-const string AffixExclude      = "";
+const string AffixExclude      = "Mods/Raids/,/Cosmics/,/EventSpecific/,ItemPowers,TextOnly,TextAffix,ChestDrop,LimboOrb";   // parts of affix paths never rolled: raid (Surtur, Ultron, Onslaught), Danger Room cosmic, event (Limbo, cow, Sentinel) and label-only / chest affixes. Only the standard boss and enemy affixes are left.
 
 // Phase 1: rifts
 const float PulseSeconds       = 14f;     // each open rift spits out demons this often
@@ -132,9 +136,8 @@ var Rifts = new List<Rift>
         Mobs + "FireDemons/Patrol/PatrolMysticMayhemFireBruteMaulSpawn.prototype",
         Mobs + "LimboDemons/DrStrangeEventDemonSpitterLimboZone.prototype"),
     new("Dark Rift",     Props + "Destructibles/DarkDimensionPortalBase.prototype",
-        Mobs + "MindlessOnes/DoctorStrangeEvent/DrStrangeMeleeMindlessOne.prototype",
-        Mobs + "MindlessOnes/DoctorStrangeEvent/DrStrangeMeleeMindlessOne.prototype",
-        Mobs + "MindlessOnes/DoctorStrangeEvent/DrStrangeMeleeMindlessOneCosmic.prototype"),
+        // not the DoctorStrangeEvent Mindless Ones: their model (MindlessOnes_PortalSpawn) is not in the client, so they are invisible
+        Mobs + "MindlessOnes/Patrol/PatrolMysticMayhemMindlessOneSpawn.prototype"),
 };
 
 var Guardians = new List<Foe>
@@ -148,7 +151,7 @@ var NodeAdds = new[]
 {
     Mobs + "NGarai/Patrol/DrStrangeLesserNGarai.prototype",
     Mobs + "FireDemons/Patrol/PatrolMysticMayhemFireBruteSwordSpawn.prototype",
-    Mobs + "MindlessOnes/DoctorStrangeEvent/DrStrangeMeleeMindlessOne.prototype",
+    Mobs + "MindlessOnes/Patrol/PatrolMysticMayhemMindlessOneSpawn.prototype",
     Mobs + "FireDemons/DrStrangeEventFireGiant.prototype",
 };
 
@@ -494,6 +497,12 @@ void StartRun(Run run)
     if (ScriptPresentation.WidgetTimer(region, TimerWidget, TimeLimit) == false)
         Log.Warn("Could not show the incursion timer widget");
 
+    // The region is this run's own copy, so its difficulty can be turned up without touching anything else
+    if (EnemyToughness > 0f && EnemyToughness != 1f)
+        region.Properties[PropertyEnum.DamageRegionPlayerToMob] = (float)region.Properties[PropertyEnum.DamageRegionPlayerToMob] / EnemyToughness;
+    if (EnemyDamage > 0f && EnemyDamage != 1f)
+        region.Properties[PropertyEnum.DamageRegionMobToPlayer] = (float)region.Properties[PropertyEnum.DamageRegionMobToPlayer] * EnemyDamage;
+    Log.Info($"Incursion difficulty: players deal x{(float)region.Properties[PropertyEnum.DamageRegionPlayerToMob]:0.###}, enemies deal x{(float)region.Properties[PropertyEnum.DamageRegionMobToPlayer]:0.###} ({region.DifficultyTierRef.GetName()})");
     StartRifts(run);
     PopulateMap(run);
 

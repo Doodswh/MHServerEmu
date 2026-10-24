@@ -37,6 +37,9 @@ namespace MHServerEmu.Games.Scripting
         public bool IsKnockdown { get => ConditionProperties[PropertyEnum.Knockdown]; }
         public bool IsKnockup { get => ConditionProperties[PropertyEnum.Knockup]; }
         public bool IsDisplacement { get => IsKnockback || IsKnockdown || IsKnockup; }
+
+        /// <summary>True if the power pulls its target towards it (a negative knockback distance, e.g. the Implosion affix).</summary>
+        public bool IsPull { get => PowerPrototype?.Properties != null && (float)PowerPrototype.Properties[PropertyEnum.KnockbackDistance] < 0f; }
         public bool IsStun { get => ConditionProperties[PropertyEnum.Stunned]; }
         public bool IsImmobilize { get => ConditionProperties.HasProperty(PropertyEnum.Immobilized); }
         public string RegionName { get => Target.Region?.PrototypeName ?? string.Empty; }
@@ -80,7 +83,7 @@ namespace MHServerEmu.Games.Scripting
         }
 
         /// <summary>
-        /// Removes all rolled affixes that can knock back, pull, knock down or knock up (detected from game data).
+        /// Removes all rolled affixes that can knock back, knock down or knock up (detected from game data). Pulls stay.
         /// Returns the number removed.
         /// </summary>
         public int RemoveDisplacementAffixes()
@@ -237,6 +240,28 @@ namespace MHServerEmu.Games.Scripting
     }
 
     /// <summary>
+    /// Args for <see cref="ScriptHooks.PublicEventTeamSelected"/>.
+    /// </summary>
+    public sealed class PublicEventTeamSelectedArgs
+    {
+        public Player Player { get; }
+        public PrototypeId EventRef { get; }
+        public PrototypeId TeamRef { get; }
+
+        /// <summary>
+        /// Full prototype path of the team (Events/PublicEvents/Teams/..., e.g. CivilWarProReg = Team Iron Man).
+        /// </summary>
+        public string TeamPath { get => GameDatabase.GetPrototypeName(TeamRef); }
+
+        public PublicEventTeamSelectedArgs(Player player, PrototypeId eventRef, PrototypeId teamRef)
+        {
+            Player = player;
+            EventRef = eventRef;
+            TeamRef = teamRef;
+        }
+    }
+
+    /// <summary>
     /// Args for <see cref="ScriptHooks.GlobalEventRequested"/>.
     /// </summary>
     public sealed class GlobalEventRequestedArgs
@@ -384,5 +409,41 @@ namespace MHServerEmu.Games.Scripting
         /// Sends a server chat message to the player who clicked.
         /// </summary>
         public void Reply(string text) => ScriptHooks.SendChatMessage(Player, text, false);
+    }
+
+    /// <summary>
+    /// Args for <see cref="ScriptHooks.WebAction"/>: an action sent by a web page the player has open in the client.
+    /// </summary>
+    public sealed class WebActionArgs
+    {
+        public Player Player { get; }
+
+        /// <summary>Name of the action the page sent (letters, digits, '_', '-', '.'; at most 64 characters).</summary>
+        public string Action { get; }
+
+        /// <summary>Free text the page sent with the action (often JSON; at most 4096 characters, never null).</summary>
+        public string Data { get; }
+
+        /// <summary>Set to <see langword="true"/> by the script that owns this action. Unhandled actions answer "not found".</summary>
+        public bool Handled { get; set; }
+
+        /// <summary>Text sent back to the page (often JSON).</summary>
+        public string Result { get; set; }
+
+        public WebActionArgs(Player player, string action, string data)
+        {
+            Player = player;
+            Action = action ?? string.Empty;
+            Data = data ?? string.Empty;
+        }
+
+        /// <summary>
+        /// Marks the action as handled and sets the text sent back to the page.
+        /// </summary>
+        public void Reply(string result)
+        {
+            Handled = true;
+            Result = result;
+        }
     }
 }

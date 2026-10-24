@@ -1219,6 +1219,40 @@ namespace MHServerEmu.Games.Entities.Items
                         TriggerItemActionOnUse(actionProto, player, avatar, ref wasUsed, ref isConsumable);
                     }
                 }
+                else if (itemProto.ActionsTriggeredOnItemEvent.PickMethod == PickMethod.PickWeightTryAll)
+                {
+                    // CUSTOM: Try the rolled action first, then the others in order until one of them does something.
+                    // Only LevelingArtifactBoxAnniversary uses this in 1.52, and without this branch it did nothing on use.
+                    ItemActionBasePrototype[] choices = itemProto.ActionsTriggeredOnItemEvent.Choices;
+
+                    int actionIndex = Properties[PropertyEnum.ItemEventActionIndex];
+                    if (actionIndex < 0 || actionIndex >= choices.Length)
+                        actionIndex = 0;
+
+                    for (int i = 0; i < choices.Length && wasUsed == false; i++)
+                    {
+                        Prototype choiceProto = choices[(actionIndex + i) % choices.Length];
+
+                        if (choiceProto is ItemActionSetPrototype actionSetProto)
+                        {
+                            if (actionSetProto.PickMethod != PickMethod.PickAll || actionSetProto.Choices == null)
+                            {
+                                Logger.Warn("InteractWithAvatar(): PickWeightTryAll choice is an action set that is not PickAll");
+                                continue;
+                            }
+
+                            foreach (ItemActionBasePrototype actionBaseProto in actionSetProto.Choices)
+                            {
+                                if (actionBaseProto is ItemActionPrototype setActionProto)
+                                    TriggerItemActionOnUse(setActionProto, player, avatar, ref wasUsed, ref isConsumable);
+                            }
+                        }
+                        else if (choiceProto is ItemActionPrototype actionProto)
+                        {
+                            TriggerItemActionOnUse(actionProto, player, avatar, ref wasUsed, ref isConsumable);
+                        }
+                    }
+                }
                 else if (itemProto.ActionsTriggeredOnItemEvent.PickMethod == PickMethod.PickAll)
                 {
                     // Do all actions OnUse actions if this item doesn't use random actions

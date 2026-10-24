@@ -2315,8 +2315,16 @@ namespace MHServerEmu.Games.Entities.Avatars
                 UnassignTalentPower(talentPowerRef, currentSpecIndex, true);
 
             // Clear mapped powers
-            if (CanStealPowers() == false)
-                UnassignAllMappedPowers();
+            // CUSTOM: Rogue keeps a stolen power set per spec: save the one she leaves, clear it, restore the new spec's below
+            bool rogueSpecSets = CanStealPowers();
+            Dictionary<PrototypeId, PrototypeId> leftStolenPowers = null;
+            if (rogueSpecSets)
+            {
+                leftStolenPowers = GetMappedPowerSet();
+                SaveStolenPowerSet(currentSpecIndex, leftStolenPowers);
+            }
+
+            UnassignAllMappedPowers();
 
             // "Unequip" powers for the spec we are disabling
             if (IsInWorld)
@@ -2338,8 +2346,79 @@ namespace MHServerEmu.Games.Entities.Avatars
             if (IsInWorld)
                 EquipPowersForCurrentSpec();
 
+            // CUSTOM: Rogue's stolen powers for the new spec (a spec she hasn't used yet starts with the set she left)
+            if (rogueSpecSets)
+                RestoreStolenPowerSet(LoadStolenPowerSet(newSpecIndex) ?? leftStolenPowers);
+
             return false;
         }
+
+        #region CUSTOM: Rogue stolen power sets per spec
+
+        // Saved sets of the specs an avatar isn't using: key "<avatar db id>:<spec>", value "<original>=<stolen>;..."
+        // (prototype ids). The active spec's set is the avatar's own AvatarMappedPower properties, saved with the avatar.
+        private const string StolenPowerSetStore = "RogueSpecStolenPowers";
+        private static readonly object StolenPowerSetLock = new();
+        private static Dictionary<string, string> _stolenPowerSets;
+
+        private string StolenPowerSetKey(int specIndex) => $"{DatabaseUniqueId:X}:{specIndex}";
+
+        private Dictionary<PrototypeId, PrototypeId> GetMappedPowerSet()
+        {
+            Dictionary<PrototypeId, PrototypeId> set = new();
+            foreach (var kvp in Properties.IteratePropertyRange(PropertyEnum.AvatarMappedPower))
+            {
+                Property.FromParam(kvp.Key, 0, out PrototypeId originalPowerRef);
+                set[originalPowerRef] = kvp.Value;
+            }
+            return set;
+        }
+
+        private void SaveStolenPowerSet(int specIndex, Dictionary<PrototypeId, PrototypeId> set)
+        {
+            string value = string.Join(";", set.Select(kvp => $"{(ulong)kvp.Key}={(ulong)kvp.Value}"));
+            lock (StolenPowerSetLock)
+            {
+                _stolenPowerSets ??= Scripting.ScriptStorage.Load(StolenPowerSetStore);
+                _stolenPowerSets[StolenPowerSetKey(specIndex)] = value;
+                Scripting.ScriptStorage.Save(StolenPowerSetStore, _stolenPowerSets);
+            }
+        }
+
+        private Dictionary<PrototypeId, PrototypeId> LoadStolenPowerSet(int specIndex)
+        {
+            string value;
+            lock (StolenPowerSetLock)
+            {
+                _stolenPowerSets ??= Scripting.ScriptStorage.Load(StolenPowerSetStore);
+                if (_stolenPowerSets.TryGetValue(StolenPowerSetKey(specIndex), out value) == false)
+                    return null;
+            }
+
+            Dictionary<PrototypeId, PrototypeId> set = new();
+            foreach (string pair in value.Split(';', StringSplitOptions.RemoveEmptyEntries))
+            {
+                string[] refs = pair.Split('=');
+                if (refs.Length == 2 && ulong.TryParse(refs[0], out ulong original) && ulong.TryParse(refs[1], out ulong stolen))
+                    set[(PrototypeId)original] = (PrototypeId)stolen;
+            }
+            return set;
+        }
+
+        private void RestoreStolenPowerSet(Dictionary<PrototypeId, PrototypeId> set)
+        {
+            if (set == null) return;
+
+            foreach (var (originalPowerRef, stolenPowerRef) in set)
+            {
+                if (IsStolenPowerAvailable(stolenPowerRef) == false) continue;            // no longer has it
+                if (GetMappedPowerFromOriginalPower(originalPowerRef) != PrototypeId.Invalid) continue;
+                if (CanAssignStolenPower(stolenPowerRef, PrototypeId.Invalid) == false) continue;
+                MapPower(originalPowerRef, stolenPowerRef);
+            }
+        }
+
+        #endregion
 
         public override bool RespecPowerSpec(int specIndex, PowersRespecReason reason, bool skipValidation = false, PrototypeId powerProtoRef = PrototypeId.Invalid)
         {
@@ -2777,18 +2856,14 @@ namespace MHServerEmu.Games.Entities.Avatars
         private void UnassignMappedPowersForRespec()
         {
             // Rogue's mapped powers don't get reset on respec
+            // CUSTOM: the check was the wrong way round (it wiped only Rogue's stolen powers, leaving her hotbar pointing at
+            // powers she no longer had). Other avatars' mapped powers come from talents and go with them, so there is nothing
+            // to remove here; Rogue keeps hers, re-applied so the stolen powers go back into any reset slots.
             if (CanStealPowers() == false)
                 return;
 
-            // Key mappings should have already been cleaned up by respec, so just remove the powers
-            using var mappedPowerListHandle = ListPool<PrototypeId>.Instance.Get(out List<PrototypeId> mappedPowerList);
-            foreach (var kvp in Properties.IteratePropertyRange(PropertyEnum.AvatarMappedPower))
-                mappedPowerList.Add(kvp.Value);
-
-            foreach (PrototypeId mappedPowerRef in mappedPowerList)
-                UnassignPower(mappedPowerRef);
-
-            Properties.RemovePropertyRange(PropertyEnum.AvatarMappedPower);
+            foreach (var (originalPowerRef, stolenPowerRef) in GetMappedPowerSet())
+                MapPower(originalPowerRef, stolenPowerRef);
         }
 
         #endregion

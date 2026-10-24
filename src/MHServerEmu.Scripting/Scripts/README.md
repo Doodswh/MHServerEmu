@@ -91,6 +91,8 @@ Random-map events:
   Clicking it raises `EntityInteracted` with `ScriptTag == tag`.
 - `ScriptSpawner.TryFindRandomSpot(region, out pos [, reachableFrom, minDistanceFrom])`: a random walkable spot anywhere in the region
   (reachable on foot from `reachableFrom` when given). `TryFindFarSpot(region, from, out pos)`: the farthest reachable spot found.
+  `FindSpreadSpots(region, from, count, minDistance, minSpacing)`: spots for objectives spread across any map, with built-in
+  fallbacks (looser distances, open ground beside `from`, rings around `from`), so use it instead of writing per-map placement.
   `TryGetStartPosition(region, out pos)`: where players arrive.
 - `ScriptTeleport.ToRegion(player, "T1L1BambooRegion" or full path [, difficultyPath, seed])`, `ToRegionWithParty(...)` (party members
   in the same region too), `ToTown(player)`, `FindRegion(name)`. A non-zero `seed` always gets a brand-new private instance (terminals
@@ -191,6 +193,11 @@ the other DangerRoom/DRScenarioTime* boards (weekly, fastest first; not the Cabl
 - `ScriptRewards.BindOnPickup(itemPath)`: the item binds to the account when picked up even if the server has account binding
   switched off: it cannot be traded and is destroyed when dropped. `ItemPickedUp` args have `WasDroppedByPlayer`, true when the
   item was on the ground because a player dropped it: ignore those when counting pickups.
+- Web portal: a page of your own in the client's built-in browser (`Data/Web/Portal/index.html`, served at `/Portal` by the web
+  frontend; point the store's `RealMoneyUrl` or `HomePageUrl` at it). The page posts `{ Email, Token, Action, Data }` to
+  `/Portal/Action`; the player is checked like the Add G page and the action is raised as `ScriptHooks.WebAction` in their game
+  (`e.Player`, `e.Action`, `e.Data`, answer with `e.Reply(text)`). Only answer your own action names, and treat `e.Data` as
+  untrusted text. `tests/web_test.csx` and the test page show the round trip; `!portal` opens the store window from the server.
 - `events/community_goal.csx` also scores every contribution on a leaderboard (the Summer Event board, renamed). Its prize boxes are
   renamed by the script and refilled by `Data/Game/Patches/PatchDataHalloween.json`; enable the board in `LeaderboardSchedule.json`.
 - `events/event_welcome.csx` shows players a popup about the running events once (until they click "Got it!"); edit its

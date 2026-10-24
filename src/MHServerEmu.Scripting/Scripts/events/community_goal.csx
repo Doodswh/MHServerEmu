@@ -9,7 +9,8 @@
 //  - When a stage unlocks, each contributor gets its rewards dropped at their feet: right away if they are playing,
 //    otherwise the next time they log in or contribute. Players who reach MinContribution later still collect every
 //    stage that is already unlocked.
-//  - The goal ends when the last stage unlocks.
+//  - When the last stage unlocks there is nothing more to unlock, but contributions still count, so latecomers can still
+//    reach MinContribution and collect every stage.
 //  - Every contribution also scores on a leaderboard in the game's Leaderboards panel (see Leaderboard below).
 //
 //   !goal             progress, your contribution and what you can collect
@@ -49,8 +50,8 @@ const bool   CountOnlyRanked = false;              // kill goal only: true = onl
 const bool   ShowProgressNpc = true;
 const string HubRegion       = "Regions/HUBRevamp/NPEAvengersTowerHUBRegion.prototype";
 const string NpcPath         = "Entity/Characters/Vendors/Prototypes/CH09Asgard/BeastGlobalVendor.prototype";
-Vector3? NpcPosition         = null;   // null = next to where players arrive in the hub; use "!goal npc here" to pick a spot
-float NpcYawDegrees          = 0f;
+Vector3? NpcPosition         = new Vector3(-2020f, 1940f, 140f);   // Avengers Tower event line, east of Hank Pym (null = next to where players arrive)
+float NpcYawDegrees          = 270f;
 const int    TopListLength   = 50;     // contributors shown in the window
 
 // Leaderboard: every contribution also scores on this board in the game's Leaderboards panel ("" = none). The client can
@@ -328,8 +329,10 @@ void Contribute(Player player, long amount)
     if (amount > 0 && Leaderboard.Length > 0)
         ScriptLeaderboards.Submit(player, Leaderboard, amount);
 
-    if (IsComplete() == false && amount > 0)
+    if (amount > 0)
     {
+        // Contributions keep counting after the last stage is unlocked: players who join late (or are still short of
+        // MinContribution) can still earn their way to the rewards, and the totals keep going up
         Interlocked.Add(ref c.Kills, amount);
         AddToTotal(amount);
 
