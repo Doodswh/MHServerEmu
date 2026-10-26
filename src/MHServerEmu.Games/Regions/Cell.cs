@@ -299,7 +299,16 @@ namespace MHServerEmu.Games.Regions
              else
                  transform = Transform3.BuildTransform(Area.Origin, Orientation.Zero);
 
-             if (naviMesh.Stitch(Prototype.NaviPatchSource.NaviPatch, transform) == false) return;
+             // CUSTOM: scripts can leave chosen walk-mesh edges of a cell out (e.g. to open a walled-off area for a test)
+             NaviPatchPrototype naviPatch = Prototype.NaviPatchSource.NaviPatch;
+             if (NaviEdgeSkips.IsEmpty == false && NaviEdgeSkips.TryGetValue(GameDatabase.GetPrototypeName(PrototypeDataRef), out HashSet<int> skippedEdges)
+                 && skippedEdges.Count > 0)
+             {
+                 naviPatch = naviPatch.WithoutEdges(skippedEdges);
+                 Logger.Info($"AddNavigationDataToRegion(): [{Prototype}] stitched without {skippedEdges.Count} walk-mesh edge(s): {string.Join(", ", skippedEdges)}");
+             }
+
+             if (naviMesh.Stitch(naviPatch, transform) == false) return;
              if (naviMesh.StitchProjZ(Prototype.NaviPatchSource.PropPatch, transform) == false) return;
 
              VisitPropSpawns(new NaviPropSpawnVisitor(naviMesh, transform)); 
@@ -357,6 +366,12 @@ namespace MHServerEmu.Games.Regions
         /// hideout's own NPCs). Filled by scripts.
         /// </summary>
         public static readonly System.Collections.Concurrent.ConcurrentDictionary<string, bool> StandInBareCells = new(StringComparer.OrdinalIgnoreCase);
+
+        /// <summary>
+        /// CUSTOM: cell prototype path -> indices of walk-mesh edges (NaviPatchSource.NaviPatch.Edges) to leave out when the cell's
+        /// region builds its walk mesh. Set by scripts before the region is created.
+        /// </summary>
+        public static readonly System.Collections.Concurrent.ConcurrentDictionary<string, HashSet<int>> NaviEdgeSkips = new(StringComparer.OrdinalIgnoreCase);
 
         private bool IsBareStandIn
         {

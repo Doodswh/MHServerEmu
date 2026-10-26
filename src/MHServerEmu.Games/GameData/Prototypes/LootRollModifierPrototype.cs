@@ -292,9 +292,33 @@ namespace MHServerEmu.Games.GameData.Prototypes
 
         //---
 
+        // CUSTOM: the tiers above the game's Cosmic difficulty (Tier3Superheroic in the data) also get its "Cosmic only" drops.
+        // 122 loot restrictions (88 tables, most bosses' Cosmic artifacts / EGMs) list Tier3Superheroic alone, so they never
+        // rolled on Tier4Cosmic or Omega.
+        private static PrototypeId _cosmicTierRef = PrototypeId.Invalid;
+        private static PrototypeId[] _higherTierRefs;
+
+        private static bool CountsAsCosmicTier(PrototypeId difficultyTierRef, PrototypeId[] choices)
+        {
+            if (_higherTierRefs == null)
+            {
+                _cosmicTierRef = GameDatabase.GetPrototypeRefByName("Difficulty/Tiers/Tier3Superheroic.prototype");
+                _higherTierRefs = new[]
+                {
+                    GameDatabase.GetPrototypeRefByName("Difficulty/Tiers/Tier4Cosmic.prototype"),
+                    GameDatabase.GetPrototypeRefByName("Difficulty/Tiers/Tier5Omega1.prototype"),
+                };
+            }
+
+            return _cosmicTierRef != PrototypeId.Invalid && _higherTierRefs.Contains(difficultyTierRef) && choices.Contains(_cosmicTierRef);
+        }
+
         public override void Apply(LootRollSettings settings)
         {
             if (Choices.IsNullOrEmpty() || settings.DifficultyTier == PrototypeId.Invalid || Choices.Contains(settings.DifficultyTier))
+                return;
+
+            if (CountsAsCosmicTier(settings.DifficultyTier, Choices))
                 return;
 
             settings.DropChanceModifiers |= LootDropChanceModifiers.DifficultyTierRestricted;

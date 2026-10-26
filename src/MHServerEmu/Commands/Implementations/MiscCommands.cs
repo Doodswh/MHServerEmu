@@ -185,7 +185,7 @@ namespace MHServerEmu.Commands.Implementations
         }
     }
     [CommandGroup("difficulty")]
-    [CommandGroupUserLevel(AccountUserLevel.Dev)]
+    [CommandGroupUserLevel(AccountUserLevel.Admin)]
     [CommandGroupDescription("Sets your account's preferred difficulty tier to omega.")]
     [CommandGroupFlags(CommandGroupFlags.SingleCommand)]
     public class SetDifficultyCommand : CommandGroup
@@ -207,8 +207,9 @@ namespace MHServerEmu.Commands.Implementations
                 case "omega":
                     prototypeName = "Difficulty/Tiers/Tier5Omega1.prototype";
 
-                    if (player.CurrentAvatar.IsAtMaxPrestigeLevel() == false)
-                        return "You must reach maximum prestige to access this difficulty tier.";
+                    // Omega certified: any one hero at max prestige, not necessarily the current one
+                    if (player.IsOmegaCertified() == false)
+                        return "You need at least one hero at maximum prestige (Omega certified) to access this difficulty tier.";
                     break;
 
                 default:

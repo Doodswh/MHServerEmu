@@ -21,6 +21,13 @@
 //       Unstoppable Juggernauts: Art208, Art267, Art181, Art225 (Cosmic / Takedown versions count too) on Hulk or Juggernaut.
 //       Legion of One: Art275, Art277 (or Art278 / Art279), Art313, Art314 (Cosmic / Takedown versions count too), any hero.
 //       Legend of Punchclops: Cyclops uniques Unique021 (or Unique555), Unique070, Unique112, Unique068, Unique111; any 4, on Cyclops.
+//       Director of S.H.I.E.L.D.: Nick Fury uniques Unique506, Unique507, Unique508, Unique509, Unique510; any 4, on Nick Fury.
+//       Sentinel of Liberty: Captain America uniques Unique007 (or Unique008), Unique091, Unique105, Unique106, Unique107; any 4.
+//       Invincible Iron Man: Unique003, Unique030 (or Unique329), Unique063 (or Unique124), Unique121, Unique125; any 4, on Iron Man.
+//       Spectacular Spider-Man: Unique040 (or Unique251), Unique041, Unique077, Unique138 (or Unique205), Unique139; any 4.
+//       Photographic Reflexes: Taskmaster uniques Unique239, Unique240, Unique241, Unique242, Unique243; any 4, on Taskmaster.
+//       Flame On!: Human Torch uniques Unique028, Unique029, Unique094, Unique122, Unique123; any 4, on Human Torch.
+//       Omega-Level Iceman: Iceman uniques Unique394, Unique395, Unique396, Unique397, Unique398; any 4, on Iceman.
 
 using System.Runtime.CompilerServices;
 using MHServerEmu.Games.Entities;
@@ -68,6 +75,41 @@ static void BoostKeyword(PropertyCollection bonus, float amount, string keywordP
         bonus[PropertyEnum.DamageMultForPowerKeyword, keywordRef] = amount;
 }
 
+// Powers with the keyword reach +amount further (0.30 = 30%). Only powers that have a range: not Melee and not areas
+// centered on you (the server's Power.GetRange rule)
+static void ExtendRange(PropertyCollection bonus, float amount, string keywordPath)
+{
+    PrototypeId keywordRef = GameDatabase.GetPrototypeRefByName(keywordPath);
+    if (keywordRef != PrototypeId.Invalid)
+        bonus[PropertyEnum.RangeModifierPctKeyword, keywordRef] = amount;
+}
+
+// Areas of powers with the keyword are +amount bigger (0.40 = 40%)
+static void GrowAreas(PropertyCollection bonus, float amount, string keywordPath)
+{
+    PrototypeId keywordRef = GameDatabase.GetPrototypeRefByName(keywordPath);
+    if (keywordRef != PrototypeId.Invalid)
+        bonus[PropertyEnum.AOESizePctModifierKeyword, keywordRef] = amount;
+}
+
+// No cooldown reduction in sets: the server already has a 50% cooldown reduction built in.
+
+// Powers with the keyword get +count charges (a power without charges of its own becomes a 2-charge power)
+static void ExtraCharges(PropertyCollection bonus, int count, string keywordPath)
+{
+    PrototypeId keywordRef = GameDatabase.GetPrototypeRefByName(keywordPath);
+    if (keywordRef != PrototypeId.Invalid)
+        bonus[PropertyEnum.PowerChargesMaxBonusForKwd, keywordRef] = count;
+}
+
+// Projectiles of powers with the keyword have a chance to pass through enemies and keep going (0.5 = 50%)
+static void PiercingMissiles(PropertyCollection bonus, float chance, string keywordPath)
+{
+    PrototypeId keywordRef = GameDatabase.GetPrototypeRefByName(keywordPath);
+    if (keywordRef != PrototypeId.Invalid)
+        bonus[PropertyEnum.MissilePierceChance, keywordRef] = Math.Clamp(chance, 0f, 1f);
+}
+
 // Like ScriptBonuses.AddProc, but the proc only fires for powers with the keyword: the way unique items write
 // "chance to stun when you hit with a Melee power" (ProcKeyword[trigger, proc power, keyword])
 static void AddKeywordProc(PropertyCollection bonus, ProcTriggerType trigger, string powerPath, string keywordPath, float chance)
@@ -83,7 +125,45 @@ static void AddKeywordProc(PropertyCollection bonus, ProcTriggerType trigger, st
 }
 
 const string MeleeKeyword = "Powers/Blueprints/Keywords/Melee.defaults";
+const string RangedKeyword = "Powers/Blueprints/Keywords/Ranged.defaults";
 const string CyclopsUniques = "Entity/Items/Armor/UniquePrototypes/Avatars/Cyclops/";
+const string FuryUniques = "Entity/Items/Armor/UniquePrototypes/Avatars/NickFury/";
+const string FuryPowers = "Powers/Player/NickFury/";
+const string PhysicalKeyword = "Powers/Blueprints/Keywords/Physical.defaults";
+const string ShieldThrowKeyword = "Powers/Blueprints/Keywords/ShieldThrow.defaults";
+const string CapUniques = "Entity/Items/Armor/UniquePrototypes/Avatars/CaptainAmerica/";
+const string EnergyKeyword = "Powers/Blueprints/Keywords/Energy.defaults";
+const string MovementKeyword = "Powers/Blueprints/Keywords/Movement.defaults";
+const string AreaKeyword = "Powers/Blueprints/Keywords/Area.defaults";
+const string IronManUniques = "Entity/Items/Armor/UniquePrototypes/Avatars/IronMan/";
+const string SpiderManUniques = "Entity/Items/Armor/UniquePrototypes/Avatars/SpiderMan/";
+const string TaskmasterUniques = "Entity/Items/Armor/UniquePrototypes/Avatars/Taskmaster/";
+const string HumanTorchUniques = "Entity/Items/Armor/UniquePrototypes/Avatars/HumanTorch/";
+const string IcemanUniques = "Entity/Items/Armor/UniquePrototypes/Avatars/Iceman/";
+
+// Debuffs carrying these keywords (e.g. freezes, chills) last 0 seconds on the wearer: StatusResistByDurationPctKwd is
+// matched against the debuff's own keywords, 100% = no duration
+static void ImmuneToDebuffKeywords(PropertyCollection bonus, params string[] keywordPaths)
+{
+    foreach (string path in keywordPaths)
+    {
+        PrototypeId keywordRef = GameDatabase.GetPrototypeRefByName(path);
+        if (keywordRef != PrototypeId.Invalid)
+            bonus[PropertyEnum.StatusResistByDurationPctKwd, keywordRef] = 1f;
+    }
+}
+
+// Makes the wearer take no damage from powers with these keywords (enemy fire attacks, burns, hellfire). Fire is Energy
+// damage in this game, so immunity has to go by keyword: DamagePctResistVsPowerKeyword (100% = no damage, not capped)
+static void ImmuneToKeywords(PropertyCollection bonus, params string[] keywordPaths)
+{
+    foreach (string path in keywordPaths)
+    {
+        PrototypeId keywordRef = GameDatabase.GetPrototypeRefByName(path);
+        if (keywordRef != PrototypeId.Invalid)
+            bonus[PropertyEnum.DamagePctResistVsPowerKeyword, keywordRef] = 1f;
+    }
+}
 
 var Sets = new List<GearSet>
 {
@@ -298,6 +378,339 @@ var Sets = new List<GearSet>
                     AddKeywordProc(bonus, ProcTriggerType.OnAnyHit, ItemPowers + "ArtifactPowers/Art322AttackSpeedProc.prototype", MeleeKeyword, 0.25f);
                 }),
         }),
+
+    // Nick Fury only, built from his uniques (one per gear slot; any 4 of the 5 complete it). His three sides: the guns
+    // (every Ranged power), the S.H.I.E.L.D. agents he calls in (summons), and the assassin finish (Execute and the sniper
+    // shots). The 4 piece proc is the Leather Trenchcoat's own S.H.I.E.L.D. sniper, here on every Critical Hit.
+    new GearSet("Director of S.H.I.E.L.D.",
+        pieces: new[]
+        {
+            ("Personalized Needle Pistol",       FuryUniques + "Unique506.prototype"),
+            ("9-ply Kevlar S.H.I.E.L.D Uniform", FuryUniques + "Unique507.prototype"),
+            ("Leather Trenchcoat",               FuryUniques + "Unique508.prototype"),
+            ("The Watcher's Eye",                FuryUniques + "Unique509.prototype"),
+            ("Classic Machine Gun",              FuryUniques + "Unique510.prototype"),
+        },
+        heroes: new[]
+        {
+            ("Nick Fury", "Entity/Characters/Avatars/Shipping/NickFury.prototype"),
+        },
+        tiers: new[]
+        {
+            // Each tier states the total, not an addition to the tier before it
+            new SetTier(2, "+25% damage with Ranged powers. +20% Summoned Ally Damage",
+                bonus =>
+                {
+                    BoostKeyword(bonus, 0.25f, RangedKeyword);
+                    BoostSummons(bonus, 0.20f);
+                }),
+
+            new SetTier(3, "+50% damage with Ranged powers. +40% Summoned Ally Damage. 10% Damage Reduction",
+                bonus =>
+                {
+                    BoostKeyword(bonus, 0.50f, RangedKeyword);
+                    BoostSummons(bonus, 0.40f);
+                    bonus[PropertyEnum.DamagePctResist, DamageType.Any] = 0.10f;
+                }),
+
+            new SetTier(4, "Director's Orders: +100% damage with Ranged powers, +75% Summoned Ally Damage, 10% Damage Reduction, " +
+                           "+15% Damage vs Bosses, +50% damage with Execute and sniper shots, and a 30% chance on Critical Hit for a " +
+                           "S.H.I.E.L.D. sniper to fire on your target",
+                bonus =>
+                {
+                    BoostKeyword(bonus, 1.00f, RangedKeyword);
+                    BoostSummons(bonus, 0.75f);
+                    bonus[PropertyEnum.DamagePctResist, DamageType.Any] = 0.10f;
+                    bonus[PropertyEnum.DamagePctBonusVsBosses] = 0.15f;
+                    BoostPowers(bonus, 0.50f,
+                        FuryPowers + "ExecuteHit.prototype",
+                        FuryPowers + "SniperShot.prototype",
+                        FuryPowers + "EyesEverywhereSniperShots.prototype");
+                    ScriptBonuses.AddProc(bonus, ProcTriggerType.OnCrit, ItemPowers + "UniquesPowers/Unique508SniperProc.prototype", 0.30f);
+                }),
+        }),
+
+    // Captain America only, built from his uniques (one per gear slot; either shield counts; any 4 of the 5 complete it).
+    // Nearly his whole kit is Physical, the shield throws have their own keyword, and he leads from the front: tougher,
+    // with the Invaders backing him up. The procs are his own uniques' powers: the Zero-Point Energy Shield's energy blast
+    // (on Shield Throw hits) and the Invaders Photograph's Original Human Torch (when attacked; it keeps its own cooldown).
+    new GearSet("Sentinel of Liberty",
+        pieces: new[]
+        {
+            ("Uru-Enhanced or Zero-Point Energy Shield", CapUniques + "Unique007.prototype|" +
+                                                         CapUniques + "Unique008.prototype"),
+            ("Stark Industries Support Armor",           CapUniques + "Unique091.prototype"),
+            ("Invaders Photograph",                      CapUniques + "Unique105.prototype"),
+            ("Boondockers",                              CapUniques + "Unique106.prototype"),
+            ("The Captain's Mask",                       CapUniques + "Unique107.prototype"),
+        },
+        heroes: new[]
+        {
+            ("Captain America", "Entity/Characters/Avatars/Shipping/CaptainAmerica.prototype"),
+        },
+        tiers: new[]
+        {
+            // Each tier states the total, not an addition to the tier before it
+            new SetTier(2, "+25% damage with Physical powers. 5% Damage Reduction",
+                bonus =>
+                {
+                    BoostKeyword(bonus, 0.25f, PhysicalKeyword);
+                    bonus[PropertyEnum.DamagePctResist, DamageType.Any] = 0.05f;
+                }),
+
+            new SetTier(3, "+50% damage with Physical powers. +50% damage with Shield Throw powers. 10% Damage Reduction",
+                bonus =>
+                {
+                    BoostKeyword(bonus, 0.50f, PhysicalKeyword);
+                    BoostKeyword(bonus, 0.50f, ShieldThrowKeyword);
+                    bonus[PropertyEnum.DamagePctResist, DamageType.Any] = 0.10f;
+                }),
+
+            new SetTier(4, "Avengers Assemble: +100% damage with Physical powers, +75% damage with Shield Throw powers, " +
+                           "15% Damage Reduction, +15% Damage vs Bosses, a 30% chance when you hit with a Shield Throw power to " +
+                           "unleash a Zero-Point energy blast, and a 25% chance when attacked to call in the Original Human Torch",
+                bonus =>
+                {
+                    BoostKeyword(bonus, 1.00f, PhysicalKeyword);
+                    BoostKeyword(bonus, 0.75f, ShieldThrowKeyword);
+                    bonus[PropertyEnum.DamagePctResist, DamageType.Any] = 0.15f;
+                    bonus[PropertyEnum.DamagePctBonusVsBosses] = 0.15f;
+                    AddKeywordProc(bonus, ProcTriggerType.OnAnyHit, ItemPowers + "UniquesPowers/Unique008OnAttackedProc.prototype", ShieldThrowKeyword, 0.30f);
+                    ScriptBonuses.AddProc(bonus, ProcTriggerType.OnGotAttacked, ItemPowers + "UniquesPowers/Unique105HumanTorchOnAttacked.prototype", 0.25f);
+                }),
+        }),
+
+    // Iron Man only, built from his uniques (one per gear slot; either armor and either belt counts; any 4 of the 5).
+    // Long-range artillery: his repulsors, Unibeam and missiles are Energy, so Energy powers reach further, punch through
+    // crowds and blast bigger areas. The 4 piece safety net is Tony Stark's Checkbook's invulnerability
+    // when hit (it keeps its own 25 second cooldown).
+    new GearSet("Invincible Iron Man",
+        pieces: new[]
+        {
+            ("Experimental Overcharged Repulsors",         IronManUniques + "Unique003.prototype"),
+            ("Uru-Infused or Hulkbuster-Plated Armor",     IronManUniques + "Unique030.prototype|" +
+                                                           IronManUniques + "Unique329.prototype"),
+            ("Tony Stark's Checkbook or Extremis Undersheath", IronManUniques + "Unique063.prototype|" +
+                                                           IronManUniques + "Unique124.prototype"),
+            ("Boots of the Galactic Guardian",             IronManUniques + "Unique121.prototype"),
+            ("ST-99 \"Executioner\" Targeting Software",   IronManUniques + "Unique125.prototype"),
+        },
+        heroes: new[]
+        {
+            ("Iron Man", "Entity/Characters/Avatars/Shipping/IronMan.prototype"),
+        },
+        tiers: new[]
+        {
+            // Each tier states the total, not an addition to the tier before it
+            // Each tier includes the ones before it
+            new SetTier(2, "Long Range: Energy powers reach 30% further",
+                bonus => ExtendRange(bonus, 0.30f, EnergyKeyword)),
+
+            new SetTier(3, "Armor-Piercing Repulsors: +50% damage with Energy powers, and Energy projectiles have a 50% chance " +
+                           "to pierce through enemies",
+                bonus =>
+                {
+                    BoostKeyword(bonus, 0.50f, EnergyKeyword);
+                    PiercingMissiles(bonus, 0.50f, EnergyKeyword);
+                }),
+
+            new SetTier(4, "Repulsor Barrage: +100% damage with Energy powers, Energy areas are 40% bigger, and a 15% chance " +
+                           "when attacked to become invulnerable for a moment",
+                bonus =>
+                {
+                    BoostKeyword(bonus, 1.00f, EnergyKeyword);   // replaces the 3 piece +50%
+                    GrowAreas(bonus, 0.40f, EnergyKeyword);
+                    ScriptBonuses.AddProc(bonus, ProcTriggerType.OnGotAttacked, ItemPowers + "UniquesPowers/Unique063InvulnOnGotHit.prototype", 0.15f);
+                }),
+        }),
+
+    // Spider-Man only, built from his uniques (one per gear slot; either web-shooters and either gloves count; any 4 of
+    // the 5). The acrobat: faster hands, webs that reach further, and swings / leaps (Movement powers) with an extra charge
+    // that go further. The 4 piece proc is the Superior Clawed Gloves' bleed (stacks into Superior Senses).
+    new GearSet("Spectacular Spider-Man",
+        pieces: new[]
+        {
+            ("Horizon Labs or Parker Industries Web-Shooters", SpiderManUniques + "Unique040.prototype|" +
+                                                               SpiderManUniques + "Unique251.prototype"),
+            ("Shadowed Mask of Kaine",                         SpiderManUniques + "Unique041.prototype"),
+            ("Iron Spider Breastplate",                        SpiderManUniques + "Unique077.prototype"),
+            ("Superior Clawed Gloves or Spider-Bots",          SpiderManUniques + "Unique138.prototype|" +
+                                                               SpiderManUniques + "Unique205.prototype"),
+            ("Spider-Armor MK II Boots",                       SpiderManUniques + "Unique139.prototype"),
+        },
+        heroes: new[]
+        {
+            ("Spider-Man", "Entity/Characters/Avatars/Shipping/SpiderMan.prototype"),
+        },
+        tiers: new[]
+        {
+            // Each tier states the total, not an addition to the tier before it
+            // Each tier includes the ones before it
+            new SetTier(2, "Web-Slinger: +15% Attack Speed, and Ranged (web) powers reach 40% further",
+                bonus =>
+                {
+                    bonus[PropertyEnum.CastSpeedIncrPct] = 0.15f;
+                    ExtendRange(bonus, 0.40f, RangedKeyword);
+                }),
+
+            new SetTier(3, "Swing Line: Movement powers gain an extra charge and reach 30% further",
+                bonus =>
+                {
+                    ExtraCharges(bonus, 1, MovementKeyword);
+                    ExtendRange(bonus, 0.30f, MovementKeyword);
+                }),
+
+            new SetTier(4, "Spider-Sense: +75% damage with Physical powers, +25% Attack Speed in total, and a 30% chance when " +
+                           "you hit with a Melee power to make your target bleed (stacks into Superior Senses)",
+                bonus =>
+                {
+                    BoostKeyword(bonus, 0.75f, PhysicalKeyword);
+                    bonus[PropertyEnum.CastSpeedIncrPct] = 0.25f;   // replaces the 2 piece +15%
+                    AddKeywordProc(bonus, ProcTriggerType.OnAnyHit, ItemPowers + "UniquesPowers/Unique138BleedOnHitMelee.prototype", MeleeKeyword, 0.30f);
+                }),
+        }),
+
+    // Taskmaster only, built from his uniques (one per gear slot; any 4 of the 5). The copycat: everything he does lasts
+    // longer and spreads wider, he attacks faster, and at 4 pieces he copies himself: a Mirror Image with all
+    // his powers, talents and traits joins the fight when he hits.
+    new GearSet("Photographic Reflexes",
+        pieces: new[]
+        {
+            ("Finesse's Baton",         TaskmasterUniques + "Unique239.prototype"),
+            ("Agency X Body Armor",     TaskmasterUniques + "Unique240.prototype"),
+            ("Frightful Four Hood",     TaskmasterUniques + "Unique241.prototype"),
+            ("Videotape Collection",    TaskmasterUniques + "Unique242.prototype"),
+            ("Solid Energy Shield",     TaskmasterUniques + "Unique243.prototype"),
+        },
+        heroes: new[]
+        {
+            ("Taskmaster", "Entity/Characters/Avatars/Shipping/Taskmaster.prototype"),
+        },
+        tiers: new[]
+        {
+            // Each tier states the total, not an addition to the tier before it
+            // Each tier includes the ones before it
+            new SetTier(2, "Studied Technique: everything you apply lasts 25% longer (buffs, debuffs, summons), and your area " +
+                           "powers are 25% bigger",
+                bonus =>
+                {
+                    bonus[PropertyEnum.OmniDurationBonusPct] = 0.25f;
+                    GrowAreas(bonus, 0.25f, AreaKeyword);
+                }),
+
+            new SetTier(3, "Muscle Memory: +20% Attack Speed",
+                bonus => bonus[PropertyEnum.CastSpeedIncrPct] = 0.20f),
+
+            new SetTier(4, "Perfect Mimicry: +50% damage with Melee and Ranged powers, and when you hit an enemy, a Mirror Image " +
+                           "of yourself joins the fight for 30 seconds with all your powers, talents and traits (20 second cooldown)",
+                bonus =>
+                {
+                    BoostKeyword(bonus, 0.50f, MeleeKeyword);
+                    BoostKeyword(bonus, 0.50f, RangedKeyword);
+                },
+                mirrorCooldownSeconds: 20f,
+                mirror: new MirrorImageOptions
+                {
+                    LifespanSeconds = 30f,
+                    DamageScale     = 1f,
+                    MaxPowers       = 0,       // all of your activated powers
+                    CopyTalents     = true,
+                    CopyTraits      = true,
+                    AI = new CombatAIOptions { MoveSpeedScale = 1.25f },
+                }),
+        }),
+
+    // Human Torch only, built from his uniques (one per gear slot; any 4 of the 5). Fireproof first: no damage from enemy
+    // fire, burns or hellfire. Then his fire spreads (bigger areas, fireballs that punch through) and lingers (everything he
+    // applies lasts longer, so burns and Fire Wall too), with the Gloves of the Light Brigade's stacking burn on hit.
+    new GearSet("Flame On!",
+        pieces: new[]
+        {
+            ("Gloves of the Light Brigade",          HumanTorchUniques + "Unique028.prototype"),
+            ("Future Foundation Belt",               HumanTorchUniques + "Unique029.prototype"),
+            ("Stark's Unstable Catalyst",            HumanTorchUniques + "Unique094.prototype"),
+            ("The Original Human Torch's Boots",     HumanTorchUniques + "Unique122.prototype"),
+            ("Stellar Fire",                         HumanTorchUniques + "Unique123.prototype"),
+        },
+        heroes: new[]
+        {
+            ("Human Torch", "Entity/Characters/Avatars/Shipping/HumanTorch.prototype"),
+        },
+        tiers: new[]
+        {
+            // Each tier includes the ones before it
+            new SetTier(2, "Fireproof: you take no damage from fire, burns or hellfire",
+                bonus => ImmuneToKeywords(bonus,
+                    "Powers/Blueprints/Keywords/Fire.defaults",
+                    "Powers/Blueprints/Keywords/Burn.defaults",
+                    "Powers/Blueprints/Keywords/Hellfire.defaults")),
+
+            new SetTier(3, "Heat Wave: your area powers are 35% bigger, and your fireballs have a 50% chance to pierce through enemies",
+                bonus =>
+                {
+                    bonus[PropertyEnum.AOESizePctModifier] = 0.35f;
+                    PiercingMissiles(bonus, 0.50f, EnergyKeyword);
+                }),
+
+            new SetTier(4, "Supernova: +75% damage with Energy powers, everything you apply lasts 50% longer (burns, Fire Wall, " +
+                           "your buffs), and a 35% chance when you hit to set your target ablaze (stacking burn)",
+                bonus =>
+                {
+                    BoostKeyword(bonus, 0.75f, EnergyKeyword);
+                    bonus[PropertyEnum.OmniDurationBonusPct] = 0.50f;
+                    ScriptBonuses.AddProc(bonus, ProcTriggerType.OnAnyHit, ItemPowers + "UniquesPowers/Unique028BurnProc.prototype", 0.35f);
+                }),
+        }),
+
+    // Iceman only, built from his uniques (one per gear slot; any 4 of the 5). He is an Omega-level mutant: cold can't hurt
+    // or freeze him, everything he builds out of ice lasts longer (Ice Golem, Frozen Orb, ice clones, Ice Wall, chills),
+    // and at 4 pieces his summons hit harder and the X-Factor Bodysuit's retaliation blasts whoever damages him.
+    new GearSet("Omega-Level Iceman",
+        pieces: new[]
+        {
+            ("Age of Apocalypse Spiked Fists", IcemanUniques + "Unique394.prototype"),
+            ("X-Factor Bodysuit",              IcemanUniques + "Unique395.prototype"),
+            ("X-Men Leather Trenchcoat",       IcemanUniques + "Unique396.prototype"),
+            ("Original X-Men Boots",           IcemanUniques + "Unique397.prototype"),
+            ("Age of Apocalypse Armor",        IcemanUniques + "Unique398.prototype"),
+        },
+        heroes: new[]
+        {
+            ("Iceman", "Entity/Characters/Avatars/Shipping/Iceman.prototype"),
+        },
+        tiers: new[]
+        {
+            // Each tier includes the ones before it
+            new SetTier(2, "Cold-Blooded: you take no damage from ice, freezing or chilling attacks, and can't be frozen or chilled",
+                bonus =>
+                {
+                    string[] cold =
+                    {
+                        "Powers/Blueprints/Keywords/Ice.defaults",
+                        "Powers/Blueprints/Keywords/Freeze.defaults",
+                        "Powers/Blueprints/Keywords/Chill.defaults",
+                    };
+                    ImmuneToKeywords(bonus, cold);
+                    ImmuneToDebuffKeywords(bonus, cold);
+                }),
+
+            new SetTier(3, "Permafrost: everything you create lasts 50% longer (Ice Golem, Frozen Orb, ice clones, Ice Wall, chills), " +
+                           "and your area powers are 30% bigger",
+                bonus =>
+                {
+                    bonus[PropertyEnum.OmniDurationBonusPct] = 0.50f;
+                    bonus[PropertyEnum.AOESizePctModifier] = 0.30f;
+                }),
+
+            new SetTier(4, "Omega-Level Mutant: +75% damage with Energy powers, your summons hit 50% harder, and a 30% chance when " +
+                           "you take damage to blast your attacker with cold",
+                bonus =>
+                {
+                    BoostKeyword(bonus, 0.75f, EnergyKeyword);
+                    BoostSummons(bonus, 0.50f);
+                    ScriptBonuses.AddProc(bonus, ProcTriggerType.OnGotDamaged, ItemPowers + "UniquesPowers/Unique395ThornsProc.prototype", 0.30f);
+                }),
+        }),
 };
 
 //------------------------------------------------------------------------------
@@ -314,6 +727,46 @@ var KeptFlavorText = new Dictionary<string, string>
     [CyclopsUniques + "Unique112.prototype"] = "Summers never fully shook off being possessed by Apocalypse.  He came back darker.  That's when he put that jacket on.\n—Wolverine",
     [CyclopsUniques + "Unique068.prototype"] = "When Clan Askani was wiped out, we became the last resistance against Apocalypse. \n—Slym Dayspring (a.k.a. Scott Summers)",
     [CyclopsUniques + "Unique111.prototype"] = "I wore these the first time I commanded a team without the Professor to turn to.  That's when I learned true leadership.",
+    [FuryUniques + "Unique506.prototype"] = "At a velocity of 1800 feet per second, these aren't your average sewing set needles.\n—Nick Fury",
+    [FuryUniques + "Unique507.prototype"] = "All the way from technicians to the director, S.H.I.E.L.D. protects its own as well.\n—Nick Fury",
+    [FuryUniques + "Unique508.prototype"] = "The name is Nick Fury. I'm the Director of S.H.I.E.L.D. If you don't know about us, you will very soon.\n—Nicholas Fury (Earth-1610)",
+    [FuryUniques + "Unique509.prototype"] = "That's what it means to be the man on the wall. To be the invisible monster who keeps the other monsters at bay.\n—Nick Fury",
+    [FuryUniques + "Unique510.prototype"] = "No lasers. No alien tech. Sometimes, there's just no substitute for efficiency.\n—Nick Fury",
+    [CapUniques + "Unique007.prototype"] = "It's a blend of American know-how and Asgardian artistry.\n—Steve Rogers (a.k.a. Captain America)",
+    [CapUniques + "Unique008.prototype"] = "Einstein described the theory behind this energy to me once, but I was a few doctorates short of understanding him.\n—Captain America",
+    [CapUniques + "Unique091.prototype"] = "Some people mock it's appearance, but this armor was an actual life saver.\n—Captain America",
+    [CapUniques + "Unique105.prototype"] = "It is with great honor that I salute my fellow allies of the Greatest Generation.",
+    [CapUniques + "Unique106.prototype"] = "Many a battle is won by climbing a hill, trekking through a forest, or rushing a field.",
+    [CapUniques + "Unique107.prototype"] = "There are a few times when democracy demands I stand against actions the government takes.",
+    [IronManUniques + "Unique003.prototype"] = "I keep meaning to go back and polish the design, but then somebody like Titanium Man shows up and ruins my schedule.\n—Tony Stark (a.k.a. Iron Man)",
+    [IronManUniques + "Unique030.prototype"] = "I have GOT to get some of these Asgardian dwarves on contract.\n—Tony Stark (a.k.a. Iron Man)",
+    [IronManUniques + "Unique063.prototype"] = "If there's a problem it can't solve, I haven't found it yet.\n—Tony Stark",
+    [IronManUniques + "Unique121.prototype"] = "Between P.E.P.P.E.R. and the Stark Omniversal Multitasking Software, I really can be in two places at once.",
+    [IronManUniques + "Unique124.prototype"] = "Direct Cybernetic Interface. The next level of integrated circuits.",
+    [IronManUniques + "Unique125.prototype"] = "Target and disable with extreme prejudice.\n—Iron Man",
+    [IronManUniques + "Unique329.prototype"] = "This armor has all of the durability of my Hulkbuster suit and none of the size issues. Packs a helluva punch, too.",
+    [SpiderManUniques + "Unique040.prototype"] = "A few hours working in this lab is better than a year tinkering in my basement.\n—Spider-Man",
+    [SpiderManUniques + "Unique041.prototype"] = "Ah, Kaine. My finest creation.\n—Miles Warren (a.k.a. the Jackal)",
+    [SpiderManUniques + "Unique077.prototype"] = "I built him one of the most advanced armors in the world and the guy basically threw it in a dumpster and went back to wearing pajamas.\n—Tony Stark a.k.a. Iron Man",
+    [SpiderManUniques + "Unique138.prototype"] = "I'm the smartest, the fastest, the strongest.  Superior in every way.",
+    [SpiderManUniques + "Unique139.prototype"] = "Through scientific advancement and brilliant minds - behold Spider-Armor MK II",
+    [SpiderManUniques + "Unique205.prototype"] = "Most spiders have eight eyes. As of tonight, thanks to my Spider-Bots, I shall have eight thousand.\n—Spider-Man (a.k.a. Doctor Octopus)",
+    [SpiderManUniques + "Unique251.prototype"] = "Parker Industries! A revolution in start-ups! An overthrow of the technology sector! Mark my words, and mark them well... together we will rule the world of science!",
+    [TaskmasterUniques + "Unique239.prototype"] = "She's probably his daughter. Cold, calculating. And those annoying damn reflexes.\n—Clint Barton (a.k.a. Hawkeye)",
+    [TaskmasterUniques + "Unique240.prototype"] = "Is that more protective than the spandex pirate outfit? Let's test it.\n—Frank Castle (a.k.a. The Punisher)",
+    [TaskmasterUniques + "Unique241.prototype"] = "I'll help you out. But you have to wear the old banana costume from issue #35 of Vol. 3!\n—Wade Wilson (a.k.a. Deadpool)",
+    [TaskmasterUniques + "Unique242.prototype"] = "I've got a tape of every martial artist or scrapper this side of the sun. Some from the other side, too.",
+    [TaskmasterUniques + "Unique243.prototype"] = "I beat Iron Man with this one!",
+    [HumanTorchUniques + "Unique028.prototype"] = "When you get killed by Annihilus a few times, it's nice to have a souvenir to remember it.\n—Human Torch",
+    [HumanTorchUniques + "Unique029.prototype"] = "Reed tried to tell me about all the tech in this thing, but all I could hear was \"blah blah hyperblah experimental blahblah.\"\n—Human Torch",
+    [HumanTorchUniques + "Unique094.prototype"] = "I'm not going to say Reed Richards makes awful armor and weapons but... you should have come to me in the first place.\n—Tony Stark (a.k.a. Iron Man)",
+    [HumanTorchUniques + "Unique122.prototype"] = "JIM HAMMOND, THE FIRST OF THE MARVELS:\n He showed us that heroes can be made.\n—Statue inscription, Avengers Initiative training facility",
+    [HumanTorchUniques + "Unique123.prototype"] = "Frankie has the power of a Human Torch combined with that of the Herald of Galactus. Sexy and powerful, too bad she got away.",
+    [IcemanUniques + "Unique394.prototype"] = "Mein gott. This version of Bobby is a bit more... aggressive!\n—Kurt Wagner (a.k.a. Nightcrawler)",
+    [IcemanUniques + "Unique395.prototype"] = "Bobby's been with us since the beginning. Through some hard times too, including those X-Factor getups...\n—Jean Grey",
+    [IcemanUniques + "Unique396.prototype"] = "Dark leather. It was in for a while. Didn't really help with the whole freezing cold thing.",
+    [IcemanUniques + "Unique397.prototype"] = "Yo! Why aren't you a snowman?!\n—Wade Wilson (a.k.a. Deadpool)",
+    [IcemanUniques + "Unique398.prototype"] = "I'm a bit sick of cuttin' up evil ice dudes, Bobby. Knock it off.\n—James Howlett (a.k.a. Wolverine)",
 };
 
 foreach (GearSet set in Sets)

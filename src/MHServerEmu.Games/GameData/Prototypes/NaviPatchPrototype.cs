@@ -39,6 +39,18 @@ namespace MHServerEmu.Games.GameData.Prototypes
             for (int i = 0; i < Edges.Length; i++)
                 Edges[i] = new(reader);
         }
+
+        // CUSTOM: a copy of this patch without the edges at the given indices (same points), see Cell.NaviEdgeSkips
+        public NaviPatchPrototype WithoutEdges(ISet<int> skippedEdgeIndices)
+        {
+            return new NaviPatchPrototype(Points, Edges.Where((edge, index) => skippedEdgeIndices.Contains(index) == false).ToArray());
+        }
+
+        private NaviPatchPrototype(Vector3[] points, NaviPatchEdgePrototype[] edges)
+        {
+            Points = points;
+            Edges = edges;
+        }
     }
 
     public class NaviPatchEdgePrototype : Prototype

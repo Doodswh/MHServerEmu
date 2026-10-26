@@ -613,6 +613,11 @@ namespace MHServerEmu.Games.Entities
 
             if (account != null)
             {
+                // CUSTOM: Omega certified mark after the name: at least one hero at the level cap and max prestige
+                // (the same check the game's "avatars at prestige level cap" achievements use)
+                if (IsOmegaCertified())
+                    baseName = $"{baseName} {OmegaCertifiedMark}";
+
                 if (account.UserLevel == AccountUserLevel.Dev || account.Flags.HasFlag(AccountFlags.IsDev))
                 {
                     return $"[Dev] {baseName}";
@@ -624,6 +629,14 @@ namespace MHServerEmu.Games.Entities
             }
 
             return baseName;
+        }
+
+        // CUSTOM: "[Ω]" shows in chat; the overhead font has no Ω (tested with the glyph test: it draws » § ® † ‡ · ± only)
+        private const string OmegaCertifiedMark = "[Ω]";
+
+        public bool IsOmegaCertified()
+        {
+            return Events.ScoringEvents.GetPlayerAvatarsAtPrestigeLevelCap(this) > 0;
         }
 
         /// <summary>

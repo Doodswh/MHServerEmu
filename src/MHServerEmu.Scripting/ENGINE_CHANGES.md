@@ -113,6 +113,13 @@ Each pack is the API file(s) plus the engine edits that API needs. Skip a pack a
 - New: `MHServerEmu.Games/Scripting/ScriptLeaderboards.cs`.
 - `MHServerEmu.Games/Leaderboards/LeaderboardManager.cs` 156, 192: a board a script has taken over ignores its own scoring rules (`IsScriptOwned`).
 
+### Cosmic-only loot on higher difficulties
+
+- `MHServerEmu.Games/GameData/Prototypes/LootRollModifierPrototype.cs` (`LootRollRequireDifficultyTierPrototype`): a loot
+  restriction that lists `Tier3Superheroic` (the game's Cosmic difficulty) also passes on `Tier4Cosmic` and `Tier5Omega1`.
+  122 restrictions in 88 stock tables (most bosses' Cosmic artifacts, Cosmic EGMs, Cosmic bonus drops) listed Cosmic alone,
+  so they never rolled on Omega. No stock list names Tier4Cosmic / Omega without Cosmic, so nothing drops twice.
+
 ### Item affix rolls (Omega items)
 
 - New: `MHServerEmu.Games/Scripting/ItemAffixesRollingArgs.cs`.

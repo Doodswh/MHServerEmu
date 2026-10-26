@@ -33,8 +33,14 @@ var afterNormalRoll = typeof(ItemAffixesRollingArgs).GetMethod("AfterNormalRoll"
 if (afterNormalRoll == null)
     Log.Warn("This server build has no ItemAffixesRollingArgs.AfterNormalRoll: Omega affixes are added before the normal roll");
 
+// Log every item made Omega (name, the rarity it rolled, level) to check drops against what players see.
+// Cosmic artifacts keep their orange name either way: their client data forces the Cosmic text color (TextStyleOverride).
+const bool LogConversions = false;
+
 void MakeOmega(ItemAffixesRollingArgs e)
 {
+    string rolledRarity = e.RarityName;
+
     if (e.SetOmegaRarity() == false)
     {
         Log.Warn("Omega rarity prototype not found, item left unchanged");
@@ -52,11 +58,13 @@ void MakeOmega(ItemAffixesRollingArgs e)
     e.AddStackedAffixes(AffixPosition.Suffix, 6);
     e.AddStackedAffixes(AffixPosition.Socket1, 1);
 
-    // One of each
-    e.AddUniqueAffixes(AffixPosition.Runeword, 2);
+    // One of each. No runewords: their value curves are only real up to level 60 (0 past it, and Omega gear is level 75).
     e.AddUniqueAffixes(AffixPosition.Blessing, 2);
     e.AddUniqueAffixes(AffixPosition.Unique, 2);
     e.AddUniqueAffixes(AffixPosition.Ultimate, 2);
+
+    if (LogConversions)
+        Log.Info($"[omega] {e.ItemName.Substring(e.ItemName.LastIndexOf('/') + 1)}: {rolledRarity.Substring(rolledRarity.LastIndexOf('/') + 1)} -> Omega, level {e.ItemLevel}");
 }
 
 // Restrictions on the extra affixes, taken from the game's own affix data (slot, rarity and item type are still ignored):

@@ -26,6 +26,10 @@ namespace MHServerEmu.Games.Populations
             if (region.Behavior != RegionBehavior.PublicCombatZone)
                 return false;
 
+            // No spawn protection in Omega difficulty
+            if (region.IsOmegaDifficulty)
+                return false;
+
             if (entity.IsHostileToPlayers() == false)
                 return false;
 
